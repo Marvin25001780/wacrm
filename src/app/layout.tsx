@@ -20,10 +20,10 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   title: {
-    default: "wacrm",
-    template: "%s — wacrm",
+    default: "Nexus CRM",
+    template: "%s — Nexus CRM",
   },
-  description: "Self-hostable CRM template for WhatsApp.",
+  description: "Self-hostable CRM for WhatsApp.",
   robots: {
     index: false,
     follow: false,

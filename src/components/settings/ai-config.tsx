@@ -33,11 +33,15 @@ const MASKED_KEY = '••••••••••••••••';
 const PROVIDER_LABEL: Record<AiProvider, string> = {
   openai: 'OpenAI',
   anthropic: 'Anthropic (Claude)',
+  gemini: 'Google Gemini',
+  deepseek: 'DeepSeek',
 };
 
 const KEY_PLACEHOLDER: Record<AiProvider, string> = {
   openai: 'sk-...',
   anthropic: 'sk-ant-...',
+  gemini: 'AIza...',
+  deepseek: 'sk-...',
 };
 
 export function AiConfig() {
@@ -101,15 +105,16 @@ export function AiConfig() {
     void fetchConfig();
   }, [accountId, fetchConfig]);
 
-  // Swap the model default when the provider changes, unless the user
-  // typed a custom model.
   const handleProviderChange = (next: AiProvider) => {
     setProvider(next);
+    const defaults = AI_PROVIDER_DEFAULT_MODEL;
     const isDefaultModel =
-      model === AI_PROVIDER_DEFAULT_MODEL.openai ||
-      model === AI_PROVIDER_DEFAULT_MODEL.anthropic ||
+      model === defaults.openai ||
+      model === defaults.anthropic ||
+      model === defaults.gemini ||
+      model === defaults.deepseek ||
       model.trim() === '';
-    if (isDefaultModel) setModel(AI_PROVIDER_DEFAULT_MODEL[next]);
+    if (isDefaultModel) setModel(defaults[next]);
   };
 
   const keyPayload = () => (keyEdited ? apiKey.trim() : undefined);
@@ -214,7 +219,7 @@ export function AiConfig() {
     <div>
       <SettingsPanelHead
         title="AI Assistant"
-        description="Bring your own OpenAI or Anthropic key. wacrm calls the provider directly with your key — no per-seat AI fees, and your data stays yours. Powers AI-drafted replies in the inbox and an optional auto-reply bot."
+        description="Bring your own OpenAI, Anthropic, or Google Gemini key. Nexus CRM calls the provider directly with your key — no per-seat AI fees, and your data stays yours. Powers AI-drafted replies in the inbox and an optional auto-reply bot."
       />
 
       {!canEdit && (
@@ -250,6 +255,12 @@ export function AiConfig() {
                     <SelectItem value="openai">{PROVIDER_LABEL.openai}</SelectItem>
                     <SelectItem value="anthropic">
                       {PROVIDER_LABEL.anthropic}
+                    </SelectItem>
+                    <SelectItem value="gemini">
+                      {PROVIDER_LABEL.gemini}
+                    </SelectItem>
+                    <SelectItem value="deepseek">
+                      {PROVIDER_LABEL.deepseek}
                     </SelectItem>
                   </SelectContent>
                 </Select>
