@@ -68,7 +68,7 @@ function SignupPageInner() {
       ? `${window.location.origin}/join/${encodeURIComponent(inviteToken)}`
       : undefined;
 
-    const { error } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
@@ -82,6 +82,17 @@ function SignupPageInner() {
     if (error) {
       setError(error.message);
       setLoading(false);
+      return;
+    }
+
+    // If email confirmation is disabled, the user is immediately
+    // authenticated — redirect to the invite or dashboard right away.
+    if (data?.session) {
+      if (inviteToken) {
+        window.location.href = `/join/${encodeURIComponent(inviteToken)}`;
+      } else {
+        window.location.href = '/dashboard';
+      }
       return;
     }
 
