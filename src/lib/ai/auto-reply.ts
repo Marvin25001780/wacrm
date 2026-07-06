@@ -4,9 +4,10 @@ import { buildConversationContext } from './context'
 import { generateReply } from './generate'
 import { buildSystemPrompt } from './defaults'
 import { engineSendText } from '@/lib/flows/meta-send'
+const AUTO_REPLY_COOLDOWN_MS = 30_000
 
 interface DispatchArgs {
-  /** Tenancy key — drives config, contact, and whatsapp_config lookups. */
+  /** Tenancy key - drives config, contact, and whatsapp_config lookups. */
   accountId: string
   conversationId: string
   contactId: string
@@ -20,18 +21,18 @@ interface DispatchArgs {
  *
  * Invoked from the WhatsApp webhook's `after()` block, only when no
  * deterministic flow consumed the message (flows win). Mirrors the flow
- * runner's contract: it owns its try/catch and NEVER throws — a failing
+ * runner's contract: it owns its try/catch and NEVER throws - a failing
  * or slow LLM call must not affect the webhook's 200 to Meta.
  *
- * Eligibility gates (any → silent no-op):
+ * Eligibility gates (any -> silent no-op):
  *   - AI off / auto-reply disabled for the account
  *   - a human agent is assigned (they own the thread)
  *   - auto-reply was disabled for this conversation (prior handoff)
  *   - the per-conversation reply cap is reached
  *   - there's nothing to reply to
  *
- * The 24h WhatsApp session window is inherently open here — we're
- * reacting to a customer message that just landed — so no separate
+ * The 24h WhatsApp session window is inherently open here - we're
+ * reacting to a customer message that just landed - so no separate
  * window check is needed.
  */
 export async function dispatchInboundToAiReply(
@@ -45,13 +46,13 @@ export async function dispatchInboundToAiReply(
     const config = await loadAiConfig(db, accountId)
     if (!config || !config.autoReplyEnabled) return
 
-    // Deterministic, user-configured responders win over the LLM — the
+    // Deterministic, user-configured responders win over the LLM - the
     // caller already excludes messages a Flow consumed. Message-level
     // automations (`new_message_received` / `keyword_match`) are
     // dispatched independently for this same inbound and may send their
     // own reply, so if the account has any active one we stand down to
     // avoid double-texting the customer. (Relationship triggers like
-    // `first_inbound_message` don't count — they're not per-message
+    // `first_inbound_message` don't count - they're not per-message
     // auto-responders.)
     const { data: autoResponders } = await db
       .from('automations')
@@ -74,6 +75,20 @@ export async function dispatchInboundToAiReply(
     // below (this read can race a concurrent inbound).
     if (conv.ai_reply_count >= config.autoReplyMaxPerConversation) return
 
+    // Cooldown de 30s - si el AI ya respondio en los ultimos 30 segundos, salta
+    const { data: lastBotMsg } = await db
+      .from('messages')
+      .select('created_at')
+      .eq('conversation_id', conversationId)
+      .eq('sender_type', 'bot')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    if (lastBotMsg) {
+      const elapsed = Date.now() - new Date(lastBotMsg.created_at).getTime()
+      if (elapsed < AUTO_REPLY_COOLDOWN_MS) return
+    }
+
     const messages = await buildConversationContext(db, conversationId)
     if (messages.length === 0) return
 
@@ -89,7 +104,7 @@ export async function dispatchInboundToAiReply(
     })
 
     if (handoff || !text) {
-      // The model can't (or shouldn't) answer — stop auto-replying on
+      // The model can't (or shouldn't) answer - stop auto-replying on
       // this thread and leave the inbound unanswered so it surfaces in
       // the inbox for a human. Sticky until an admin re-enables.
       await db
@@ -102,7 +117,7 @@ export async function dispatchInboundToAiReply(
     // Atomically claim a reply slot: the cap check + increment happen in
     // one UPDATE, so concurrent inbounds can never overshoot the cap. If
     // another inbound just took the last slot, `claimed` is false and we
-    // skip the send. (We consume a slot slightly before the send lands —
+    // skip the send. (We consume a slot slightly before the send lands -
     // fail-safe: under-reply rather than over-reply.)
     const { data: claimed, error: claimErr } = await db.rpc(
       'claim_ai_reply_slot',
