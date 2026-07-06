@@ -43,35 +43,21 @@ export async function dispatchInboundToAiReply(
     if (conv.ai_autoreply_disabled) return
     if (conv.ai_reply_count >= config.autoReplyMaxPerConversation) return
 
-    // Flag atomico: si ya se esta procesando una respuesta, salta
+    // Si ya se está procesando y pasaron menos de 30s, salta
     if (conv.ai_processing_at) {
       const elapsed = Date.now() - new Date(conv.ai_processing_at).getTime()
       if (elapsed < AUTO_REPLY_COOLDOWN_MS) return
     }
 
-    // Marcar que empezamos a procesar
-    await db
+    // Intentar tomar el lock atómico: solo el primer proceso que lo intente lo logra
+    const { data: locked } = await db
       .from('conversations')
       .update({ ai_processing_at: new Date().toISOString() })
       .eq('id', conversationId)
       .is('ai_processing_at', null)
-
-    const { data: verify } = await db
-      .from('conversations')
-      .select('ai_processing_at')
-      .eq('id', conversationId)
+      .select('id')
       .maybeSingle()
-    if (!verify?.ai_processing_at) {
-      await db.from('conversations').update({ ai_processing_at: null }).eq('id', conversationId)
-      return
-    }
-
-    const ourTime = Date.now()
-    const theirTime = new Date(verify.ai_processing_at).getTime()
-    if (ourTime - theirTime > 3000) {
-      await db.from('conversations').update({ ai_processing_at: null }).eq('id', conversationId)
-      return
-    }
+    if (!locked) return // otro proceso ya tomó el lock
 
     // Esperar 30s para que el cliente termine de escribir
     await new Promise(resolve => setTimeout(resolve, AUTO_REPLY_COOLDOWN_MS))
