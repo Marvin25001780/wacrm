@@ -4,7 +4,6 @@ import { buildConversationContext } from './context'
 import { generateReply } from './generate'
 import { buildSystemPrompt } from './defaults'
 import { engineSendText } from '@/lib/flows/meta-send'
-const AUTO_REPLY_COOLDOWN_MS = 30_000
 
 interface DispatchArgs {
   accountId: string
@@ -33,10 +32,10 @@ export async function dispatchInboundToAiReply(
       .limit(1)
     if (autoResponders && autoResponders.length > 0) return
 
-    // Siempre resetear flags al recibir un nuevo mensaje
+    // Resetear disabled al recibir nuevo mensaje, pero NO el contador
     await db
       .from('conversations')
-      .update({ ai_autoreply_disabled: false, ai_reply_count: 0, ai_processing_at: null })
+      .update({ ai_autoreply_disabled: false, ai_processing_at: null })
       .eq('id', conversationId)
 
     const { data: conv, error: convErr } = await db
@@ -46,8 +45,10 @@ export async function dispatchInboundToAiReply(
       .maybeSingle()
     if (convErr || !conv) return
     if (conv.assigned_agent_id) return
+    if (conv.ai_reply_count >= config.autoReplyMaxPerConversation) return
     if (conv.ai_processing_at) return
 
+    // Lock atomico: solo un proceso pasa
     const { data: locked } = await db
       .from('conversations')
       .update({ ai_processing_at: new Date().toISOString() })
@@ -56,8 +57,6 @@ export async function dispatchInboundToAiReply(
       .select('id')
       .maybeSingle()
     if (!locked) return
-
-    await new Promise(resolve => setTimeout(resolve, AUTO_REPLY_COOLDOWN_MS))
 
     const messages = await buildConversationContext(db, conversationId)
     if (messages.length === 0) {
