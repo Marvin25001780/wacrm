@@ -56,7 +56,6 @@ export async function dispatchInboundToAiReply(
       .eq('id', conversationId)
       .is('ai_processing_at', null)
 
-    // Verificar si otro proceso se nos adelanto
     const { data: verify } = await db
       .from('conversations')
       .select('ai_processing_at')
@@ -73,6 +72,9 @@ export async function dispatchInboundToAiReply(
       await db.from('conversations').update({ ai_processing_at: null }).eq('id', conversationId)
       return
     }
+
+    // Esperar 30s para que el cliente termine de escribir
+    await new Promise(resolve => setTimeout(resolve, AUTO_REPLY_COOLDOWN_MS))
 
     const messages = await buildConversationContext(db, conversationId)
     if (messages.length === 0) {
