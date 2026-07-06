@@ -33,12 +33,11 @@ export async function dispatchInboundToAiReply(
       .limit(1)
     if (autoResponders && autoResponders.length > 0) return
 
-    // Resetear flags automaticamente al recibir nuevo mensaje
+    // Siempre resetear flags al recibir un nuevo mensaje
     await db
       .from('conversations')
       .update({ ai_autoreply_disabled: false, ai_reply_count: 0, ai_processing_at: null })
       .eq('id', conversationId)
-      .or('ai_autoreply_disabled.eq.true,ai_reply_count.gte.20')
 
     const { data: conv, error: convErr } = await db
       .from('conversations')
@@ -47,12 +46,11 @@ export async function dispatchInboundToAiReply(
       .maybeSingle()
     if (convErr || !conv) return
     if (conv.assigned_agent_id) return
-    if (conv.ai_reply_count >= config.autoReplyMaxPerConversation) return
     if (conv.ai_processing_at) return
 
     const { data: locked } = await db
       .from('conversations')
-      .update({ ai_processing_at: new Date().toISOString(), ai_autoreply_disabled: false })
+      .update({ ai_processing_at: new Date().toISOString() })
       .eq('id', conversationId)
       .is('ai_processing_at', null)
       .select('id')
