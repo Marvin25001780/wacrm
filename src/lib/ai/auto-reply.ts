@@ -76,6 +76,16 @@ export async function dispatchInboundToAiReply(
     })
 
     if (handoff || !text) {
+      // Enviar el mensaje de despedida antes de desactivar el auto-reply
+      if (text) {
+        await engineSendText({
+          accountId,
+          userId: configOwnerUserId,
+          conversationId,
+          contactId,
+          text,
+        })
+      }
       await db
         .from('conversations')
         .update({ ai_autoreply_disabled: true, ai_processing_at: null })
