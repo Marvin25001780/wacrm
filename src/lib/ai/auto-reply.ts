@@ -7,34 +7,12 @@ import { engineSendText } from '@/lib/flows/meta-send'
 const AUTO_REPLY_COOLDOWN_MS = 30_000
 
 interface DispatchArgs {
-  /** Tenancy key - drives config, contact, and whatsapp_config lookups. */
   accountId: string
   conversationId: string
   contactId: string
-  /** The account's WhatsApp config owner, used for the outbound send's
-   *  audit columns (mirrors how the flow runner passes it through). */
   configOwnerUserId: string
 }
 
-/**
- * AI auto-reply for a freshly-arrived inbound message.
- *
- * Invoked from the WhatsApp webhook's `after()` block, only when no
- * deterministic flow consumed the message (flows win). Mirrors the flow
- * runner's contract: it owns its try/catch and NEVER throws - a failing
- * or slow LLM call must not affect the webhook's 200 to Meta.
- *
- * Eligibility gates (any -> silent no-op):
- *   - AI off / auto-reply disabled for the account
- *   - a human agent is assigned (they own the thread)
- *   - auto-reply was disabled for this conversation (prior handoff)
- *   - the per-conversation reply cap is reached
- *   - there's nothing to reply to
- *
- * The 24h WhatsApp session window is inherently open here - we're
- * reacting to a customer message that just landed - so no separate
- * window check is needed.
- */
 export async function dispatchInboundToAiReply(
   args: DispatchArgs,
 ): Promise<void> {
@@ -46,14 +24,6 @@ export async function dispatchInboundToAiReply(
     const config = await loadAiConfig(db, accountId)
     if (!config || !config.autoReplyEnabled) return
 
-    // Deterministic, user-configured responders win over the LLM - the
-    // caller already excludes messages a Flow consumed. Message-level
-    // automations (`new_message_received` / `keyword_match`) are
-    // dispatched independently for this same inbound and may send their
-    // own reply, so if the account has any active one we stand down to
-    // avoid double-texting the customer. (Relationship triggers like
-    // `first_inbound_message` don't count - they're not per-message
-    // auto-responders.)
     const { data: autoResponders } = await db
       .from('automations')
       .select('id')
@@ -65,32 +35,50 @@ export async function dispatchInboundToAiReply(
 
     const { data: conv, error: convErr } = await db
       .from('conversations')
-      .select('assigned_agent_id, ai_autoreply_disabled, ai_reply_count')
+      .select('assigned_agent_id, ai_autoreply_disabled, ai_reply_count, ai_processing_at')
       .eq('id', conversationId)
       .maybeSingle()
     if (convErr || !conv) return
-    if (conv.assigned_agent_id) return // a human owns this thread
-    if (conv.ai_autoreply_disabled) return // handed off / turned off here
-    // Cheap early-out; the authoritative cap check is the atomic claim
-    // below (this read can race a concurrent inbound).
+    if (conv.assigned_agent_id) return
+    if (conv.ai_autoreply_disabled) return
     if (conv.ai_reply_count >= config.autoReplyMaxPerConversation) return
 
-    // Cooldown de 30s - si el AI ya respondio en los ultimos 30 segundos, salta
-    const { data: lastBotMsg } = await db
-      .from('messages')
-      .select('created_at')
-      .eq('conversation_id', conversationId)
-      .eq('sender_type', 'bot')
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle()
-    if (lastBotMsg) {
-      const elapsed = Date.now() - new Date(lastBotMsg.created_at).getTime()
+    // Flag atomico: si ya se esta procesando una respuesta, salta
+    if (conv.ai_processing_at) {
+      const elapsed = Date.now() - new Date(conv.ai_processing_at).getTime()
       if (elapsed < AUTO_REPLY_COOLDOWN_MS) return
     }
 
+    // Marcar que empezamos a procesar
+    await db
+      .from('conversations')
+      .update({ ai_processing_at: new Date().toISOString() })
+      .eq('id', conversationId)
+      .is('ai_processing_at', null)
+
+    // Verificar si otro proceso se nos adelanto
+    const { data: verify } = await db
+      .from('conversations')
+      .select('ai_processing_at')
+      .eq('id', conversationId)
+      .maybeSingle()
+    if (!verify?.ai_processing_at) {
+      await db.from('conversations').update({ ai_processing_at: null }).eq('id', conversationId)
+      return
+    }
+
+    const ourTime = Date.now()
+    const theirTime = new Date(verify.ai_processing_at).getTime()
+    if (ourTime - theirTime > 3000) {
+      await db.from('conversations').update({ ai_processing_at: null }).eq('id', conversationId)
+      return
+    }
+
     const messages = await buildConversationContext(db, conversationId)
-    if (messages.length === 0) return
+    if (messages.length === 0) {
+      await db.from('conversations').update({ ai_processing_at: null }).eq('id', conversationId)
+      return
+    }
 
     const systemPrompt = buildSystemPrompt({
       userPrompt: config.systemPrompt,
@@ -104,21 +92,13 @@ export async function dispatchInboundToAiReply(
     })
 
     if (handoff || !text) {
-      // The model can't (or shouldn't) answer - stop auto-replying on
-      // this thread and leave the inbound unanswered so it surfaces in
-      // the inbox for a human. Sticky until an admin re-enables.
       await db
         .from('conversations')
-        .update({ ai_autoreply_disabled: true })
+        .update({ ai_autoreply_disabled: true, ai_processing_at: null })
         .eq('id', conversationId)
       return
     }
 
-    // Atomically claim a reply slot: the cap check + increment happen in
-    // one UPDATE, so concurrent inbounds can never overshoot the cap. If
-    // another inbound just took the last slot, `claimed` is false and we
-    // skip the send. (We consume a slot slightly before the send lands -
-    // fail-safe: under-reply rather than over-reply.)
     const { data: claimed, error: claimErr } = await db.rpc(
       'claim_ai_reply_slot',
       {
@@ -126,7 +106,10 @@ export async function dispatchInboundToAiReply(
         max_replies: config.autoReplyMaxPerConversation,
       },
     )
-    if (claimErr || claimed !== true) return
+    if (claimErr || claimed !== true) {
+      await db.from('conversations').update({ ai_processing_at: null }).eq('id', conversationId)
+      return
+    }
 
     await engineSendText({
       accountId,
@@ -135,7 +118,13 @@ export async function dispatchInboundToAiReply(
       contactId,
       text,
     })
+
+    await db.from('conversations').update({ ai_processing_at: null }).eq('id', conversationId)
   } catch (err) {
     console.error('[ai auto-reply] dispatch failed:', err)
+    try {
+      const db = supabaseAdmin()
+      await db.from('conversations').update({ ai_processing_at: null }).eq('id', conversationId)
+    } catch {}
   }
 }
