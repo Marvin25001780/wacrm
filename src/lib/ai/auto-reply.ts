@@ -33,10 +33,10 @@ export async function dispatchInboundToAiReply(
       .limit(1)
     if (autoResponders && autoResponders.length > 0) return
 
-    // Limpiar cualquier processing_at vencido antes de empezar
+    // Limpiar flags vencidos (mas de 30s)
     await db
       .from('conversations')
-      .update({ ai_processing_at: null })
+      .update({ ai_processing_at: null, ai_autoreply_disabled: false, ai_reply_count: 0 })
       .eq('id', conversationId)
       .lt('ai_processing_at', new Date(Date.now() - AUTO_REPLY_COOLDOWN_MS).toISOString())
 
@@ -47,21 +47,19 @@ export async function dispatchInboundToAiReply(
       .maybeSingle()
     if (convErr || !conv) return
     if (conv.assigned_agent_id) return
-    if (conv.ai_autoreply_disabled) return
     if (conv.ai_reply_count >= config.autoReplyMaxPerConversation) return
-    if (conv.ai_processing_at) return // otro proceso está activo
+    if (conv.ai_processing_at) return
 
-    // Tomar el lock atómico
+    // Tomar el lock atomico
     const { data: locked } = await db
       .from('conversations')
-      .update({ ai_processing_at: new Date().toISOString() })
+      .update({ ai_processing_at: new Date().toISOString(), ai_autoreply_disabled: false })
       .eq('id', conversationId)
       .is('ai_processing_at', null)
       .select('id')
       .maybeSingle()
     if (!locked) return
 
-    // Esperar 30s para que el cliente termine
     await new Promise(resolve => setTimeout(resolve, AUTO_REPLY_COOLDOWN_MS))
 
     const messages = await buildConversationContext(db, conversationId)
