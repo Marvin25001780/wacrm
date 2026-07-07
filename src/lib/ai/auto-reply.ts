@@ -48,25 +48,14 @@ export async function dispatchInboundToAiReply(
 
     if (processingAt) {
       const age = now - processingAt
-      // Cliente sigue escribiendo — esperar
       if (age < 90_000) return
-      // Lock stale (> 90s): tomar control
     } else {
-      // Primer mensaje: marcar timestamp e iniciar ventana de 90s
       await db
         .from('conversations')
         .update({ ai_autoreply_disabled: false })
         .eq('id', conversationId)
-
-      await db
-        .from('conversations')
-        .update({ ai_processing_at: new Date().toISOString() })
-        .eq('id', conversationId)
-        .is('ai_processing_at', null)
-      return
     }
 
-    // Lock atomico optimista: solo si nadie mas lo cambio desde que leimos
     const { data: locked } = await db
       .from('conversations')
       .update({ ai_processing_at: new Date().toISOString() })
