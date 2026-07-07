@@ -32,9 +32,15 @@ export async function dispatchInboundToAiReply(
       .limit(1)
     if (autoResponders && autoResponders.length > 0) return
 
+    // Resetear disabled siempre al recibir un nuevo mensaje
+    await db
+      .from('conversations')
+      .update({ ai_autoreply_disabled: false })
+      .eq('id', conversationId)
+
     const { data: conv, error: convErr } = await db
       .from('conversations')
-      .select('assigned_agent_id, ai_autoreply_disabled, ai_reply_count, ai_processing_at')
+      .select('assigned_agent_id, ai_reply_count, ai_processing_at')
       .eq('id', conversationId)
       .maybeSingle()
     if (convErr || !conv) return
@@ -49,13 +55,9 @@ export async function dispatchInboundToAiReply(
     if (processingAt) {
       const age = now - processingAt
       if (age < 90_000) return
-    } else {
-      await db
-        .from('conversations')
-        .update({ ai_autoreply_disabled: false })
-        .eq('id', conversationId)
     }
 
+    // Lock atomico optimista
     const { data: locked } = await db
       .from('conversations')
       .update({ ai_processing_at: new Date().toISOString() })
