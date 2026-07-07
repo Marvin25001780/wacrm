@@ -32,12 +32,6 @@ export async function dispatchInboundToAiReply(
       .limit(1)
     if (autoResponders && autoResponders.length > 0) return
 
-    // Resetear disabled al recibir nuevo mensaje, pero NO el contador
-    await db
-      .from('conversations')
-      .update({ ai_autoreply_disabled: false, ai_processing_at: null })
-      .eq('id', conversationId)
-
     const { data: conv, error: convErr } = await db
       .from('conversations')
       .select('assigned_agent_id, ai_autoreply_disabled, ai_reply_count, ai_processing_at')
@@ -46,14 +40,38 @@ export async function dispatchInboundToAiReply(
     if (convErr || !conv) return
     if (conv.assigned_agent_id) return
     if (conv.ai_reply_count >= config.autoReplyMaxPerConversation) return
-    if (conv.ai_processing_at) return
 
-    // Lock atomico: solo un proceso pasa
+    const now = Date.now()
+    const processingAt = conv.ai_processing_at
+      ? new Date(conv.ai_processing_at).getTime()
+      : null
+
+    if (processingAt) {
+      const age = now - processingAt
+      // Cliente sigue escribiendo — esperar
+      if (age < 90_000) return
+      // Lock stale (> 90s): tomar control
+    } else {
+      // Primer mensaje: marcar timestamp e iniciar ventana de 90s
+      await db
+        .from('conversations')
+        .update({ ai_autoreply_disabled: false })
+        .eq('id', conversationId)
+
+      await db
+        .from('conversations')
+        .update({ ai_processing_at: new Date().toISOString() })
+        .eq('id', conversationId)
+        .is('ai_processing_at', null)
+      return
+    }
+
+    // Lock atomico optimista: solo si nadie mas lo cambio desde que leimos
     const { data: locked } = await db
       .from('conversations')
       .update({ ai_processing_at: new Date().toISOString() })
       .eq('id', conversationId)
-      .is('ai_processing_at', null)
+      .eq('ai_processing_at', conv.ai_processing_at)
       .select('id')
       .maybeSingle()
     if (!locked) return
@@ -76,7 +94,6 @@ export async function dispatchInboundToAiReply(
     })
 
     if (handoff || !text) {
-      // Enviar el mensaje de despedida antes de desactivar el auto-reply
       if (text) {
         await engineSendText({
           accountId,
