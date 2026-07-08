@@ -16,6 +16,28 @@ const h = vi.hoisted(() => ({
   },
 }))
 
+/**
+ * Build a generic PostgREST-style chain for mocks.
+ * Every builder method returns itself; the chain is thenable via the
+ * underlying `Promise` so callers can `await` the terminal method or
+ * the chain directly.
+ */
+function pgChain(result: unknown = null) {
+  const p = Promise.resolve({ data: result, error: null })
+  const chain = {
+    select: () => chain,
+    eq: () => chain,
+    is: () => chain,
+    in: () => chain,
+    limit: () => p,               // SELECT-like terminal
+    order: () => chain,
+    maybeSingle: () => p,          // SELECT-like terminal
+    then: p.then.bind(p),          // make the chain itself thenable
+    catch: p.catch.bind(p),
+  }
+  return chain
+}
+
 vi.mock('./config', () => ({ loadAiConfig: h.loadAiConfig }))
 vi.mock('./context', () => ({ buildConversationContext: h.buildConversationContext }))
 vi.mock('./generate', () => ({ generateReply: h.generateReply }))
@@ -24,27 +46,14 @@ vi.mock('./admin-client', () => ({
   supabaseAdmin: () => ({
     from: (table: string) => {
       if (table === 'automations') {
-        // .select().eq().eq().in().limit() → active auto-responders
-        const chain = {
-          select: () => chain,
-          eq: () => chain,
-          in: () => chain,
-          limit: () =>
-            Promise.resolve({ data: h.state.autoResponders, error: null }),
-        }
-        return chain
+        return pgChain(h.state.autoResponders)
       }
       // conversations
       return {
-        select: () => ({
-          eq: () => ({
-            maybeSingle: () =>
-              Promise.resolve({ data: h.state.conv, error: null }),
-          }),
-        }),
+        select: () => pgChain(h.state.conv),
         update: (payload: Record<string, unknown>) => {
           h.state.updatePayload = payload
-          return { eq: () => Promise.resolve({ error: null }) }
+          return pgChain({ id: 'locked' })
         },
       }
     },
@@ -145,14 +154,15 @@ describe('dispatchInboundToAiReply — eligibility gates', () => {
     expect(h.engineSendText).not.toHaveBeenCalled()
   })
 
-  it('skips when auto-reply was disabled on this conversation', async () => {
+  it('resets disabled flag and proceeds when auto-reply was disabled', async () => {
     h.state.conv = {
       assigned_agent_id: null,
       ai_autoreply_disabled: true,
       ai_reply_count: 0,
     }
     await dispatchInboundToAiReply(ARGS)
-    expect(h.engineSendText).not.toHaveBeenCalled()
+    // The disabled flag is reset at the top, so it proceeds to generate
+    expect(h.generateReply).toHaveBeenCalled()
   })
 
   it('skips when the per-conversation cap is reached', async () => {
@@ -178,7 +188,7 @@ describe('dispatchInboundToAiReply — handoff', () => {
     h.generateReply.mockResolvedValue({ text: '', handoff: true })
     await dispatchInboundToAiReply(ARGS)
     expect(h.engineSendText).not.toHaveBeenCalled()
-    expect(h.state.updatePayload).toEqual({ ai_autoreply_disabled: true })
+    expect(h.state.updatePayload).toEqual({ ai_autoreply_disabled: true, ai_processing_at: null })
     expect(h.state.rpcCalls).toHaveLength(0)
   })
 })

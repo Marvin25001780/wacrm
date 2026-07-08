@@ -15,6 +15,12 @@ interface DbMessage {
  *
  * Ordered oldest-first (chronological) so the transcript reads
  * naturally and the most recent customer message lands last.
+ *
+ * We include messages where content_text IS NOT NULL rather than
+ * filtering by content_type = 'text' because media messages (image,
+ * video, document) carry their caption in content_text and the AI
+ * needs that context to reply coherently.  Interactive, location,
+ * and sticker messages also populate content_text when meaningful.
  */
 export async function buildConversationContext(
   db: SupabaseClient,
@@ -25,7 +31,7 @@ export async function buildConversationContext(
     .from('messages')
     .select('sender_type, content_text')
     .eq('conversation_id', conversationId)
-    .eq('content_type', 'text')
+    .neq('content_text', null)
     .order('created_at', { ascending: false })
     .limit(limit)
 
