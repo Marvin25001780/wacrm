@@ -17,6 +17,7 @@ import {
   Radio,
   Settings,
   Shield,
+  Smartphone,
   User,
   UserCog,
   Users,
@@ -91,6 +92,7 @@ interface NavItem {
 const navItems: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/inbox", label: "Inbox", icon: MessageSquare },
+  { href: "/sms", label: "SMS", icon: Smartphone },
   { href: "/notifications", label: "Notifications", icon: Bell },
   { href: "/contacts", label: "Contacts", icon: Users },
   { href: "/pipelines", label: "Pipelines", icon: GitBranch },

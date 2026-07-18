@@ -21,6 +21,7 @@ import { ModeToggle } from "@/components/layout/mode-toggle";
 const pageTitles: Record<string, string> = {
   "/dashboard": "Dashboard",
   "/inbox": "Inbox",
+  "/sms": "SMS",
   "/notifications": "Notifications",
   "/contacts": "Contacts",
   "/pipelines": "Pipelines",
