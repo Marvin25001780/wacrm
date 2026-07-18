@@ -1,12 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { MessageSquare, Send, Smartphone } from "lucide-react";
+import { KeyRound, MessageSquare, Send, Smartphone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { cn } from "@/lib/utils";
 
 interface SentMessage {
   id: string;
@@ -23,16 +22,19 @@ export default function SmsPage() {
   const [deviceId, setDeviceId] = useState(() =>
     typeof window !== "undefined" ? localStorage.getItem("sms_device_id") ?? "" : "",
   );
-  const [showConfig, setShowConfig] = useState(!deviceId);
+  const [apiKey, setApiKey] = useState(() =>
+    typeof window !== "undefined" ? localStorage.getItem("sms_api_key") ?? "" : "",
+  );
+  const [showConfig, setShowConfig] = useState(!deviceId || !apiKey);
 
   const sendSms = useCallback(async () => {
-    if (!phone || !message) return;
+    if (!phone || !message || !deviceId || !apiKey) return;
     setSending(true);
     try {
       const res = await fetch("/api/sms/send", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ to: phone, message, deviceId }),
+        body: JSON.stringify({ to: phone, message, deviceId, apiKey }),
       });
       if (!res.ok) {
         const err = await res.json();
@@ -50,13 +52,18 @@ export default function SmsPage() {
     } finally {
       setSending(false);
     }
-  }, [phone, message, deviceId]);
+  }, [phone, message, deviceId, apiKey]);
 
   const [lastReceived, setLastReceived] = useState<Array<{ from: string; message: string; receivedAt: string }>>([]);
 
   const fetchReceived = useCallback(async () => {
+    if (!deviceId || !apiKey) return;
     try {
-      const res = await fetch(`/api/sms/received?deviceId=${encodeURIComponent(deviceId)}`);
+      const res = await fetch("/api/sms/received", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deviceId, apiKey }),
+      });
       if (res.ok) {
         const data = await res.json();
         setLastReceived(data.messages ?? []);
@@ -64,44 +71,55 @@ export default function SmsPage() {
     } catch {
       // silent
     }
-  }, [deviceId]);
+  }, [deviceId, apiKey]);
 
   useEffect(() => {
-    if (!deviceId) return;
+    if (!deviceId || !apiKey) return;
     const interval = setInterval(fetchReceived, 15000);
     fetchReceived();
     return () => clearInterval(interval);
-  }, [deviceId, fetchReceived]);
+  }, [deviceId, apiKey, fetchReceived]);
 
   return (
     <div className="flex h-full flex-col gap-4 p-4 lg:p-6">
-      {/* Config banner */}
+      {/* Config */}
       {showConfig && (
         <div className="rounded-lg border border-border bg-card p-4">
           <h3 className="mb-2 text-sm font-semibold text-foreground">SMS Gateway Configuration</h3>
           <p className="mb-3 text-xs text-muted-foreground">
-            To send SMS you need a textbee.dev API key and device ID.
-            Install the app on an Android phone and get your credentials from{" "}
-            <a href="https://textbee.dev" target="_blank" rel="noopener noreferrer" className="text-primary underline">
-              textbee.dev
-            </a>
+            Download the textbee.dev app on an Android phone, then go to{" "}
+            <a href="https://app.textbee.dev/dashboard" target="_blank" rel="noopener noreferrer" className="text-primary underline">
+              app.textbee.dev/dashboard
+            </a>{" "}
+            to get your credentials.
           </p>
-          <div className="flex gap-2">
-            <Input
-              placeholder="Device ID"
-              value={deviceId}
-              onChange={(e) => setDeviceId(e.target.value)}
-              className="max-w-xs"
-            />
+          <div className="flex flex-col gap-2">
+            <div className="flex gap-2">
+              <Input
+                placeholder="Device ID (e.g. dvc_abc123)"
+                value={deviceId}
+                onChange={(e) => setDeviceId(e.target.value)}
+                className="max-w-xs font-mono text-xs"
+              />
+              <Input
+                placeholder="API Key"
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                className="flex-1 font-mono text-xs"
+              />
+            </div>
             <Button
               variant="outline"
               size="sm"
+              className="self-start"
               onClick={() => {
                 localStorage.setItem("sms_device_id", deviceId);
+                localStorage.setItem("sms_api_key", apiKey);
                 setShowConfig(false);
-                toast.success("Device saved");
+                toast.success("Credentials saved");
               }}
             >
+              <KeyRound className="mr-1 size-3" />
               Save
             </Button>
           </div>
@@ -137,7 +155,7 @@ export default function SmsPage() {
             onChange={(e) => setMessage(e.target.value)}
             rows={3}
           />
-          <Button onClick={sendSms} disabled={sending || !phone || !message || !deviceId} className="self-end">
+          <Button onClick={sendSms} disabled={sending || !phone || !message || !deviceId || !apiKey} className="self-end">
             {sending ? "Sending..." : "Send"}
           </Button>
         </div>

@@ -1,18 +1,20 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 
 const TEXTBEE_API = "https://api.textbee.dev/api/v1/gateway/devices";
 
-export async function GET(request: NextRequest) {
+export async function POST(request: Request) {
   try {
-    const deviceId = request.nextUrl.searchParams.get("deviceId") || process.env.TEXTBEE_DEVICE_ID;
-    const apiKey = process.env.TEXTBEE_API_KEY;
+    const { deviceId, apiKey } = await request.json();
 
-    if (!apiKey || !deviceId) {
+    const resolvedDeviceId = deviceId || process.env.TEXTBEE_DEVICE_ID;
+    const resolvedApiKey = apiKey || process.env.TEXTBEE_API_KEY;
+
+    if (!resolvedApiKey || !resolvedDeviceId) {
       return NextResponse.json({ messages: [] });
     }
 
-    const res = await fetch(`${TEXTBEE_API}/${deviceId}/get-received-sms`, {
-      headers: { "x-api-key": apiKey },
+    const res = await fetch(`${TEXTBEE_API}/${resolvedDeviceId}/get-received-sms`, {
+      headers: { "x-api-key": resolvedApiKey },
     });
 
     if (!res.ok) {
