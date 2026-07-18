@@ -269,7 +269,7 @@ export default function SmsPage() {
                     <input type="file" accept=".csv" onChange={handleCsvUpload} className="hidden" />
                   </label>
                   {csvData.length > 0 && <p className="mt-2 text-xs text-muted-foreground">{csvData.length} contacts loaded</p>}
-                  <p className="mt-1 text-[10px] text-muted-foreground">Max file size: 1MB, Max rows: 50</p>
+                  <p className="mt-1 text-[10px] text-muted-foreground">Max file size: 1MB</p>
                 </div>
               </div>
 
