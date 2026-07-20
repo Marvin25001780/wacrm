@@ -27,7 +27,10 @@ export async function POST(request: Request) {
       );
     }
 
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 20000);
     const res = await fetch(`${TEXTBEE_API}/${resolvedDeviceId}/send-sms`, {
+      signal: controller.signal,
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -38,6 +41,7 @@ export async function POST(request: Request) {
         message,
       }),
     });
+    clearTimeout(timeout);
 
     if (!res.ok) {
       const err = await res.text();

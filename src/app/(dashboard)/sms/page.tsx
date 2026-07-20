@@ -70,11 +70,15 @@ export default function SmsPage() {
     if (!phone || !message || !deviceId || !apiKey) return;
     setSending(true);
     try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 25000);
       const res = await fetch("/api/sms/send", {
+        signal: controller.signal,
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ to: formatPhone(phone), message, deviceId, apiKey }),
       });
+      clearTimeout(timeout);
       if (!res.ok) {
         const err = await res.json();
         throw new Error(err.error ?? "Error sending SMS");
