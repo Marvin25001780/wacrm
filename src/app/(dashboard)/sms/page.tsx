@@ -23,6 +23,12 @@ function SmsIcon({ type }: { type: "send" | "sms" | "key" | "device" | "history"
   );
 }
 
+function formatPhone(phone: string): string {
+  const digits = phone.replace(/\D/g, "");
+  if (digits.startsWith("58") && digits.length >= 11) return `+${digits}`;
+  return phone.startsWith("+") ? phone : `+${digits}`;
+}
+
 export default function SmsPage() {
   const [tab, setTab] = useState<"dashboard" | "messaging">("dashboard");
   const [msgTab, setMsgTab] = useState<"send" | "bulk" | "history">("send");
@@ -67,7 +73,7 @@ export default function SmsPage() {
       const res = await fetch("/api/sms/send", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ to: phone, message, deviceId, apiKey }),
+        body: JSON.stringify({ to: formatPhone(phone), message, deviceId, apiKey }),
       });
       if (!res.ok) {
         const err = await res.json();
@@ -146,7 +152,7 @@ export default function SmsPage() {
         const res = await fetch("/api/sms/send", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ to: recipient, message: msg, deviceId, apiKey }),
+          body: JSON.stringify({ to: formatPhone(recipient), message: msg, deviceId, apiKey }),
         });
         if (!res.ok) throw new Error();
         setBulkProgress((p) => ({ ...p, sent: p.sent + 1 }));

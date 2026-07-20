@@ -2,9 +2,16 @@ import { NextResponse } from "next/server";
 
 const TEXTBEE_API = "https://api.textbee.dev/api/v1/gateway/devices";
 
+function formatPhone(phone: string): string {
+  const digits = phone.replace(/\D/g, "");
+  if (digits.startsWith("58") && digits.length >= 11) return `+${digits}`;
+  return phone.startsWith("+") ? phone : `+${digits}`;
+}
+
 export async function POST(request: Request) {
   try {
     const { to, message, deviceId, apiKey } = await request.json();
+    const formattedTo = formatPhone(to);
 
     if (!to || !message) {
       return NextResponse.json({ error: "Phone and message are required" }, { status: 400 });
@@ -27,7 +34,7 @@ export async function POST(request: Request) {
         "x-api-key": resolvedApiKey,
       },
       body: JSON.stringify({
-        recipients: [to],
+        recipients: [formattedTo],
         message,
       }),
     });
