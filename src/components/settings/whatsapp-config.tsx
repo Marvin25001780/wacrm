@@ -373,8 +373,8 @@ export function WhatsAppConfig() {
     return (
       <section className="animate-in fade-in-50 duration-200">
         <SettingsPanelHead
-          title="WhatsApp connection"
-          description="Connect your Meta WhatsApp Business API. Credentials, webhook, and setup steps all live here."
+          title="Conexión WhatsApp"
+          description="Conecta tu API de Meta WhatsApp Business. Credenciales, webhook y configuración."
         />
         <div className="flex items-center justify-center py-12">
           <Loader2 className="size-6 animate-spin text-primary" />
@@ -420,7 +420,7 @@ export function WhatsAppConfig() {
                   ) : (
                     <>
                       <RotateCcw className="size-4" />
-                      Reset Configuration
+                      Restablecer configuración
                     </>
                   )}
                 </Button>
@@ -438,7 +438,7 @@ export function WhatsAppConfig() {
               <XCircle className="size-4 text-red-500" />
             )}
             <AlertTitle className="text-foreground mb-0">
-              {connectionStatus === 'connected' ? 'Credentials valid' : 'Not Connected'}
+              {connectionStatus === 'connected' ? 'Credenciales válidas' : 'No conectado'}
             </AlertTitle>
           </div>
           <AlertDescription className="text-muted-foreground">
@@ -476,7 +476,7 @@ export function WhatsAppConfig() {
                 >
                   {isRegistered
                     ? 'Registered — Meta will deliver events to wacrm'
-                    : 'Not registered — Meta will not deliver events'}
+                    : 'No registrado — Meta no entregará eventos'}
                 </AlertTitle>
               </div>
               <Button
@@ -615,7 +615,7 @@ export function WhatsAppConfig() {
               </div>
               {config && !tokenEdited && (
                 <p className="text-xs text-muted-foreground">
-                  Token is hidden for security. Re-enter it to update configuration.
+                  El token está oculto por seguridad. Re-enter it to update configuration.
                 </p>
               )}
             </div>
@@ -623,7 +623,7 @@ export function WhatsAppConfig() {
             <div className="space-y-2">
               <Label className="text-muted-foreground">Webhook Verify Token</Label>
               <Input
-                placeholder="Create a custom verify token"
+                placeholder="Crea un token de verificación personalizado"
                 value={verifyToken}
                 onChange={(e) => setVerifyToken(e.target.value)}
                 className="bg-muted border-border text-foreground placeholder:text-muted-foreground"
@@ -712,7 +712,7 @@ export function WhatsAppConfig() {
                 Saving...
               </>
             ) : (
-              'Save Configuration'
+              'Guardar configuración'
             )}
           </Button>
           <Button
@@ -748,7 +748,7 @@ export function WhatsAppConfig() {
               ) : (
                 <>
                   <RotateCcw className="size-4" />
-                  Reset Configuration
+                  Restablecer configuración
                 </>
               )}
             </Button>
