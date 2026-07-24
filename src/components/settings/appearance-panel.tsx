@@ -24,14 +24,14 @@ export function AppearancePanel() {
   return (
     <section className="max-w-3xl animate-in fade-in-50 duration-200">
       <SettingsPanelHead
-        title="Appearance"
-        description="Set the mode and accent colour used across the app. Saved to this device — try it, it changes live."
+        title="Apariencia"
+        description="Configura el modo y el color de acento usados en la app. Se guarda en este dispositivo — pruébalo, cambia en vivo."
       />
 
       <div className="space-y-4">
         <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
           <SunMoon className="size-4 text-muted-foreground" />
-          Mode
+          Modo
         </h3>
 
         <div
@@ -53,7 +53,7 @@ export function AppearancePanel() {
       <div className="mt-8 space-y-4">
         <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
           <Palette className="size-4 text-muted-foreground" />
-          Accent color
+          Color de acento
         </h3>
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -106,7 +106,7 @@ function ModeCard({
         <Icon className="h-4 w-4" />
       </span>
       <span className="flex-1 text-sm font-semibold capitalize text-foreground">
-        {mode}
+        {mode === 'light' ? 'Claro' : 'Oscuro'}
       </span>
       {isActive && (
         <span className="inline-flex items-center gap-1 rounded-full bg-primary/15 px-2 py-0.5 text-[11px] font-medium text-primary">
@@ -158,7 +158,7 @@ function ThemeCard({
         {isActive && (
           <span className="inline-flex items-center gap-1 rounded-full bg-primary/15 px-2 py-0.5 text-[11px] font-medium text-primary">
             <Check className="h-3 w-3" />
-            Active
+          Activo
           </span>
         )}
       </div>

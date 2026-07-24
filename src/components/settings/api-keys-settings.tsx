@@ -135,12 +135,12 @@ export function ApiKeysSettings() {
   return (
     <section className="animate-in fade-in-50 space-y-6 duration-200">
       <SettingsPanelHead
-        title="API keys"
+        title="Claves API"
         description={
           <>
-            Keys authenticate the public REST API (
-            <code className="text-xs">/api/v1</code>) so you can build your own
-            automations. Send them as{' '}
+            Las claves autentican la API REST pública (
+            <code className="text-xs">/api/v1</code>) para que puedas crear tus
+            propias automatizaciones. Envíalas como{' '}
             <code className="text-xs">Authorization: Bearer &lt;key&gt;</code>.
           </>
         }
@@ -148,7 +148,7 @@ export function ApiKeysSettings() {
           <RequireRole min="admin">
             <Button onClick={() => setCreateOpen(true)}>
               <Plus className="size-4" />
-              New API key
+              Nueva clave API
             </Button>
           </RequireRole>
         }
@@ -158,19 +158,19 @@ export function ApiKeysSettings() {
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-10 text-center">
             <KeyRound className="text-muted-foreground size-6" />
-            <p className="text-muted-foreground mt-2 text-sm">
-              No API keys yet.
-            </p>
-            {canEditSettings ? (
-              <p className="text-muted-foreground mt-1 text-xs">
-                Click <span className="text-foreground">New API key</span> to
-                create one.
+              <p className="text-muted-foreground mt-2 text-sm">
+                No hay claves API.
               </p>
-            ) : (
-              <p className="text-muted-foreground mt-1 text-xs">
-                Ask an admin to create one.
-              </p>
-            )}
+              {canEditSettings ? (
+                <p className="text-muted-foreground mt-1 text-xs">
+                  Haz clic en <span className="text-foreground">Nueva clave API</span> para
+                  crear una.
+                </p>
+              ) : (
+                <p className="text-muted-foreground mt-1 text-xs">
+                  Pide a un administrador que cree una.
+                </p>
+              )}
           </CardContent>
         </Card>
       ) : (
@@ -198,12 +198,12 @@ export function ApiKeysSettings() {
                         </span>
                         {status === 'revoked' && (
                           <Badge className="border-border bg-muted text-muted-foreground text-[10px] tracking-wide uppercase">
-                            Revoked
+                            Revocada
                           </Badge>
                         )}
                         {status === 'expired' && (
                           <Badge className="border-border bg-muted text-muted-foreground text-[10px] tracking-wide uppercase">
-                            Expired
+                            Expirada
                           </Badge>
                         )}
                       </div>
@@ -213,7 +213,7 @@ export function ApiKeysSettings() {
                       <div className="mt-1.5 flex flex-wrap gap-1">
                         {k.scopes.length === 0 ? (
                           <span className="text-muted-foreground text-xs">
-                            No scopes
+                            Sin alcances
                           </span>
                         ) : (
                           k.scopes.map((s) => (
@@ -227,13 +227,13 @@ export function ApiKeysSettings() {
                         )}
                       </div>
                       <p className="text-muted-foreground mt-1.5 text-xs">
-                        Created {fmtDate(k.created_at)}
+                        Creada {fmtDate(k.created_at)}
                         {' · '}
                         {k.last_used_at
-                          ? `last used ${fmtDate(k.last_used_at)}`
-                          : 'never used'}
+                          ? `último uso ${fmtDate(k.last_used_at)}`
+                          : 'sin uso'}
                         {k.expires_at && status !== 'expired'
-                          ? ` · expires ${fmtDate(k.expires_at)}`
+                          ? ` · expira ${fmtDate(k.expires_at)}`
                           : ''}
                       </p>
                     </div>
@@ -252,7 +252,7 @@ export function ApiKeysSettings() {
                           ) : (
                             <Trash2 className="size-4" />
                           )}
-                          Revoke
+                          Revocar
                         </Button>
                       </RequireRole>
                     )}
@@ -356,16 +356,16 @@ function CreateKeyDialog({
           <>
             <DialogHeader>
               <DialogTitle className="text-popover-foreground">
-                Copy your API key
+                Copia tu clave API
               </DialogTitle>
               <DialogDescription className="text-muted-foreground">
-                This is the only time the full key is shown. Store it somewhere
-                safe — if you lose it, revoke it and create a new one.
+                Esta es la única vez que se muestra la clave completa. Guárdala en un lugar
+                seguro — si la pierdes, revócala y crea una nueva.
               </DialogDescription>
             </DialogHeader>
 
             <div className="space-y-1.5">
-              <Label className="text-muted-foreground">API key</Label>
+              <Label className="text-muted-foreground">Clave API</Label>
               <div className="flex gap-2">
                 <Input
                   readOnly
@@ -375,7 +375,7 @@ function CreateKeyDialog({
                 />
                 <Button type="button" variant="outline" onClick={copyKey}>
                   <Copy className="size-4" />
-                  Copy
+                  Copiar
                 </Button>
               </div>
             </div>
@@ -387,7 +387,7 @@ function CreateKeyDialog({
                   onOpenChange(false);
                 }}
               >
-                Done
+                Hecho
               </Button>
             </DialogFooter>
           </>
@@ -395,30 +395,30 @@ function CreateKeyDialog({
           <>
             <DialogHeader>
               <DialogTitle className="text-popover-foreground">
-                New API key
+                Nueva clave API
               </DialogTitle>
               <DialogDescription className="text-muted-foreground">
-                Name it after the integration that will use it, and grant only
-                the scopes it needs.
+                Ponle el nombre de la integración que la usará y concédele solo
+                los alcances que necesita.
               </DialogDescription>
             </DialogHeader>
 
             <div className="space-y-4">
               <div className="space-y-1.5">
                 <Label htmlFor="api-key-name" className="text-muted-foreground">
-                  Name
+                  Nombre
                 </Label>
                 <Input
                   id="api-key-name"
                   value={name}
                   maxLength={80}
-                  placeholder="e.g. Zapier automation"
+                  placeholder="p. ej. automatización de Zapier"
                   onChange={(e) => setName(e.target.value)}
                 />
               </div>
 
               <div className="space-y-2">
-                <Label className="text-muted-foreground">Scopes</Label>
+                <Label className="text-muted-foreground">Alcances</Label>
                 <div className="border-border space-y-2 rounded-md border p-3">
                   {API_SCOPES.map((scope) => (
                     <label
@@ -444,9 +444,9 @@ function CreateKeyDialog({
                   ))}
                 </div>
                 <p className="text-muted-foreground text-xs">
-                  A key with no scopes can still call{' '}
-                  <code className="text-[11px]">GET /api/v1/me</code> to verify
-                  it works.
+                  Una clave sin alcances aún puede llamar a{' '}
+                  <code className="text-[11px]">GET /api/v1/me</code> para verificar
+                  que funciona.
                 </p>
               </div>
             </div>
@@ -460,16 +460,16 @@ function CreateKeyDialog({
                 }}
                 className="border-border text-muted-foreground hover:bg-muted"
               >
-                Cancel
+                Cancelar
               </Button>
               <Button onClick={handleCreate} disabled={submitting}>
                 {submitting ? (
                   <>
                     <Loader2 className="size-4 animate-spin" />
-                    Creating…
+                    Creando…
                   </>
                 ) : (
-                  'Create key'
+                  'Crear clave'
                 )}
               </Button>
             </DialogFooter>

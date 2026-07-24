@@ -281,13 +281,13 @@ export function MembersTab() {
   return (
     <section className="animate-in fade-in-50 space-y-6 duration-200">
       <SettingsPanelHead
-        title="Team members"
-        description="People with access to this account. Roles control what each teammate can do."
+        title="Miembros del equipo"
+        description="Personas con acceso a esta cuenta. Los roles controlan lo que cada compañero puede hacer."
         action={
           <RequireRole min="admin">
             <Button onClick={() => setInviteOpen(true)}>
               <Plus className="size-4" />
-              Invite member
+              Invitar miembro
             </Button>
           </RequireRole>
         }
@@ -302,18 +302,18 @@ export function MembersTab() {
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
               <span className="inline-flex items-center gap-1.5">
                 <PresenceDot status="online" />
-                {counts.online} online
+                {counts.online} en línea
               </span>
               <span className="inline-flex items-center gap-1.5">
                 <PresenceDot status="away" />
-                {counts.away} away
+                {counts.away} ausente
               </span>
               <span className="inline-flex items-center gap-1.5">
                 <PresenceDot status="offline" />
-                {counts.offline} offline
+                {counts.offline} desconectado
               </span>
               <span className="text-muted-foreground/70">
-                · {members.length} member{members.length === 1 ? '' : 's'}
+                · {members.length} miembro{members.length === 1 ? '' : 's'}
               </span>
             </div>
           );
@@ -385,7 +385,7 @@ export function MembersTab() {
                         </span>
                         {isSelf && (
                           <Badge className="bg-muted text-muted-foreground border-border text-[10px] uppercase tracking-wide">
-                            You
+                            Tú
                           </Badge>
                         )}
                       </div>
@@ -400,7 +400,7 @@ export function MembersTab() {
                   {/* Joined date stays desktop-only. The mobile row's
                       vertical density makes the joined date noise. */}
                   <div className="hidden sm:block text-right text-xs text-muted-foreground">
-                    Joined {fmtDate(member.joined_at)}
+                    Se unió {fmtDate(member.joined_at)}
                   </div>
 
                   {/* Actions cluster. On mobile this is its own row
@@ -477,7 +477,7 @@ export function MembersTab() {
           <div className="mb-2 flex items-center gap-2">
             <UsersRound className="size-4 text-muted-foreground" />
             <h3 className="text-sm font-semibold text-foreground">
-              Pending invitations
+              Invitaciones pendientes
             </h3>
             <Badge className="bg-muted text-muted-foreground border-border">
               {invitations.length}
@@ -490,9 +490,9 @@ export function MembersTab() {
               looking for a button) keeps it from feeling like a bug. */}
           {invitations.length > 0 ? (
             <p className="mb-3 text-xs text-muted-foreground">
-              The plaintext invite URL is only shown once at creation
-              for security — to re-share, revoke the invite below and
-              create a new one.
+              La URL de invitación en texto plano solo se muestra una vez al crearla
+              por seguridad — para reenviarla, revoca la invitación debajo y
+              crea una nueva.
             </p>
           ) : null}
 
@@ -501,11 +501,11 @@ export function MembersTab() {
               <CardContent className="flex flex-col items-center justify-center py-8 text-center">
                 <Mail className="size-6 text-muted-foreground" />
                 <p className="mt-2 text-sm text-muted-foreground">
-                  No pending invitations.
+                  No hay invitaciones pendientes.
                 </p>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Click <span className="text-muted-foreground">Invite member</span>{' '}
-                  above to generate a shareable link.
+                  Haz clic en <span className="text-muted-foreground">Invitar miembro</span>{' '}
+                  arriba para generar un enlace compartible.
                 </p>
               </CardContent>
             </Card>
@@ -534,7 +534,7 @@ export function MembersTab() {
                           </span>
                         </div>
                         <p className="mt-0.5 text-xs text-muted-foreground">
-                          Created {fmtDate(inv.created_at)} · {fmtExpiresIn(inv.expires_at)}
+                          Creada {fmtDate(inv.created_at)} · {fmtExpiresIn(inv.expires_at)}
                         </p>
                       </div>
 
@@ -549,7 +549,7 @@ export function MembersTab() {
                         className="border-red-500/40 bg-red-500/10 text-red-300 hover:bg-red-500/20 hover:border-red-500/60 hover:text-red-200"
                       >
                         <MailX className="size-4" />
-                        Revoke
+                        Revocar
                       </Button>
                     </li>
                     );
@@ -577,16 +577,16 @@ export function MembersTab() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-popover-foreground">
               <AlertTriangle className="size-4 text-amber-400" />
-              Remove member
+              Eliminar miembro
             </DialogTitle>
             <DialogDescription className="text-muted-foreground">
-              Remove{' '}
+              Eliminar a{' '}
               <span className="font-medium text-muted-foreground">
-                {removingMember?.full_name || 'this teammate'}
+                {removingMember?.full_name || 'este compañero'}
               </span>{' '}
-              from the account? They&apos;ll be signed out of this account
-              and given a fresh personal account on their next sign-in. Their
-              login isn&apos;t deleted.
+              de la cuenta? Se cerrará su sesión de esta cuenta
+              y recibirá una cuenta personal nueva en su próximo inicio de sesión. Su
+              inicio de sesión no se elimina.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="bg-popover border-border">
@@ -605,10 +605,10 @@ export function MembersTab() {
               {pendingMemberAction ? (
                 <>
                   <Loader2 className="size-4 animate-spin" />
-                  Removing...
+                  Eliminando…
                 </>
               ) : (
-                'Remove member'
+                'Eliminar miembro'
               )}
             </Button>
           </DialogFooter>

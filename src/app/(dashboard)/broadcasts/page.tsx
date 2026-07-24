@@ -179,7 +179,7 @@ export default function BroadcastsPage() {
 
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Broadcasts</h1>
+          <h1 className="text-2xl font-bold text-foreground">Campañas</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Send bulk messages to your contacts using approved templates.
           </p>

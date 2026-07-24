@@ -342,7 +342,7 @@ export default function ContactsPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Contacts</h1>
+          <h1 className="text-2xl font-bold text-foreground">Contactos</h1>
           <p className="text-sm text-muted-foreground mt-1">
             Manage your contact list. {totalCount > 0 && `${totalCount} total contacts.`}
           </p>
@@ -393,7 +393,7 @@ export default function ContactsPage() {
                 // set shrinks/grows, page N may no longer be valid.
                 setPage(0);
               }}
-              placeholder="Search by name, phone, or email..."
+              placeholder="Buscar por nombre, teléfono o correo..."
               className="pl-8 bg-card border-border text-foreground placeholder:text-muted-foreground"
             />
           </div>
