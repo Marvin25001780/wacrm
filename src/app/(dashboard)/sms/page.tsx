@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
@@ -30,6 +31,8 @@ function formatPhone(phone: string): string {
 }
 
 export default function SmsPage() {
+  const t = useTranslations('sms');
+  const common = useTranslations('common');
   const [tab, setTab] = useState<"dashboard" | "messaging">("dashboard");
   const [msgTab, setMsgTab] = useState<"send" | "bulk" | "history">("send");
   const [phone, setPhone] = useState("");
@@ -241,14 +244,14 @@ export default function SmsPage() {
       {tab === "messaging" && (
         <div className="flex flex-col gap-4">
           <div className="flex gap-4 border-b border-border pb-2">
-            <button onClick={() => setMsgTab("send")} className={`pb-2 text-sm font-medium ${msgTab === "send" ? "border-b-2 border-primary text-foreground" : "text-muted-foreground hover:text-foreground"}`}>Send</button>
-            <button onClick={() => setMsgTab("bulk")} className={`pb-2 text-sm font-medium ${msgTab === "bulk" ? "border-b-2 border-primary text-foreground" : "text-muted-foreground hover:text-foreground"}`}>Bulk Send</button>
-            <button onClick={() => setMsgTab("history")} className={`pb-2 text-sm font-medium ${msgTab === "history" ? "border-b-2 border-primary text-foreground" : "text-muted-foreground hover:text-foreground"}`}>History</button>
+            <button onClick={() => setMsgTab("send")} className={`pb-2 text-sm font-medium ${msgTab === "send" ? "border-b-2 border-primary text-foreground" : "text-muted-foreground hover:text-foreground"}`}>{t('send')}</button>
+            <button onClick={() => setMsgTab("bulk")} className={`pb-2 text-sm font-medium ${msgTab === "bulk" ? "border-b-2 border-primary text-foreground" : "text-muted-foreground hover:text-foreground"}`}>{t('bulk_send')}</button>
+            <button onClick={() => setMsgTab("history")} className={`pb-2 text-sm font-medium ${msgTab === "history" ? "border-b-2 border-primary text-foreground" : "text-muted-foreground hover:text-foreground"}`}>{t('history')}</button>
           </div>
 
           {msgTab === "send" && (
             <div className="rounded-lg border border-border bg-card p-4">
-              <h3 className="mb-1 text-sm font-semibold text-foreground">Send SMS</h3>
+              <h3 className="mb-1 text-sm font-semibold text-foreground">{t('send')} SMS</h3>
               <p className="mb-3 text-xs text-muted-foreground">Send a message to any recipient(s)</p>
               <div className="mb-3 flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2">
                 <SmsIcon type="device" />
@@ -257,15 +260,15 @@ export default function SmsPage() {
               </div>
               <div className="flex flex-col gap-3">
                 <Input placeholder="Add Recipient" value={phone} onChange={(e) => setPhone(e.target.value)} className="font-mono" />
-                <textarea className="flex min-h-16 w-full rounded-lg border border-input bg-transparent px-2.5 py-2 text-base transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 md:text-sm" placeholder="Message" value={message} onChange={(e) => setMessage(e.target.value)} rows={3} />
-                <Button onClick={sendSms} disabled={sending || !phone || !message} className="self-start">{sending ? "Sending..." : "Send Message"}</Button>
+                <textarea className="flex min-h-16 w-full rounded-lg border border-input bg-transparent px-2.5 py-2 text-base transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 md:text-sm" placeholder={t('message')} value={message} onChange={(e) => setMessage(e.target.value)} rows={3} />
+                <Button onClick={sendSms} disabled={sending || !phone || !message} className="self-start">{sending ? common('saving') : t('send')}</Button>
               </div>
             </div>
           )}
 
           {msgTab === "bulk" && (
             <div className="rounded-lg border border-border bg-card p-4">
-              <h3 className="mb-1 text-sm font-semibold text-foreground">Send Bulk SMS</h3>
+              <h3 className="mb-1 text-sm font-semibold text-foreground">{t('bulk_send')}</h3>
               <p className="mb-4 text-xs text-muted-foreground">Upload a CSV, configure your message, and send bulk SMS in 3 simple steps.</p>
 
               {/* Step 1: Upload CSV */}
@@ -358,7 +361,7 @@ export default function SmsPage() {
 
           {msgTab === "history" && (
             <div className="rounded-lg border border-border bg-card p-4">
-              <h3 className="mb-3 text-sm font-semibold text-foreground">Sent History</h3>
+              <h3 className="mb-3 text-sm font-semibold text-foreground">{t('history')}</h3>
               {history.length === 0 && <p className="text-xs text-muted-foreground">No messages sent yet</p>}
               {history.map((item, i) => (
                 <div key={i} className="mb-2 rounded-md bg-muted/30 p-3">

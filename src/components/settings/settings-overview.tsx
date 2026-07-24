@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, type ReactNode } from 'react';
+import { useTranslations } from 'next-intl';
 import { ChevronRight, Loader2 } from 'lucide-react';
 
 import { createClient } from '@/lib/supabase/client';
@@ -35,6 +36,8 @@ export function SettingsOverview({
 }: {
   onSelect: (section: SettingsSection) => void;
 }) {
+  const t = useTranslations('settings');
+  const common = useTranslations('common');
   const { user, profile, accountId, accountRole, defaultCurrency, canManageMembers } =
     useAuth();
   const { mode, theme } = useTheme();
@@ -137,7 +140,7 @@ export function SettingsOverview({
     };
   }, [user?.id, accountId, canManageMembers]);
 
-  const displayName = profile?.full_name || profile?.email || 'Your account';
+  const displayName = profile?.full_name || profile?.email || t('your_account');
   const initial = (profile?.full_name || profile?.email || 'U').charAt(0).toUpperCase();
   const roleMeta = accountRole ? ROLE_META[accountRole] : null;
   const RoleIcon = roleMeta?.icon;
@@ -158,14 +161,14 @@ export function SettingsOverview({
       section: 'whatsapp',
       loading: whatsappLoading,
       subtitle: !whatsapp?.configured ? (
-        'Not set up yet'
+        t('not_set_up_yet')
       ) : whatsapp.connected ? (
         <>
-          <StatusDot tone="ok" /> Connected
+          <StatusDot tone="ok" /> {t('connected')}
         </>
       ) : (
         <>
-          <StatusDot tone="muted" /> Needs reconnecting
+          <StatusDot tone="muted" /> {t('needs_reconnecting')}
         </>
       ),
     },
@@ -174,46 +177,34 @@ export function SettingsOverview({
       loading: countsLoading,
       subtitle:
         counts?.members == null
-          ? 'View team members'
-          : `${counts.members} member${counts.members === 1 ? '' : 's'}${
-              counts.pendingInvites
-                ? ` · ${counts.pendingInvites} pending invite${
-                    counts.pendingInvites === 1 ? '' : 's'
-                  }`
-                : ''
-            }`,
+          ? t('view_team_members')
+          : `${t(counts.members === 1 ? 'member_count' : 'member_count_plural', { count: counts.members })}${counts.pendingInvites ? ` · ${t(counts.pendingInvites === 1 ? 'pending_invite_count' : 'pending_invite_count_plural', { count: counts.pendingInvites })}` : ''}`,
     },
     {
       section: 'templates',
       loading: countsLoading,
       subtitle:
         counts?.templates == null
-          ? 'Manage message templates'
-          : `${counts.templates} template${counts.templates === 1 ? '' : 's'}${
-              counts.templatesPending
-                ? ` · ${counts.templatesPending} pending review`
-                : ''
-            }`,
+          ? t('manage_message_templates')
+          : `${t(counts.templates === 1 ? 'template_count' : 'template_count_plural', { count: counts.templates })}${counts.templatesPending ? ` · ${t(counts.templatesPending === 1 ? 'pending_review' : 'pending_review_plural', { count: counts.templatesPending })}` : ''}`,
     },
     {
       section: 'deals',
       loading: false,
-      subtitle: `${defaultCurrency} — ${currencyLabel}`,
+      subtitle: t('deals_currency_subtitle', { currency: defaultCurrency, label: currencyLabel }),
     },
     {
       section: 'fields',
       loading: countsLoading,
       subtitle:
         counts?.tags == null && counts?.customFields == null
-          ? 'Tags and custom fields'
-          : `${counts?.tags ?? 0} tag${counts?.tags === 1 ? '' : 's'} · ${
-              counts?.customFields ?? 0
-            } custom field${counts?.customFields === 1 ? '' : 's'}`,
+          ? t('tags_and_custom_fields')
+          : `${t((counts?.tags ?? 0) === 1 ? 'tag_count' : 'tag_count_plural', { count: counts?.tags ?? 0 })} · ${t((counts?.customFields ?? 0) === 1 ? 'custom_field_count' : 'custom_field_count_plural', { count: counts?.customFields ?? 0 })}`,
     },
     {
       section: 'appearance',
       loading: false,
-      subtitle: `${cap(mode)} mode · ${themeName} accent`,
+      subtitle: t('appearance_subtitle', { mode: cap(mode), accent: themeName }),
     },
   ];
 
@@ -272,7 +263,7 @@ export function SettingsOverview({
                 <span className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
                   {loading ? (
                     <>
-                      <Loader2 className="size-3 animate-spin" /> Loading…
+                      <Loader2 className="size-3 animate-spin" /> {common('loading')}
                     </>
                   ) : (
                     subtitle

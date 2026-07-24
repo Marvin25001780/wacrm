@@ -4,6 +4,8 @@ import Script from "next/script";
 import "./globals.css";
 import { ThemeProvider } from "@/hooks/use-theme";
 import { ThemedToaster } from "@/components/themed-toaster";
+import { NextIntlClientProvider } from "next-intl";
+import { getMessages } from "next-intl/server";
 import {
   DEFAULT_MODE,
   DEFAULT_THEME,
@@ -23,7 +25,7 @@ export const metadata: Metadata = {
     default: "Nexus CRM",
     template: "%s — Nexus CRM",
   },
-  description: "Self-hostable CRM for WhatsApp.",
+  description: "CRM autoalojable para WhatsApp.",
   robots: {
     index: false,
     follow: false,
@@ -75,14 +77,15 @@ const THEME_BOOT_SCRIPT = `
 })();
 `;
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const messages = await getMessages()
   return (
     <html
-      lang="en"
+      lang="es"
       data-theme={DEFAULT_THEME}
       data-mode={DEFAULT_MODE}
       className={`${inter.variable} h-full antialiased`}
@@ -104,7 +107,9 @@ export default function RootLayout({
       </head>
       <body className="min-h-full bg-background text-foreground font-sans">
         <ThemeProvider>
-          {children}
+          <NextIntlClientProvider messages={messages}>
+            {children}
+          </NextIntlClientProvider>
           <ThemedToaster />
         </ThemeProvider>
       </body>

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useTranslations } from "next-intl";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,6 +17,8 @@ import {
 import { MessageSquare, CheckCircle, ArrowLeft } from "lucide-react";
 
 export default function ForgotPasswordPage() {
+  const t = useTranslations("auth");
+  const tc = useTranslations("common");
   const [email, setEmail] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -53,9 +56,7 @@ export default function ForgotPasswordPage() {
               Check your email
             </CardTitle>
             <CardDescription className="text-muted-foreground">
-              We&apos;ve sent a password reset link to{" "}
-              <span className="text-foreground">{email}</span>. Please check your
-              inbox.
+              {t("reset_link_sent")}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -80,10 +81,12 @@ export default function ForgotPasswordPage() {
           <div className="mb-2 flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10">
             <MessageSquare className="h-6 w-6 text-primary" />
           </div>
-          <CardTitle className="text-xl text-foreground">Reset password</CardTitle>
-          <CardDescription className="text-muted-foreground">
-            Enter your email and we&apos;ll send you a reset link
-          </CardDescription>
+          <CardTitle className="text-xl text-foreground">
+              {t("forgot_password_title")}
+            </CardTitle>
+            <CardDescription className="text-muted-foreground">
+              {t("forgot_password_subtitle")}
+            </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleReset} className="flex flex-col gap-4">
@@ -95,7 +98,7 @@ export default function ForgotPasswordPage() {
 
             <div className="flex flex-col gap-2">
               <Label htmlFor="email" className="text-muted-foreground">
-                Email
+                {t("email")}
               </Label>
               <Input
                 id="email"
@@ -113,7 +116,7 @@ export default function ForgotPasswordPage() {
               disabled={loading}
               className="mt-2 h-10 w-full bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
             >
-              {loading ? "Sending..." : "Send reset link"}
+              {loading ? tc("loading") : t("send_reset_link")}
             </Button>
           </form>
 

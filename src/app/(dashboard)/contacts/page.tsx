@@ -56,6 +56,7 @@ import { CustomFieldsManager } from '@/components/contacts/custom-fields-manager
 import { useCan } from '@/hooks/use-can';
 import { GatedButton } from '@/components/ui/gated-button';
 import { Checkbox } from '@/components/ui/checkbox';
+import { useTranslations } from 'next-intl';
 
 const PAGE_SIZE = 25;
 
@@ -64,6 +65,9 @@ interface ContactWithTags extends Contact {
 }
 
 export default function ContactsPage() {
+  const t = useTranslations('contacts');
+  const common = useTranslations('common');
+
   const supabase = createClient();
   const canEdit = useCan('send-messages');
   const canEditSettings = useCan('edit-settings');
@@ -342,7 +346,7 @@ export default function ContactsPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Contacts</h1>
+          <h1 className="text-2xl font-bold text-foreground">{t('title')}</h1>
           <p className="text-sm text-muted-foreground mt-1">
             Manage your contact list. {totalCount > 0 && `${totalCount} total contacts.`}
           </p>
@@ -355,7 +359,7 @@ export default function ContactsPage() {
               className="border-border text-muted-foreground hover:bg-muted"
             >
               <SlidersHorizontal className="size-4" />
-              Custom fields
+              {t('custom_fields')}
             </Button>
           )}
           <GatedButton
@@ -366,7 +370,7 @@ export default function ContactsPage() {
             className="border-border text-muted-foreground hover:bg-muted"
           >
             <Upload className="size-4" />
-            Import
+            {t('import')}
           </GatedButton>
           <GatedButton
             canAct={canEdit}
@@ -375,7 +379,7 @@ export default function ContactsPage() {
             className="bg-primary hover:bg-primary/90 text-primary-foreground"
           >
             <Plus className="size-4" />
-            Add Contact
+            {t('add_contact')}
           </GatedButton>
         </div>
       </div>
@@ -393,7 +397,7 @@ export default function ContactsPage() {
                 // set shrinks/grows, page N may no longer be valid.
                 setPage(0);
               }}
-              placeholder="Search by name, phone, or email..."
+              placeholder={t('search_placeholder')}
               className="pl-8 bg-card border-border text-foreground placeholder:text-muted-foreground"
             />
           </div>
@@ -540,11 +544,11 @@ export default function ContactsPage() {
                   aria-label="Select all contacts on this page"
                 />
               </TableHead>
-              <TableHead className="text-muted-foreground">Name</TableHead>
-              <TableHead className="text-muted-foreground">Phone</TableHead>
-              <TableHead className="text-muted-foreground hidden md:table-cell">Email</TableHead>
+              <TableHead className="text-muted-foreground">{t('name')}</TableHead>
+              <TableHead className="text-muted-foreground">{t('phone')}</TableHead>
+              <TableHead className="text-muted-foreground hidden md:table-cell">{t('email')}</TableHead>
               <TableHead className="text-muted-foreground hidden lg:table-cell">Company</TableHead>
-              <TableHead className="text-muted-foreground hidden md:table-cell">Tags</TableHead>
+              <TableHead className="text-muted-foreground hidden md:table-cell">{t('tags')}</TableHead>
               <TableHead className="text-muted-foreground hidden lg:table-cell">Created</TableHead>
               <TableHead className="text-muted-foreground w-12" />
             </TableRow>
@@ -555,7 +559,7 @@ export default function ContactsPage() {
                 <TableCell colSpan={8} className="text-center py-12">
                   <div className="flex flex-col items-center gap-2">
                     <Loader2 className="size-6 animate-spin text-primary" />
-                    <p className="text-sm text-muted-foreground">Loading contacts...</p>
+                    <p className="text-sm text-muted-foreground">{common('loading')}</p>
                   </div>
                 </TableCell>
               </TableRow>
@@ -567,7 +571,7 @@ export default function ContactsPage() {
                     <p className="text-sm text-muted-foreground">
                       {hasActiveFilters
                         ? 'No contacts match your filters.'
-                        : 'No contacts yet.'}
+                        : t('no_contacts')}
                     </p>
                     {!hasActiveFilters && (
                       <GatedButton
@@ -579,7 +583,7 @@ export default function ContactsPage() {
                         className="mt-2 border-border text-muted-foreground hover:bg-muted"
                       >
                         <Plus className="size-3.5" />
-                        Add your first contact
+                        {t('add_contact')}
                       </GatedButton>
                     )}
                   </div>
@@ -669,7 +673,7 @@ export default function ContactsPage() {
                           className="text-popover-foreground focus:bg-muted focus:text-foreground"
                         >
                           <Pencil className="size-4" />
-                          Edit
+                          {common('edit')}
                         </DropdownMenuItem>
                         <DropdownMenuSeparator className="bg-border" />
                         <DropdownMenuItem
@@ -680,7 +684,7 @@ export default function ContactsPage() {
                           }}
                         >
                           <Trash2 className="size-4" />
-                          Delete
+                          {common('delete')}
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
@@ -768,13 +772,13 @@ export default function ContactsPage() {
       <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
         <DialogContent className="bg-popover border-border text-popover-foreground sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle className="text-popover-foreground">Delete Contact</DialogTitle>
+            <DialogTitle className="text-popover-foreground">{t('delete_contact')}</DialogTitle>
             <DialogDescription className="text-muted-foreground">
               Are you sure you want to delete{' '}
               <span className="text-popover-foreground font-medium">
                 {deleteTarget?.name || deleteTarget?.phone}
               </span>
-              ? This action cannot be undone.
+              {common('confirm_delete_desc')}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="bg-popover border-border">
@@ -783,7 +787,7 @@ export default function ContactsPage() {
               onClick={() => setDeleteConfirmOpen(false)}
               className="border-border text-muted-foreground hover:bg-muted"
             >
-              Cancel
+              {common('cancel')}
             </Button>
             <Button
               variant="destructive"
@@ -791,7 +795,7 @@ export default function ContactsPage() {
               disabled={deleting}
             >
               {deleting && <Loader2 className="size-4 animate-spin" />}
-              Delete
+              {common('delete')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -802,14 +806,10 @@ export default function ContactsPage() {
         <DialogContent className="bg-popover border-border text-popover-foreground sm:max-w-sm">
           <DialogHeader>
             <DialogTitle className="text-popover-foreground">
-              Delete {selected.size} {selected.size === 1 ? 'Contact' : 'Contacts'}
+              {t('delete_contact')} ({selected.size})
             </DialogTitle>
             <DialogDescription className="text-muted-foreground">
-              Are you sure you want to delete{' '}
-              <span className="text-popover-foreground font-medium">
-                {selected.size} {selected.size === 1 ? 'contact' : 'contacts'}
-              </span>
-              ? This action cannot be undone.
+              {common('confirm_delete_desc')}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="bg-popover border-border">
@@ -818,7 +818,7 @@ export default function ContactsPage() {
               onClick={() => setBulkDeleteOpen(false)}
               className="border-border text-muted-foreground hover:bg-muted"
             >
-              Cancel
+              {common('cancel')}
             </Button>
             <Button
               variant="destructive"
@@ -826,7 +826,7 @@ export default function ContactsPage() {
               disabled={deleting}
             >
               {deleting && <Loader2 className="size-4 animate-spin" />}
-              Delete
+              {common('delete')}
             </Button>
           </DialogFooter>
         </DialogContent>

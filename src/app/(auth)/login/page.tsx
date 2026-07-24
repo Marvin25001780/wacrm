@@ -3,6 +3,7 @@
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { useTranslations } from "next-intl";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,6 +31,8 @@ export default function LoginPage() {
 }
 
 function LoginPageInner() {
+  const t = useTranslations("auth");
+  const tc = useTranslations("common");
   const searchParams = useSearchParams();
   // Forwarded from `/join/<token>` when the visitor already has an
   // account. After a successful sign-in we send them to the join
@@ -78,12 +81,10 @@ function LoginPageInner() {
             )}
           </div>
           <CardTitle className="text-xl text-foreground">
-            {inviteToken ? "Sign in to accept" : "Welcome back"}
+            {inviteToken ? t("sign_in") : t("welcome_back")}
           </CardTitle>
           <CardDescription className="text-muted-foreground">
-            {inviteToken
-              ? "Sign in and we'll take you to the invitation."
-              : "Sign in to your account"}
+            {t("sign_in_subtitle")}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -96,7 +97,7 @@ function LoginPageInner() {
 
             <div className="flex flex-col gap-2">
               <Label htmlFor="email" className="text-muted-foreground">
-                Email
+                {t("email")}
               </Label>
               <Input
                 id="email"
@@ -112,13 +113,13 @@ function LoginPageInner() {
             <div className="flex flex-col gap-2">
               <div className="flex items-center justify-between">
                 <Label htmlFor="password" className="text-muted-foreground">
-                  Password
+                  {t("password")}
                 </Label>
                 <Link
                   href="/forgot-password"
                   className="text-sm text-primary hover:text-primary/80"
                 >
-                  Forgot password?
+                  {t("forgot_password")}
                 </Link>
               </div>
               <Input
@@ -137,12 +138,12 @@ function LoginPageInner() {
               disabled={loading}
               className="mt-2 h-10 w-full bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
             >
-              {loading ? "Signing in..." : "Sign in"}
+              {loading ? tc("loading") : t("sign_in")}
             </Button>
           </form>
 
           <p className="mt-6 text-center text-sm text-muted-foreground">
-            Don&apos;t have an account?{" "}
+            {t("no_account")}{" "}
             <Link
               href={
                 inviteToken
@@ -151,7 +152,7 @@ function LoginPageInner() {
               }
               className="text-primary hover:text-primary/80"
             >
-              Create account
+              {t("sign_up")}
             </Link>
           </p>
         </CardContent>

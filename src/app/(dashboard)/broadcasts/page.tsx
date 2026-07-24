@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/table';
 import { Radio, Plus, Loader2 } from 'lucide-react';
 import { useCan } from '@/hooks/use-can';
+import { useTranslations } from 'next-intl';
 import { GatedButton } from '@/components/ui/gated-button';
 import { getBroadcastStatus } from '@/lib/broadcast-status';
 
@@ -58,6 +59,8 @@ function RateCell({
 
 export default function BroadcastsPage() {
   const router = useRouter();
+  const t = useTranslations('broadcasts');
+  const common = useTranslations('common');
   const canCreate = useCan('send-messages');
   const [broadcasts, setBroadcasts] = useState<Broadcast[]>([]);
   const [loading, setLoading] = useState(true);
@@ -179,7 +182,7 @@ export default function BroadcastsPage() {
 
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Broadcasts</h1>
+          <h1 className="text-2xl font-bold text-foreground">{t('title')}</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Send bulk messages to your contacts using approved templates.
           </p>
@@ -191,14 +194,14 @@ export default function BroadcastsPage() {
           className="bg-primary text-primary-foreground hover:bg-primary/90"
         >
           <Plus className="h-4 w-4" />
-          New Broadcast
+          {t('new_broadcast')}
         </GatedButton>
       </div>
 
       {broadcasts.length === 0 ? (
         <div className="flex h-64 flex-col items-center justify-center rounded-xl border border-border bg-card">
           <Radio className="mb-3 h-10 w-10 text-muted-foreground" />
-          <p className="text-sm font-medium text-foreground">No broadcasts yet</p>
+          <p className="text-sm font-medium text-foreground">{t('no_broadcasts')}</p>
           <p className="mt-1 text-xs text-muted-foreground">
             Create your first broadcast to reach your contacts at scale.
           </p>
@@ -220,10 +223,10 @@ export default function BroadcastsPage() {
                 <TableHead className="text-muted-foreground">Name</TableHead>
                 <TableHead className="hidden text-muted-foreground md:table-cell">Template</TableHead>
                 <TableHead className="hidden text-right text-muted-foreground sm:table-cell">
-                  Recipients
+                  {t('recipients')}
                 </TableHead>
                 <TableHead className="hidden text-muted-foreground lg:table-cell">Delivery</TableHead>
-                <TableHead className="hidden text-muted-foreground lg:table-cell">Read</TableHead>
+                <TableHead className="hidden text-muted-foreground lg:table-cell">{common('read')}</TableHead>
                 <TableHead className="text-muted-foreground">Status</TableHead>
                 <TableHead className="hidden text-muted-foreground sm:table-cell">Date</TableHead>
               </TableRow>

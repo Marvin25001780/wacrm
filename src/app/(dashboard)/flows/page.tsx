@@ -18,6 +18,7 @@ import {
   FileText,
 } from "lucide-react";
 
+import { useTranslations } from "next-intl";
 import { useCan } from "@/hooks/use-can";
 import { Button } from "@/components/ui/button";
 import { GatedButton } from "@/components/ui/gated-button";
@@ -83,6 +84,8 @@ const TEMPLATE_ICONS = {
 
 export default function FlowsPage() {
   const router = useRouter();
+  const t = useTranslations('flows');
+  const common = useTranslations('common');
   const canCreate = useCan("send-messages");
   const [flows, setFlows] = useState<FlowRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -204,9 +207,9 @@ export default function FlowsPage() {
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-semibold text-foreground">Flows</h1>
+            <h1 className="text-2xl font-semibold text-foreground">{t('title')}</h1>
             <span className="inline-flex items-center rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-300">
-              Beta
+              {t('beta_badge')}
             </span>
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
@@ -220,7 +223,7 @@ export default function FlowsPage() {
           onClick={() => setCreateOpen(true)}
         >
           <Plus className="h-4 w-4" />
-          New flow
+          {t('new_flow')}
         </GatedButton>
       </header>
 
@@ -249,7 +252,7 @@ export default function FlowsPage() {
             sm-scoped 384px wins at every real desktop breakpoint. */}
         <DialogContent className="sm:max-w-4xl bg-popover text-popover-foreground">
           <DialogHeader>
-            <DialogTitle>Create a new flow</DialogTitle>
+            <DialogTitle>{t('new_flow')}</DialogTitle>
             <DialogDescription className="text-muted-foreground">
               Start from a template or build from scratch.
             </DialogDescription>
@@ -309,11 +312,11 @@ export default function FlowsPage() {
               onClick={() => setCreateOpen(false)}
               disabled={creating}
             >
-              Cancel
+              {common('cancel')}
             </Button>
             <Button onClick={handleCreate} disabled={!newName.trim() || creating}>
               {creating && <Loader2 className="h-4 w-4 animate-spin" />}
-              Create blank flow
+              {t('new_flow')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -335,7 +338,7 @@ function EmptyState({
         <Workflow className="h-6 w-6 text-muted-foreground" />
       </div>
       <h2 className="mt-4 text-base font-medium text-foreground">
-        No flows yet
+        {t('no_flows')}
       </h2>
       <p className="mt-1 max-w-md text-sm text-muted-foreground">
         Build your first conversation — a welcome menu, an order lookup, an FAQ
@@ -349,7 +352,7 @@ function EmptyState({
         className="mt-5"
       >
         <Plus className="h-4 w-4" />
-        Create your first flow
+        {t('new_flow')}
       </GatedButton>
     </div>
   );
@@ -406,7 +409,7 @@ function FlowCard({
       <div className="mt-4 flex items-center justify-end gap-2 border-t border-border pt-3">
         <Button variant="ghost" size="sm" onClick={onEdit}>
           <Pencil className="h-3.5 w-3.5" />
-          Edit
+          {t('edit')}
         </Button>
         <Button
           variant="ghost"
@@ -415,7 +418,7 @@ function FlowCard({
           className="text-red-400 hover:bg-red-500/10 hover:text-red-300"
         >
           <Trash2 className="h-3.5 w-3.5" />
-          Delete
+          {t('delete')}
         </Button>
       </div>
     </div>

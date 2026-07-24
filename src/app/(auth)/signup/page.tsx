@@ -3,6 +3,7 @@
 import { Suspense, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,6 +28,8 @@ export default function SignupPage() {
 }
 
 function SignupPageInner() {
+  const t = useTranslations("auth");
+  const tc = useTranslations("common");
   const searchParams = useSearchParams();
   // When the user lands here from `/join/<token>` we carry the
   // invite token in the query so it survives the signup → email
@@ -49,7 +52,7 @@ function SignupPageInner() {
     setError(null);
 
     if (password !== confirmPassword) {
-      setError("Passwords do not match");
+      setError(t("password_mismatch"));
       return;
     }
 
@@ -150,12 +153,10 @@ function SignupPageInner() {
             )}
           </div>
           <CardTitle className="text-xl text-foreground">
-            {inviteToken ? "Create account & join" : "Create account"}
+            {t("sign_up")}
           </CardTitle>
           <CardDescription className="text-muted-foreground">
-            {inviteToken
-              ? "Verify your email, then accept the invitation to join your team."
-              : "Get started with Nexus CRM"}
+            {t("sign_up_subtitle")}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -168,7 +169,7 @@ function SignupPageInner() {
 
             <div className="flex flex-col gap-2">
               <Label htmlFor="fullName" className="text-muted-foreground">
-                Full name
+                {t("full_name")}
               </Label>
               <Input
                 id="fullName"
@@ -183,7 +184,7 @@ function SignupPageInner() {
 
             <div className="flex flex-col gap-2">
               <Label htmlFor="email" className="text-muted-foreground">
-                Email
+                {t("email")}
               </Label>
               <Input
                 id="email"
@@ -198,7 +199,7 @@ function SignupPageInner() {
 
             <div className="flex flex-col gap-2">
               <Label htmlFor="password" className="text-muted-foreground">
-                Password
+                {t("password")}
               </Label>
               <Input
                 id="password"
@@ -213,7 +214,7 @@ function SignupPageInner() {
 
             <div className="flex flex-col gap-2">
               <Label htmlFor="confirmPassword" className="text-muted-foreground">
-                Confirm password
+                {t("confirm_password")}
               </Label>
               <Input
                 id="confirmPassword"
@@ -231,12 +232,12 @@ function SignupPageInner() {
               disabled={loading}
               className="mt-2 h-10 w-full bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
             >
-              {loading ? "Creating account..." : "Create account"}
+              {loading ? tc("loading") : t("sign_up")}
             </Button>
           </form>
 
           <p className="mt-6 text-center text-sm text-muted-foreground">
-            Already have an account?{" "}
+            {t("have_account")}{" "}
             <Link
               href={
                 inviteToken
@@ -245,7 +246,7 @@ function SignupPageInner() {
               }
               className="text-primary hover:text-primary/80"
             >
-              Sign in
+              {t("sign_in")}
             </Link>
           </p>
         </CardContent>
