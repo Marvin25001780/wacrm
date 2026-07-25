@@ -17,6 +17,7 @@ import { DealsSettings } from '@/components/settings/deals-settings';
 import { MembersTab } from '@/components/settings/members-tab';
 import { ApiKeysSettings } from '@/components/settings/api-keys-settings';
 import { AiConfig } from '@/components/settings/ai-config';
+import { IntegrationsPanel } from '@/components/settings/integrations-panel';
 import {
   resolveSection,
   type SettingsSection,
@@ -63,17 +64,18 @@ export default function SettingsPage() {
     members: <MembersTab />,
     ai: <AiConfig />,
     api: <ApiKeysSettings />,
+    integrations: <IntegrationsPanel />,
   };
 
   return (
     <div>
       <div>
         <h1 className="text-2xl font-bold tracking-tight text-foreground">
-          Settings
+          Configuración
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Everything in one place — your account and your workspace. Pick a
-          section to manage it.
+          Todo en un solo lugar — tu cuenta y tu espacio de trabajo. Elige una
+          sección para gestionarla.
         </p>
       </div>
 

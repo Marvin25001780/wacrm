@@ -33,6 +33,7 @@ export const SETTINGS_SECTIONS = [
   'members',
   'ai',
   'api',
+  'integrations',
 ] as const;
 
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
@@ -59,6 +60,7 @@ export const SECTION_META: Record<SettingsSection, SectionMeta> = {
   members: { id: 'members', label: 'Miembros del equipo', icon: UsersRound, group: 'workspace' },
   ai: { id: 'ai', label: 'Asistente IA', icon: Sparkles, group: 'workspace' },
   api: { id: 'api', label: 'Claves API', icon: KeyRound, group: 'workspace' },
+  integrations: { id: 'integrations', label: 'Integraciones', icon: PlugZap, group: 'workspace' },
 };
 
 export const RAIL_GROUPS: { label: string | null; group: SectionMeta['group'] }[] = [

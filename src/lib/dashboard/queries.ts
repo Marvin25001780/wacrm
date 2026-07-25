@@ -9,12 +9,14 @@ import {
 } from './date-utils'
 import type {
   ActivityItem,
+  AdvancedMetrics,
   ConversationsSeriesPoint,
   MetricsBundle,
   PipelineDonutData,
   PipelineStageSlice,
   ResponseTimeBucket,
   ResponseTimeSummary,
+  TopContactRow,
 } from './types'
 
 // ------------------------------------------------------------
@@ -314,11 +316,11 @@ export async function loadActivity(db: DB, limit = 20): Promise<ActivityItem[]> 
   }>) {
     const conv = Array.isArray(m.conversations) ? m.conversations[0] : m.conversations
     const contact = Array.isArray(conv?.contacts) ? conv?.contacts[0] : conv?.contacts
-    const who = contact?.name || contact?.phone || 'Unknown'
+    const who = contact?.name || contact?.phone || 'Desconocido'
     items.push({
       id: `msg-${m.id}`,
       kind: 'message',
-      text: `New message from ${who}`,
+      text: `Nuevo mensaje de ${who}`,
       at: m.created_at,
       href: `/inbox?c=${m.conversation_id}`,
     })
@@ -328,7 +330,7 @@ export async function loadActivity(db: DB, limit = 20): Promise<ActivityItem[]> 
     items.push({
       id: `contact-${c.id}`,
       kind: 'contact',
-      text: `New contact: ${c.name || c.phone}`,
+      text: `Nuevo contacto: ${c.name || c.phone}`,
       at: c.created_at,
       href: '/contacts',
     })
@@ -345,8 +347,8 @@ export async function loadActivity(db: DB, limit = 20): Promise<ActivityItem[]> 
       id: `deal-${d.id}`,
       kind: 'deal',
       text: stage?.name
-        ? `Deal "${d.title}" in ${stage.name}`
-        : `Deal "${d.title}" updated`,
+        ? `Negocio "${d.title}" en ${stage.name}`
+        : `Negocio "${d.title}" actualizado`,
       at: d.updated_at,
       href: '/pipelines',
     })
@@ -359,14 +361,14 @@ export async function loadActivity(db: DB, limit = 20): Promise<ActivityItem[]> 
     total_recipients: number
     created_at: string
   }>) {
-    const label =
-      b.status === 'sent'
-        ? `sent to ${b.total_recipients} contacts`
-        : `${b.status} (${b.total_recipients} recipients)`
+      const label =
+        b.status === 'sent'
+          ? `enviada a ${b.total_recipients} contactos`
+          : `${b.status} (${b.total_recipients} destinatarios)`
     items.push({
       id: `broadcast-${b.id}`,
       kind: 'broadcast',
-      text: `Broadcast "${b.name}" ${label}`,
+      text: `Emisión "${b.name}" ${label}`,
       at: b.created_at,
       href: '/broadcasts',
     })
@@ -382,12 +384,12 @@ export async function loadActivity(db: DB, limit = 20): Promise<ActivityItem[]> 
   }>) {
     const automation = Array.isArray(l.automation) ? l.automation[0] : l.automation
     const contact = Array.isArray(l.contact) ? l.contact[0] : l.contact
-    const who = contact?.name || contact?.phone || 'a contact'
-    const autoName = automation?.name || 'Automation'
+    const who = contact?.name || contact?.phone || 'un contacto'
+    const autoName = automation?.name || 'Automatización'
     items.push({
       id: `auto-${l.id}`,
       kind: 'automation',
-      text: `Automation "${autoName}" ${l.status === 'failed' ? 'failed for' : 'triggered for'} ${who}`,
+      text: `Automatización "${autoName}" ${l.status === 'failed' ? 'falló para' : 'se activó para'} ${who}`,
       at: l.created_at,
     })
   }
@@ -395,4 +397,55 @@ export async function loadActivity(db: DB, limit = 20): Promise<ActivityItem[]> 
   return items
     .sort((a, b) => (a.at > b.at ? -1 : a.at < b.at ? 1 : 0))
     .slice(0, limit)
+}
+
+// --- 6. Advanced metrics ------------------------------------------------
+
+export async function loadAdvancedMetrics(db: DB): Promise<AdvancedMetrics> {
+  const [totalConvsRes, resolvedConvsRes, totalBroadcastsRes, topContactsRes] = await Promise.all([
+    db.from('conversations').select('id', { count: 'exact', head: true }),
+    db.from('conversations').select('id', { count: 'exact', head: true }).eq('status', 'closed'),
+    db.from('broadcasts').select('id', { count: 'exact', head: true }),
+    db
+      .from('messages')
+      .select('conversation_id, conversations!inner(contact_id, contacts!inner(name, phone))')
+      .gte('created_at', daysAgoStart(29).toISOString())
+      .order('created_at', { ascending: false })
+      .limit(500),
+  ])
+
+  const totalConvs = totalConvsRes.count ?? 0
+  const resolvedConvs = resolvedConvsRes.count ?? 0
+  const totalBroadcasts = totalBroadcastsRes.count ?? 0
+
+  // Aggregate top contacts by message count
+  const contactCounts = new Map<string, { name: string | null; phone: string; count: number; lastMsg: string | null }>()
+  const msgs = (topContactsRes.data ?? []) as unknown as Array<{
+    conversation_id: string
+    conversations: Array<{ contact_id: string; contacts: Array<{ name: string | null; phone: string }> }> | { contact_id: string; contacts: Array<{ name: string | null; phone: string }> }
+  }>
+  for (const m of msgs) {
+    const conv = Array.isArray(m.conversations) ? m.conversations[0] : m.conversations
+    const c = Array.isArray(conv?.contacts) ? conv.contacts[0] : conv?.contacts
+    if (!c) continue
+    const key = c.phone
+    const existing = contactCounts.get(key) ?? { name: c.name, phone: c.phone, count: 0, lastMsg: null }
+    existing.count++
+    contactCounts.set(key, existing)
+  }
+
+  const topContacts: TopContactRow[] = Array.from(contactCounts.values())
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 5)
+    .map((c) => ({ name: c.name, phone: c.phone, messageCount: c.count, lastMessageAt: null }))
+
+  const responseRate = totalConvs > 0 ? Math.round((resolvedConvs / totalConvs) * 100) : 0
+
+  return {
+    totalConversations: totalConvs,
+    resolvedConversations: resolvedConvs,
+    responseRate,
+    totalBroadcasts,
+    topContacts,
+  }
 }

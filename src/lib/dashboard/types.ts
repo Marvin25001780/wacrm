@@ -65,3 +65,18 @@ export interface ActivityItem {
   /** Optional deep-link for the whole row (not all items have a target). */
   href?: string
 }
+
+export interface TopContactRow {
+  name: string | null
+  phone: string
+  messageCount: number
+  lastMessageAt: string | null
+}
+
+export interface AdvancedMetrics {
+  totalConversations: number
+  resolvedConversations: number
+  responseRate: number
+  totalBroadcasts: number
+  topContacts: TopContactRow[]
+}

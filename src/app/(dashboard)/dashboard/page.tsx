@@ -13,6 +13,7 @@ import {
 
 import {
   loadActivity,
+  loadAdvancedMetrics,
   loadConversationsSeries,
   loadMetrics,
   loadPipelineDonut,
@@ -20,12 +21,14 @@ import {
 } from '@/lib/dashboard/queries'
 import type {
   ActivityItem,
+  AdvancedMetrics,
   ConversationsSeriesPoint,
   MetricsBundle,
   PipelineDonutData,
   ResponseTimeSummary,
 } from '@/lib/dashboard/types'
 
+import { AdvancedReports } from '@/components/dashboard/advanced-reports'
 import { MetricCard } from '@/components/dashboard/metric-card'
 import { SkeletonCard } from '@/components/dashboard/skeleton'
 import { QuickActions } from '@/components/dashboard/quick-actions'
@@ -61,6 +64,9 @@ export default function DashboardPage() {
   const [activity, setActivity] = useState<ActivityItem[] | null>(null)
   const [activityLoading, setActivityLoading] = useState(true)
 
+  const [advancedMetrics, setAdvancedMetrics] = useState<AdvancedMetrics | null>(null)
+  const [advancedMetricsLoading, setAdvancedMetricsLoading] = useState(true)
+
   const loadAll = useCallback(() => {
     const db = createClient()
 
@@ -94,6 +100,11 @@ export default function DashboardPage() {
       .then((a) => setActivity(a))
       .catch((err) => console.error('[dashboard] activity failed:', err))
       .finally(() => setActivityLoading(false))
+
+    void loadAdvancedMetrics(db)
+      .then((m) => setAdvancedMetrics(m))
+      .catch((err) => console.error('[dashboard] advanced metrics failed:', err))
+      .finally(() => setAdvancedMetricsLoading(false))
   }, [])
 
   useEffect(() => {
@@ -122,9 +133,9 @@ export default function DashboardPage() {
     <div className="space-y-5">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
+        <h1 className="text-2xl font-bold text-foreground">Panel</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Live analytics across conversations, contacts, deals, broadcasts, and automations.
+          Analítica en vivo en conversaciones, contactos, negocios, emisiones y automatizaciones.
         </p>
       </div>
 
@@ -135,16 +146,16 @@ export default function DashboardPage() {
         ) : (
           <>
             <MetricCard
-              title="Active Conversations"
+              title="Conversaciones activas"
               value={metrics.activeConversations.current.toLocaleString()}
               icon={MessageSquare}
               delta={{
                 sign: metrics.activeConversations.previous,
-                label: deltaLabel(metrics.activeConversations.previous, 'new today vs yesterday'),
+                label: deltaLabel(metrics.activeConversations.previous, 'nuevas hoy vs ayer'),
               }}
             />
             <MetricCard
-              title="New Contacts Today"
+              title="Nuevos contactos hoy"
               value={metrics.newContactsToday.current.toLocaleString()}
               icon={UserPlus}
               delta={{
@@ -152,18 +163,18 @@ export default function DashboardPage() {
                   metrics.newContactsToday.current - metrics.newContactsToday.previous,
                 label: deltaLabel(
                   metrics.newContactsToday.current - metrics.newContactsToday.previous,
-                  'vs yesterday',
+                  'vs ayer',
                 ),
               }}
             />
             <MetricCard
-              title="Open Deals Value"
+              title="Valor de negocios abiertos"
               value={formatCurrency(metrics.openDealsValue, defaultCurrency)}
               icon={DollarSign}
-              subtitle={`${metrics.openDealsCount} open deal${metrics.openDealsCount === 1 ? '' : 's'}`}
+              subtitle={`${metrics.openDealsCount} negocio${metrics.openDealsCount === 1 ? '' : 's'} abierto${metrics.openDealsCount === 1 ? '' : 's'}`}
             />
             <MetricCard
-              title="Messages Sent Today"
+              title="Mensajes enviados hoy"
               value={metrics.messagesSentToday.current.toLocaleString()}
               icon={Send}
               delta={{
@@ -171,7 +182,7 @@ export default function DashboardPage() {
                   metrics.messagesSentToday.current - metrics.messagesSentToday.previous,
                 label: deltaLabel(
                   metrics.messagesSentToday.current - metrics.messagesSentToday.previous,
-                  'vs yesterday',
+                  'vs ayer',
                 ),
               }}
             />
@@ -210,6 +221,9 @@ export default function DashboardPage() {
       {/* Response time */}
       <ResponseTimeChart data={responseTime} loading={responseTimeLoading} />
 
+      {/* Advanced reports */}
+      <AdvancedReports data={advancedMetrics} loading={advancedMetricsLoading} />
+
       {/* Activity feed */}
       <ActivityFeed items={activity} loading={activityLoading} />
     </div>
@@ -219,7 +233,7 @@ export default function DashboardPage() {
 // ------------------------------------------------------------
 
 function deltaLabel(delta: number, suffix: string): string {
-  if (delta === 0) return `No change ${suffix}`
+  if (delta === 0) return `Sin cambios ${suffix}`
   const sign = delta > 0 ? '+' : ''
   return `${sign}${delta.toLocaleString()} ${suffix}`
 }

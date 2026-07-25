@@ -9,6 +9,7 @@ import { useTotalUnread } from "@/hooks/use-total-unread";
 import { useUnreadNotifications } from "@/hooks/use-unread-notifications";
 import {
   Bell,
+  CalendarDays,
   Crown,
   GitBranch,
   LayoutDashboard,
@@ -90,10 +91,11 @@ interface NavItem {
 }
 
 const navItems: NavItem[] = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/dashboard", label: "Panel", icon: LayoutDashboard },
   { href: "/inbox",     label: "Bandeja de entrada", icon: MessageSquare },
   { href: "/sms", label: "SMS", icon: Smartphone },
   { href: "/notifications",     label: "Notificaciones", icon: Bell },
+  { href: "/calendar",     label: "Calendario", icon: CalendarDays },
   { href: "/contacts",     label: "Contactos", icon: Users },
   { href: "/pipelines",     label: "Pipeline de ventas", icon: GitBranch },
   { href: "/broadcasts",     label: "Campañas", icon: Radio },
@@ -379,7 +381,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
                 }
               >
                 <Settings className="size-4" />
-                Settings
+                Configuración
               </DropdownMenuItem>
               <DropdownMenuSeparator className="bg-border" />
               <DropdownMenuItem
