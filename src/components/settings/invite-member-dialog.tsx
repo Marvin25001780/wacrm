@@ -105,7 +105,7 @@ export function InviteMemberDialog({
     // net for that path.
     const trimmedLabel = label.trim();
     if (trimmedLabel.length > MAX_LABEL_LEN) {
-      toast.error(`Label must be ${MAX_LABEL_LEN} characters or fewer`);
+      toast.error(`La etiqueta debe tener ${MAX_LABEL_LEN} caracteres o menos`);
       return;
     }
     setSubmitting(true);
@@ -122,7 +122,7 @@ export function InviteMemberDialog({
 
       if (!res.ok) {
         const payload = await res.json().catch(() => ({}));
-        toast.error(payload.error || 'Failed to create invitation');
+        toast.error(payload.error || 'Error al crear la invitación');
         return;
       }
 
@@ -140,12 +140,12 @@ export function InviteMemberDialog({
         // string if `account` hasn't loaded yet (shouldn't happen
         // — the dialog requires admin+ which requires a loaded
         // profile — but stay safe).
-        accountName: account?.name ?? 'our wacrm account',
+        accountName: account?.name ?? 'nuestra cuenta de wacrm',
       });
       onCreated();
     } catch (err) {
       console.error('[InviteMemberDialog] create error:', err);
-      toast.error('Could not reach the server. Try again?');
+      toast.error('No se pudo conectar con el servidor. ¿Intentar de nuevo?');
     } finally {
       setSubmitting(false);
     }
@@ -155,12 +155,12 @@ export function InviteMemberDialog({
     if (!result) return;
     try {
       await navigator.clipboard.writeText(result.url);
-      toast.success('Invite link copied');
+      toast.success('Enlace de invitación copiado');
     } catch {
       // Most likely "not in a secure context" — happens on http://
       // local IPs. Surface the link in the toast so the admin can
       // hand-copy it.
-      toast.error('Clipboard blocked — copy the link manually');
+      toast.error('Portapapeles bloqueado — copia el enlace manualmente');
     }
   }
 
@@ -169,8 +169,8 @@ export function InviteMemberDialog({
     // they're being invited to before clicking through. This matters
     // for users in multi-team contexts where "our wacrm account"
     // wouldn't be enough to disambiguate.
-    const accountName = result?.accountName ?? 'our wacrm account';
-    const message = `Join ${accountName} on wacrm using this link (valid for ${result?.expiresInDays} days): ${url}`;
+    const accountName = result?.accountName ?? 'nuestra cuenta de wacrm';
+    const message = `Únete a ${accountName} en wacrm con este enlace (válido por ${result?.expiresInDays} días): ${url}`;
     return `https://wa.me/?text=${encodeURIComponent(message)}`;
   }
 

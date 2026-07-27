@@ -65,7 +65,7 @@ export async function POST(request: Request) {
     if (!config) {
       return NextResponse.json(
         {
-          error: 'AI assistant is not set up. Enable it in Settings → AI Assistant.',
+          error: 'El asistente de IA no está configurado. Actívalo en Configuración → Asistente de IA.',
           code: 'ai_not_configured',
         },
         { status: 400 },
@@ -78,7 +78,7 @@ export async function POST(request: Request) {
     if (messages.length === 0) {
       return NextResponse.json(
         {
-          error: 'No messages to draft from yet.',
+          error: 'Aún no hay mensajes para redactar.',
           code: 'no_messages',
         },
         { status: 400 },

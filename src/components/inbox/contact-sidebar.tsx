@@ -181,7 +181,7 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
           <div>
             <div className="flex items-center gap-2 px-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
               <TagIcon className="h-3 w-3" />
-              Tags
+              Etiquetas
             </div>
             <div className="mt-2 flex flex-wrap gap-1">
               {tags.length === 0 ? (

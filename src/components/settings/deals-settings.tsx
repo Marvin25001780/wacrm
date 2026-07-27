@@ -56,7 +56,7 @@ export function DealsSettings() {
       .update({ default_currency: selected })
       .eq("id", accountId);
     if (error) {
-      toast.error("Failed to save default currency");
+      toast.error("Error al guardar la moneda predeterminada");
       setSaving(false);
       return;
     }
@@ -64,7 +64,7 @@ export function DealsSettings() {
     // and every total pick it up without a full reload.
     await refreshProfile();
     setSaving(false);
-    toast.success("Default currency updated");
+    toast.success("Moneda predeterminada actualizada");
   }
 
   return (

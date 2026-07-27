@@ -32,15 +32,15 @@ export function PasswordForm() {
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!profile?.email) {
-      toast.error('Cannot change password without a current email');
+      toast.error('No se puede cambiar la contraseña sin un correo electrónico actual');
       return;
     }
     if (next.length < MIN_PASSWORD) {
-      setConfirmError(`Password must be at least ${MIN_PASSWORD} characters`);
+      setConfirmError(`La contraseña debe tener al menos ${MIN_PASSWORD} caracteres`);
       return;
     }
     if (next !== confirm) {
-      setConfirmError('New password and confirmation do not match');
+      setConfirmError('La nueva contraseña y la confirmación no coinciden');
       return;
     }
     setConfirmError(null);
@@ -56,7 +56,7 @@ export function PasswordForm() {
         password: current,
       });
       if (signInError) {
-        toast.error('Current password is incorrect');
+        toast.error('La contraseña actual es incorrecta');
         return;
       }
 
@@ -64,7 +64,7 @@ export function PasswordForm() {
         password: next,
       });
       if (updateError) {
-        toast.error(`Password update failed: ${updateError.message}`);
+        toast.error(`Actualización de contraseña falló: ${updateError.message}`);
         return;
       }
 
@@ -73,7 +73,7 @@ export function PasswordForm() {
       setConfirm('');
       toast.success('Contraseña actualizada');
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Unknown error';
+      const msg = err instanceof Error ? err.message : 'Error desconocido';
       toast.error(msg);
     } finally {
       setSaving(false);

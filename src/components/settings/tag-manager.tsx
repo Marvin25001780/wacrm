@@ -26,14 +26,14 @@ import { cn } from '@/lib/utils';
 import type { Tag } from '@/types';
 
 const PRESET_COLORS = [
-  { name: 'Red', value: '#ef4444' },
-  { name: 'Orange', value: '#f97316' },
-  { name: 'Amber', value: '#f59e0b' },
-  { name: 'Emerald', value: '#10b981' },
-  { name: 'Cyan', value: '#06b6d4' },
-  { name: 'Blue', value: '#3b82f6' },
-  { name: 'Violet', value: '#8b5cf6' },
-  { name: 'Pink', value: '#ec4899' },
+  { name: 'Rojo', value: '#ef4444' },
+  { name: 'Naranja', value: '#f97316' },
+  { name: 'Ámbar', value: '#f59e0b' },
+  { name: 'Esmeralda', value: '#10b981' },
+  { name: 'Cian', value: '#06b6d4' },
+  { name: 'Azul', value: '#3b82f6' },
+  { name: 'Violeta', value: '#8b5cf6' },
+  { name: 'Rosa', value: '#ec4899' },
 ];
 
 /**
@@ -77,7 +77,7 @@ export function TagManager() {
       setTags(data || []);
     } catch (err) {
       console.error('Failed to fetch tags:', err);
-      toast.error('Failed to load tags');
+      toast.error('Error al cargar las etiquetas');
     } finally {
       setLoading(false);
     }
@@ -85,14 +85,14 @@ export function TagManager() {
 
   async function handleCreate() {
     if (!newTagName.trim()) {
-      toast.error('Tag name is required');
+      toast.error('El nombre de la etiqueta es obligatorio');
       return;
     }
 
     try {
       setSaving(true);
       if (!user || !accountId) {
-        toast.error('Not authenticated');
+        toast.error('No autenticado');
         return;
       }
 
@@ -107,13 +107,13 @@ export function TagManager() {
 
       if (error) throw error;
 
-      toast.success('Tag created');
+      toast.success('Etiqueta creada');
       setNewTagName('');
       setSelectedColor(PRESET_COLORS[3].value);
       await fetchTags(user.id);
     } catch (err) {
       console.error('Create error:', err);
-      toast.error('Failed to create tag');
+      toast.error('Error al crear la etiqueta');
     } finally {
       setSaving(false);
     }
@@ -136,13 +136,13 @@ export function TagManager() {
 
       if (error) throw error;
 
-      toast.success('Tag deleted');
+      toast.success('Etiqueta eliminada');
       setTags((prev) => prev.filter((t) => t.id !== tagToDelete.id));
       setDeleteDialogOpen(false);
       setTagToDelete(null);
     } catch (err) {
       console.error('Delete error:', err);
-      toast.error('Failed to delete tag');
+      toast.error('Error al eliminar la etiqueta');
     } finally {
       setDeleting(false);
     }
@@ -186,7 +186,7 @@ export function TagManager() {
                     <button
                       type="button"
                       onClick={() => confirmDelete(tag)}
-                      aria-label={`Delete ${tag.name}`}
+                      aria-label={`Eliminar ${tag.name}`}
                       className="ml-0.5 rounded-full p-0.5 opacity-60 transition-opacity hover:bg-black/10 hover:opacity-100 dark:hover:bg-white/10"
                     >
                       <X className="size-3" />
@@ -219,7 +219,7 @@ export function TagManager() {
                     key={color.value}
                     type="button"
                     onClick={() => setSelectedColor(color.value)}
-                    aria-label={`Use ${color.name}`}
+                    aria-label={`Usar ${color.name}`}
                     aria-pressed={selectedColor === color.value}
                     className={cn(
                       'size-6 rounded-md transition-transform hover:scale-110',
@@ -253,10 +253,10 @@ export function TagManager() {
       <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle>Delete tag</DialogTitle>
+            <DialogTitle>Eliminar etiqueta</DialogTitle>
             <DialogDescription>
-              Delete the tag &quot;{tagToDelete?.name}&quot;? This removes it
-              from all contacts and cannot be undone.
+              ¿Eliminar la etiqueta &quot;{tagToDelete?.name}&quot;? Esto la elimina
+              de todos los contactos y no se puede deshacer.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -265,7 +265,7 @@ export function TagManager() {
               onClick={() => setDeleteDialogOpen(false)}
               disabled={deleting}
             >
-              Cancel
+              Cancelar
             </Button>
             <Button
               variant="destructive"
@@ -275,10 +275,10 @@ export function TagManager() {
               {deleting ? (
                 <>
                   <Loader2 className="size-4 animate-spin" />
-                  Deleting...
+                  Eliminando...
                 </>
               ) : (
-                'Delete tag'
+                'Eliminar etiqueta'
               )}
             </Button>
           </DialogFooter>

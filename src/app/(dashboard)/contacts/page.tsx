@@ -147,7 +147,7 @@ export default function ContactsPage() {
       });
       if (seq !== fetchSeq.current) return; // superseded by a newer fetch
       if (error) {
-        toast.error('Failed to load contacts');
+        toast.error('Error al cargar los contactos');
         setLoading(false);
         return;
       }
@@ -169,7 +169,7 @@ export default function ContactsPage() {
       const { data, count: exactCount, error } = await query;
       if (seq !== fetchSeq.current) return; // superseded by a newer fetch
       if (error) {
-        toast.error('Failed to load contacts');
+        toast.error('Error al cargar los contactos');
         setLoading(false);
         return;
       }
@@ -251,7 +251,7 @@ export default function ContactsPage() {
   }
 
   function handleExportCsv() {
-    const headers = ['Name', 'Phone', 'Email', 'Company', 'Created'];
+    const headers = ['Nombre', 'Teléfono', 'Correo', 'Empresa', 'Creado'];
     const rows = contacts.map((c) => [
       c.name ?? '',
       c.phone ?? '',
@@ -266,7 +266,7 @@ export default function ContactsPage() {
     const supabase = createClient();
     const { data } = await supabase.from('contacts').select('*').order('created_at', { ascending: false });
     if (!data) return;
-    const headers = ['Name', 'Phone', 'Email', 'Company', 'Created'];
+    const headers = ['Nombre', 'Teléfono', 'Correo', 'Empresa', 'Creado'];
     const rows = data.map((c) => [
       c.name ?? '',
       c.phone ?? '',
@@ -287,9 +287,9 @@ export default function ContactsPage() {
       .eq('id', deleteTarget.id);
 
     if (error) {
-      toast.error('Failed to delete contact');
+      toast.error('Error al eliminar el contacto');
     } else {
-      toast.success('Contact deleted');
+      toast.success('Contacto eliminado');
       fetchContacts();
     }
 
@@ -331,9 +331,9 @@ export default function ContactsPage() {
     const { error } = await supabase.from('contacts').delete().in('id', ids);
 
     if (error) {
-      toast.error('Failed to delete contacts');
+      toast.error('Error al eliminar los contactos');
     } else {
-      toast.success(`${ids.length} contact${ids.length === 1 ? '' : 's'} deleted`);
+      toast.success(`${ids.length} contacto${ids.length === 1 ? '' : 's'} eliminado${ids.length === 1 ? '' : 's'}`);
       setSelected(new Set());
       fetchContacts();
     }
@@ -481,7 +481,7 @@ export default function ContactsPage() {
                       <Checkbox
                         checked={selectedTagIds.includes(tag.id)}
                         onCheckedChange={() => toggleTagFilter(tag.id)}
-                        aria-label={`Filter by ${tag.name}`}
+                        aria-label={`Filtrar por ${tag.name}`}
                       />
                       <span
                         className="size-2.5 shrink-0 rounded-full"
@@ -584,7 +584,7 @@ export default function ContactsPage() {
                   indeterminate={!allOnPageSelected && someOnPageSelected}
                   onCheckedChange={toggleSelectAll}
                   disabled={contacts.length === 0}
-                  aria-label="Select all contacts on this page"
+                  aria-label="Seleccionar todos los contactos de esta página"
                 />
               </TableHead>
               <TableHead className="text-muted-foreground">Nombre</TableHead>
@@ -643,7 +643,7 @@ export default function ContactsPage() {
                     <Checkbox
                       checked={selected.has(contact.id)}
                       onCheckedChange={() => toggleSelect(contact.id)}
-                      aria-label={`Select ${contact.name || contact.phone}`}
+                      aria-label={`Seleccionar ${contact.name || contact.phone}`}
                     />
                   </TableCell>
                   <TableCell className="text-foreground font-medium">
@@ -684,7 +684,7 @@ export default function ContactsPage() {
                     </div>
                   </TableCell>
                   <TableCell className="text-muted-foreground text-xs hidden lg:table-cell">
-                    {new Date(contact.created_at).toLocaleDateString('en-US', {
+                    {new Date(contact.created_at).toLocaleDateString('es-ES', {
                       month: 'short',
                       day: 'numeric',
                       year: 'numeric',

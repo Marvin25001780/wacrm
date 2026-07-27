@@ -70,14 +70,14 @@ export function ProfileForm() {
     if (!file) return;
 
     if (!ALLOWED_MIME.has(file.type)) {
-      toast.error('Unsupported image type', {
-        description: 'Use PNG, JPG, WebP, or GIF.',
+      toast.error('Tipo de imagen no compatible', {
+        description: 'Usa PNG, JPG, WebP o GIF.',
       });
       return;
     }
     if (file.size > MAX_AVATAR_BYTES) {
-      toast.error('Image is too large', {
-        description: 'Maximum 2 MB.',
+      toast.error('La imagen es demasiado grande', {
+        description: 'Máximo 2 MB.',
       });
       return;
     }
@@ -101,12 +101,12 @@ export function ProfileForm() {
 
     const trimmedName = fullName.trim();
     if (!trimmedName) {
-      toast.error('Display name is required');
+      toast.error('El nombre es obligatorio');
       return;
     }
     const trimmedEmail = email.trim();
     if (!EMAIL_RE.test(trimmedEmail)) {
-      toast.error('Enter a valid email address');
+      toast.error('Ingresa un correo electrónico válido');
       return;
     }
 
@@ -161,8 +161,8 @@ export function ProfileForm() {
         });
         if (emailError) {
           // Partial success: name/avatar saved but email didn't.
-          toast.success('Profile saved');
-          toast.error(`Email change failed: ${emailError.message}`);
+          toast.success('Perfil guardado');
+          toast.error(`Cambio de correo falló: ${emailError.message}`);
           setSaving(false);
           await refreshProfile();
           return;
@@ -178,11 +178,11 @@ export function ProfileForm() {
 
       toast.success(
         emailSent
-          ? 'Profile saved — check your email to confirm the address change'
-          : 'Profile saved',
+          ? 'Perfil guardado — revisa tu correo para confirmar el cambio de dirección'
+          : 'Perfil guardado',
       );
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Unknown error';
+      const msg = err instanceof Error ? err.message : 'Error desconocido';
       toast.error(msg);
     } finally {
       setSaving(false);

@@ -81,14 +81,14 @@ export function ApiKeysSettings() {
       const res = await fetch('/api/account/api-keys', { cache: 'no-store' });
       if (!res.ok) {
         const payload = await res.json().catch(() => ({}));
-        toast.error(payload.error || 'Failed to load API keys');
+        toast.error(payload.error || 'Error al cargar las claves API');
         return;
       }
       const data = (await res.json()) as { keys: ApiKey[] };
       setKeys(data.keys);
     } catch (err) {
       console.error('[ApiKeysSettings] load error:', err);
-      toast.error('Could not reach the server');
+      toast.error('No se pudo conectar con el servidor');
     } finally {
       setLoading(false);
     }
@@ -106,10 +106,10 @@ export function ApiKeysSettings() {
       });
       if (!res.ok) {
         const payload = await res.json().catch(() => ({}));
-        toast.error(payload.error || 'Failed to revoke key');
+        toast.error(payload.error || 'Error al revocar la clave');
         return;
       }
-      toast.success(`Revoked "${key.name}"`);
+      toast.success(`"${key.name}" revocada`);
       // Reflect the revoke locally without a refetch.
       setKeys((prev) =>
         prev.map((k) =>
@@ -118,7 +118,7 @@ export function ApiKeysSettings() {
       );
     } catch (err) {
       console.error('[ApiKeysSettings] revoke error:', err);
-      toast.error('Could not reach the server');
+      toast.error('No se pudo conectar con el servidor');
     } finally {
       setRevoking(null);
     }
@@ -308,7 +308,7 @@ function CreateKeyDialog({
   async function handleCreate() {
     const trimmed = name.trim();
     if (!trimmed) {
-      toast.error('Give the key a name');
+      toast.error('Asigna un nombre a la clave');
       return;
     }
     setSubmitting(true);
@@ -320,14 +320,14 @@ function CreateKeyDialog({
       });
       const payload = await res.json().catch(() => ({}));
       if (!res.ok) {
-        toast.error(payload.error || 'Failed to create key');
+        toast.error(payload.error || 'Error al crear la clave');
         return;
       }
       setCreatedKey(payload.plaintext as string);
       onCreated();
     } catch (err) {
       console.error('[CreateKeyDialog] create error:', err);
-      toast.error('Could not reach the server');
+      toast.error('No se pudo conectar con el servidor');
     } finally {
       setSubmitting(false);
     }
@@ -337,9 +337,9 @@ function CreateKeyDialog({
     if (!createdKey) return;
     try {
       await navigator.clipboard.writeText(createdKey);
-      toast.success('API key copied');
+      toast.success('Clave API copiada');
     } catch {
-      toast.error('Copy failed — select and copy manually');
+      toast.error('Copia falló — selecciona y copia manualmente');
     }
   }
 

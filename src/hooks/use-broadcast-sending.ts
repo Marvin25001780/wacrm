@@ -227,10 +227,10 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
     } = await supabase.auth.getSession();
     const user = session?.user;
     if (!user) {
-      throw new Error('You are not signed in.');
+      throw new Error('No has iniciado sesión.');
     }
     if (!accountId) {
-      throw new Error('Your profile is not linked to an account.');
+      throw new Error('Tu perfil no está vinculado a una cuenta.');
     }
 
     // De-duplicate by phone within the CSV (users can paste duplicates).
@@ -337,10 +337,10 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
       } = await supabase.auth.getSession();
       const user = session?.user;
       if (!user) {
-        throw new Error('You are not signed in.');
+        throw new Error('No has iniciado sesión.');
       }
       if (!accountId) {
-        throw new Error('Your profile is not linked to an account.');
+        throw new Error('Tu perfil no está vinculado a una cuenta.');
       }
 
       // ── Step 1: Resolve audience contacts ─────────────────────────
@@ -348,7 +348,7 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
       const contacts = await resolveAudience(payload.audience);
 
       if (contacts.length === 0) {
-        throw new Error('No contacts found for this audience.');
+        throw new Error('No se encontraron contactos para esta audiencia.');
       }
 
       // ── Step 2: Create broadcast row ──────────────────────────────

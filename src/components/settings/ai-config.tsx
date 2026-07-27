@@ -142,7 +142,7 @@ export function AiConfig() {
         }),
       });
       const data = await res.json();
-      if (res.ok) toast.success('Key works — the provider responded.');
+      if (res.ok) toast.success('La clave funciona — el proveedor respondió.');
       else toast.error(data.error ?? 'El proveedor rechaz\u00f3 la solicitud.');
     } catch {
       toast.error('No se pudo contactar al proveedor.');
@@ -172,10 +172,10 @@ export function AiConfig() {
         toast.success('Asistente de IA guardado.');
         await fetchConfig();
       } else {
-        toast.error(data.error ?? 'Failed to save.');
+        toast.error(data.error ?? 'Error al guardar.');
       }
     } catch {
-      toast.error('Failed to save.');
+      toast.error('Error al guardar.');
     } finally {
       setSaving(false);
     }
@@ -196,10 +196,10 @@ export function AiConfig() {
         setSystemPrompt('');
       } else {
         const data = await res.json();
-        toast.error(data.error ?? 'Failed to remove.');
+        toast.error(data.error ?? 'Error al eliminar.');
       }
     } catch {
-      toast.error('Failed to remove.');
+      toast.error('Error al eliminar.');
     } finally {
       setRemoving(false);
     }
@@ -208,7 +208,7 @@ export function AiConfig() {
   if (loading || profileLoading) {
     return (
       <div className="flex items-center justify-center py-16 text-muted-foreground">
-        <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading…
+        <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Cargando…
       </div>
     );
   }
@@ -323,7 +323,7 @@ export function AiConfig() {
                   ) : (
                     <CheckCircle2 className="mr-2 h-4 w-4" />
                   )}
-                  Test key
+                  Probar clave
                 </Button>
               </div>
             </div>
@@ -334,9 +334,9 @@ export function AiConfig() {
           <CardHeader>
             <CardTitle className="text-base">Comportamiento</CardTitle>
             <CardDescription>
-              Tell the assistant about your business — products, tone, what it
-              may and may not promise. This context feeds both drafts and
-              auto-replies.
+              Cuéntale al asistente sobre tu negocio — productos, tono, qué puede
+              y qué no puede prometer. Este contexto alimenta tanto los borradores
+              como las respuestas automáticas.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -346,7 +346,7 @@ export function AiConfig() {
                 id="ai-prompt"
                 value={systemPrompt}
                 onChange={(e) => setSystemPrompt(e.target.value)}
-                placeholder="e.g. We are Acme, a coffee-equipment store. Be warm and concise. Never quote prices or delivery dates — hand off to a human for those."
+                placeholder="p. ej. Somos Acme, una tienda de equipos de café. Sé cordial y conciso. Nunca cotices precios ni fechas de entrega — derívalo a un humano."
                 rows={5}
                 disabled={disabled}
               />
@@ -358,8 +358,8 @@ export function AiConfig() {
                   Activar asistente de IA
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  Master switch. Turns on the “Draft with AI” button in the
-                  inbox.
+                  Interruptor principal. Activa el botón “Redactar con IA” en la
+                  bandeja de entrada.
                 </p>
               </div>
               <Switch
@@ -375,9 +375,9 @@ export function AiConfig() {
                   Responder autom\u00e1ticamente a mensajes entrantes
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  The bot answers new inbound messages automatically (only when
-                  no flow handles them and no agent is assigned). Hands off to a
-                  human when it can’t help.
+                  El bot responde mensajes entrantes automáticamente (solo cuando
+                  ningún flujo los maneja y no hay un agente asignado). Deriva a un
+                  humano cuando no puede ayudar.
                 </p>
               </div>
               <Switch
@@ -391,7 +391,7 @@ export function AiConfig() {
               <div>
                 <Label htmlFor="ai-max">M\u00e1ximo de respuestas autom\u00e1ticas por conversaci\u00f3n</Label>
                 <p className="text-xs text-muted-foreground">
-                  Despu\u00e9s de esta cantidad de respuestas del bot en un hilo, el bot se silencia.
+                  Despu\u00e9s de esta cantidad de respuestas del bot en un hilo, este se silencia.
                 </p>
               </div>
               <Input
@@ -425,7 +425,7 @@ export function AiConfig() {
               ) : (
                 <Trash2 className="mr-2 h-4 w-4" />
               )}
-              Remove
+              Eliminar
             </Button>
           ) : (
             <span />
@@ -433,7 +433,7 @@ export function AiConfig() {
 
           <Button onClick={handleSave} disabled={disabled}>
             {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Save
+            Guardar
           </Button>
         </div>
       </div>
