@@ -111,8 +111,8 @@ export default function LandingPage() {
 
       <main className="relative pt-20">
         {/* Hero */}
-        <section className="relative min-h-[90vh] flex items-center overflow-hidden">
-          <div className="max-w-[1440px] mx-auto px-[64px] grid grid-cols-1 lg:grid-cols-2 gap-[48px] relative z-10">
+        <section className="relative min-h-[80vh] flex items-center overflow-hidden">
+          <div className="max-w-[1440px] mx-auto px-[64px] grid grid-cols-1 gap-[48px] relative z-10">
             <div className="flex flex-col justify-center space-y-[24px]">
               <div className="inline-flex items-center gap-2 bg-primary-container/30 border border-primary/20 px-4 py-2 rounded-full w-fit animate-float">
                 <span className="relative flex h-2 w-2">
@@ -139,33 +139,8 @@ export default function LandingPage() {
               </div>
             </div>
             <div className="hidden lg:flex items-center justify-center relative">
-              <div className="glass-card rounded-xl p-8 w-full max-w-md animate-float relative z-20">
-                <div className="flex items-center justify-between mb-6">
-                  <span className="text-primary font-bold">Live Analytics</span>
-                  <span className="material-symbols-outlined text-primary">monitoring</span>
-                </div>
-                <div className="space-y-4">
-                  <div className="h-2 bg-white/10 rounded-full overflow-hidden">
-                    <div className="h-full bg-gradient-to-r from-[#6366F1] to-[#EC4899] w-3/4"></div>
-                  </div>
-                  <div className="flex justify-between text-sm text-on-surface-variant">
-                    <span>Satisfacción del Cliente</span>
-                    <span>98.4%</span>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4 pt-4">
-                    <div className="bg-surface-container p-4 rounded-lg">
-                      <div className="text-[32px] text-primary font-bold">2.4s</div>
-                      <div className="text-xs text-on-surface-variant">Tiempo Promedio</div>
-                    </div>
-                    <div className="bg-surface-container p-4 rounded-lg">
-                      <div className="text-[32px] text-secondary font-bold">24/7</div>
-                      <div className="text-xs text-on-surface-variant">Disponibilidad</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <div className="absolute -top-10 -right-10 w-64 h-64 bg-primary/20 blur-[100px] rounded-full"></div>
-              <div className="absolute -bottom-10 -left-10 w-64 h-64 bg-secondary/20 blur-[100px] rounded-full"></div>
+              <div className="absolute w-64 h-64 bg-primary/20 blur-[100px] rounded-full"></div>
+              <div className="absolute w-64 h-64 bg-secondary/20 blur-[100px] rounded-full translate-x-20 translate-y-20"></div>
             </div>
           </div>
         </section>
