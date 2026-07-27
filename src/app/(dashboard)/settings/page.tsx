@@ -36,9 +36,7 @@ export default function SettingsPage() {
   const section = resolveSection(searchParams.get('tab'));
 
   const go = (next: SettingsSection) => {
-    const params = new URLSearchParams(searchParams.toString());
-    params.set('tab', next);
-    router.replace(`/settings?${params.toString()}`, { scroll: false });
+    router.push(`/settings?tab=${next}`);
   };
 
   // Cheap, fetch-free rail hints. The Overview landing carries the
