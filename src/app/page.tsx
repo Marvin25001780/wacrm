@@ -318,23 +318,23 @@ export default function LandingPage() {
               <button onClick={openModal} className="w-full py-4 bg-[#1A237E] text-white rounded-2xl font-bold hover:bg-[#6A1B9A] transition-all shadow-lg shadow-[#1A237E]/15">Elegir Plan</button>
             </div>
 
-            <div className="bg-gradient-to-b from-[#1A237E] to-[#0F1A5E] rounded-[32px] p-8 md:p-10 price-card featured text-white relative overflow-hidden" data-aos="fade-up" data-aos-delay="200">
-              <div className="absolute top-0 right-0 w-40 h-40 bg-white/5 rounded-full -mr-10 -mt-10"></div>
+            <div className="bg-gradient-to-br from-white to-slate-50 rounded-[32px] p-8 md:p-10 price-card featured text-slate-900 relative overflow-hidden border-2 border-[#1A237E]/10" data-aos="fade-up" data-aos-delay="200">
+              <div className="absolute top-0 right-0 w-40 h-40 bg-[#1A237E]/5 rounded-full -mr-10 -mt-10"></div>
               <div className="absolute top-4 right-4">
                 <span className="pill bg-[#F59E0B] text-[#0F1A5E] border-0 text-[10px]"><i className="fas fa-star mr-1"></i> MÁS SOLICITADO</span>
               </div>
               <div className="mb-8 relative">
                 <span className="pill bg-[#D81B60] text-white border-0">Recuperación B2B / B2C</span>
-                <h3 className="font-jakarta font-bold text-2xl mt-5">Gestión de Cobranza</h3>
-                <p className="text-sm text-blue-200 mt-2">Solo pagas por resultados recuperados</p>
+                <h3 className="font-jakarta font-bold text-2xl mt-5 text-slate-900">Gestión de Cobranza</h3>
+                <p className="text-sm text-slate-500 mt-2">Solo pagas por resultados recuperados</p>
               </div>
               <div className="space-y-2.5 mb-10 relative">
-                <p className="text-xs text-blue-300 uppercase font-bold tracking-widest mb-4">Comisiones por tramo de mora:</p>
+                <p className="text-xs text-slate-400 uppercase font-bold tracking-widest mb-4">Comisiones por tramo de mora:</p>
                 {[["Preventiva", "1%"], ["0 a 30 días", "2%"], ["31 a 60 días", "4%"], ["61 a 90 días", "6%"], ["91 a 120 días", "8%"], ["+121 días", "20%"]].map(([label, pct], i) => (
-                  <div key={i} className="flex justify-between items-center bg-white/10 p-3 rounded-2xl border border-white/10"><span>{label}</span><span className="font-extrabold text-[#F59E0B]">{pct}</span></div>
+                  <div key={i} className="flex justify-between items-center bg-[#1A237E]/5 p-3 rounded-2xl border border-[#1A237E]/10 text-slate-700"><span>{label}</span><span className="font-extrabold text-[#D81B60]">{pct}</span></div>
                 ))}
               </div>
-              <button onClick={openModal} className="w-full py-4 bg-white text-[#1A237E] rounded-2xl font-bold text-lg hover:bg-[#F59E0B] hover:text-[#0F1A5E] transition-all shadow-lg mt-auto relative">Solicitar Gestión</button>
+              <button onClick={openModal} className="w-full py-4 bg-gradient-to-r from-[#1A237E] to-[#6A1B9A] text-white rounded-2xl font-bold text-lg hover:shadow-xl hover:shadow-[#1A237E]/30 transition-all shadow-lg mt-auto relative">Solicitar Gestión</button>
             </div>
 
             <div className="bg-white rounded-[32px] p-8 md:p-10 price-card shadow-sm border border-slate-100" data-aos="fade-up" data-aos-delay="300">
