@@ -95,13 +95,13 @@ export function Step4ScheduleSend({
       <div>
         <h2 className="text-lg font-semibold text-foreground">Revisar y Enviar</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Nombra tu transmisi\u00f3n, revisa los detalles y env\u00eda.
+          Nombra tu transmisión, revisa los detalles y envía.
         </p>
       </div>
 
-      {/* Nombre de la Transmisi\u00f3n */}
+      {/* Nombre de la Transmisión */}
       <div>
-        <label className="mb-1.5 block text-sm font-medium text-foreground">Nombre de la Transmisi\u00f3n</label>
+        <label className="mb-1.5 block text-sm font-medium text-foreground">Nombre de la Transmisión</label>
         <Input
           value={name}
           onChange={(e) => onNameChange(e.target.value)}
@@ -148,7 +148,7 @@ export function Step4ScheduleSend({
           <div className="mb-2 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Loader2 className="h-4 w-4 animate-spin text-primary" />
-              <p className="text-sm font-medium text-foreground">Enviando transmisi\u00f3n...</p>
+              <p className="text-sm font-medium text-foreground">Enviando transmisión...</p>
             </div>
             <span className="text-xs font-medium text-primary">{progress}%</span>
           </div>
@@ -169,7 +169,7 @@ export function Step4ScheduleSend({
           className="border-border text-muted-foreground"
         >
           <ArrowLeft className="h-4 w-4" />
-          Back
+          Atrás
         </Button>
 
         <div className="flex items-center gap-2">
@@ -195,17 +195,17 @@ export function Step4ScheduleSend({
             }
           >
             <Send className="h-4 w-4" />
-            Enviar Transmisi\u00f3n
+            Enviar Transmisión
           </DialogTrigger>
           <DialogContent className="border-border bg-popover sm:max-w-md">
             <DialogHeader>
-              <DialogTitle className="text-popover-foreground">Confirmar Transmisi\u00f3n</DialogTitle>
+              <DialogTitle className="text-popover-foreground">Confirmar Transmisión</DialogTitle>
               <DialogDescription className="text-muted-foreground">
-                You are about to send this broadcast to{' '}
+                Estás a punto de enviar esta transmisión a{' '}
                 <span className="font-medium text-popover-foreground">{estimatedReach.toLocaleString()}</span>{' '}
-                contacts using the{' '}
-                <span className="font-medium text-popover-foreground">{template.name}</span> template.
-                Esta acci\u00f3n no se puede deshacer.
+                contactos usando la plantilla{' '}
+                <span className="font-medium text-popover-foreground">{template.name}</span>.
+                Esta acción no se puede deshacer.
               </DialogDescription>
             </DialogHeader>
             <DialogFooter>

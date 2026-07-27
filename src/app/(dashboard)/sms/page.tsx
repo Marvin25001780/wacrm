@@ -189,7 +189,7 @@ export default function SmsPage() {
       {/* Top nav tabs */}
       <div className="flex gap-6 border-b border-border pb-2">
         <button onClick={() => setTab("dashboard")} className={`pb-2 text-sm font-medium transition-colors ${tab === "dashboard" ? "border-b-2 border-primary text-foreground" : "text-muted-foreground hover:text-foreground"}`}>Panel</button>
-        <button onClick={() => setTab("messaging")} className={`pb-2 text-sm font-medium transition-colors ${tab === "messaging" ? "border-b-2 border-primary text-foreground" : "text-muted-foreground hover:text-foreground"}`}>Mensajer\u00eda</button>
+        <button onClick={() => setTab("messaging")} className={`pb-2 text-sm font-medium transition-colors ${tab === "messaging" ? "border-b-2 border-primary text-foreground" : "text-muted-foreground hover:text-foreground"}`}>Mensajería</button>
         <button onClick={() => setShowConfig(true)} className="pb-2 text-sm font-medium text-muted-foreground hover:text-foreground">Cuenta</button>
       </div>
 
@@ -242,7 +242,7 @@ export default function SmsPage() {
         <div className="flex flex-col gap-4">
           <div className="flex gap-4 border-b border-border pb-2">
             <button onClick={() => setMsgTab("send")} className={`pb-2 text-sm font-medium ${msgTab === "send" ? "border-b-2 border-primary text-foreground" : "text-muted-foreground hover:text-foreground"}`}>Enviar</button>
-            <button onClick={() => setMsgTab("bulk")} className={`pb-2 text-sm font-medium ${msgTab === "bulk" ? "border-b-2 border-primary text-foreground" : "text-muted-foreground hover:text-foreground"}`}>Env\u00edo Masivo</button>
+            <button onClick={() => setMsgTab("bulk")} className={`pb-2 text-sm font-medium ${msgTab === "bulk" ? "border-b-2 border-primary text-foreground" : "text-muted-foreground hover:text-foreground"}`}>Envío Masivo</button>
             <button onClick={() => setMsgTab("history")} className={`pb-2 text-sm font-medium ${msgTab === "history" ? "border-b-2 border-primary text-foreground" : "text-muted-foreground hover:text-foreground"}`}>Historial</button>
           </div>
 
