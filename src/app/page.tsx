@@ -162,7 +162,7 @@ export default function LandingPage() {
             <span className="pill bg-[#EEF2FF] text-[#1A237E] border border-[#C7D2FE]">
               <i className="fas fa-headset mr-1.5"></i> Contact Center & Social Media
             </span>
-            <span className="pill bg-gradient-to-r from-[#1A237E] to-[#6A1B9A] text-white border-0 shadow-lg">
+            <span className="pill bg-white/90 text-[#1A237E] border border-[#C7D2FE] shadow-lg">
               <i className="fas fa-building mr-1.5"></i> BEST VISION VENEZUELA, C.A.
             </span>
           </div>
