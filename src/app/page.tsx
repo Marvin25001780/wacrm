@@ -489,7 +489,19 @@ export default function LandingPage() {
           </div>
           <div className="border-t border-white/10 pt-10 text-center">
             <p className="text-sm font-bold text-white/80 tracking-wide">BEST VISION VENEZUELA, C.A.</p>
-            <p className="text-xs text-slate-500 mt-1">RIF / Registro Mercantil — Operaciones Autorizadas</p>
+            <p className="text-xs text-slate-400 mt-1">RIF J-410713348</p>
+            <p className="text-xs text-slate-500 mt-1 leading-relaxed max-w-2xl mx-auto">
+              Av. Libertador, Edif. Centro Parima, Piso 9, Of. 3, Urb. Chacao, Caracas, Miranda, ZP 1060
+            </p>
+            <p className="text-xs text-slate-500 mt-1">
+              Inscripción: 28/11/2017 · Actualización: 11/04/2024 · Vencimiento: 11/04/2027
+            </p>
+            <p className="text-xs text-slate-500 mt-1">
+              G.R.T.I. Región Capital — 3410713348-ZUG
+            </p>
+            <p className="text-xs text-slate-500 mt-3 max-w-xl mx-auto leading-relaxed">
+              Firma Autorizada. La condición de este contribuyente requiere la retención del 100% del impuesto causado, salvo que esté exento, no sujeto o demuestre ante el Agente de Retención del IVA que es un contribuyente exonerado.
+            </p>
             <p className="text-xs text-slate-500 mt-4">&copy; 2026 NEXUS Contact Center. Todos los derechos reservados.</p>
           </div>
         </div>
