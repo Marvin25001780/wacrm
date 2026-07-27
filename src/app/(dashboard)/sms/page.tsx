@@ -195,7 +195,7 @@ export default function SmsPage() {
 
       {tab === "dashboard" && (
         <div className="flex flex-col gap-4">
-          <p className="text-lg font-semibold text-foreground">Bienvenido de nuevo, Aaron Carrillo</p>
+          <p className="text-lg font-semibold text-foreground">Bienvenido de nuevo</p>
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             <div className="rounded-lg border border-border bg-card p-4">
               <div className="flex items-center justify-between"><span className="text-xs font-medium text-muted-foreground">Total de SMS Enviados</span><SmsIcon type="send" /></div>
