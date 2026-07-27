@@ -20,10 +20,10 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   title: {
-    default: "BEST VISION VENEZUELA, C.A.",
-    template: "%s — BEST VISION VENEZUELA",
+    default: "NEXUS | Global Contact Center & AI Solutions",
+    template: "%s — NEXUS",
   },
-  description: "NEXUS Contact Center — Gestión profesional de redes sociales, atención omnicanal y cobranza inteligente B2B/B2C.",
+  description: "NEXUS Contact Center — Revolucione su atención al cliente con nuestra plataforma de próxima generación. Ventas globales, cobranzas impulsadas por IA y cuidado omnicanal impecable.",
   robots: {
     index: true,
     follow: true,
