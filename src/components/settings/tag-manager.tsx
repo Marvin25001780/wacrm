@@ -153,10 +153,10 @@ export function TagManager() {
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-foreground">
           <TagIcon className="size-4 text-primary" />
-          Tags
+          Etiquetas
         </CardTitle>
         <CardDescription className="text-muted-foreground">
-          Colour-coded labels for grouping and filtering contacts.
+          Etiquetas con código de color para agrupar y filtrar contactos.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -196,14 +196,14 @@ export function TagManager() {
               </div>
             ) : (
               <p className="text-sm text-muted-foreground">
-                No tags yet — create your first one below.
+                Aún no hay etiquetas — crea la primera debajo.
               </p>
             )}
 
             {/* Inline create row */}
             <div className="flex flex-wrap items-center gap-2.5">
               <Input
-                placeholder="e.g. Newsletter"
+                placeholder="p.ej. Newsletter"
                 value={newTagName}
                 onChange={(e) => setNewTagName(e.target.value)}
                 onKeyDown={(e) => {
@@ -242,7 +242,7 @@ export function TagManager() {
                 ) : (
                   <Plus className="size-4" />
                 )}
-                Add tag
+                Agregar etiqueta
               </Button>
             </div>
           </>

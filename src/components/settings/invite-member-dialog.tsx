@@ -49,17 +49,17 @@ interface InviteMemberDialogProps {
 }
 
 const EXPIRY_OPTIONS: { value: string; label: string }[] = [
-  { value: '1', label: '1 day' },
-  { value: '7', label: '7 days' },
-  { value: '30', label: '30 days' },
+  { value: '1', label: '1 día' },
+  { value: '7', label: '7 días' },
+  { value: '30', label: '30 días' },
 ];
 
 const ROLE_DESCRIPTIONS: Record<InviteRole, string> = {
   admin:
-    'Can invite teammates, manage settings, send messages, and edit data.',
+    'Puede invitar compañeros, gestionar la configuración, enviar mensajes y editar datos.',
   agent:
-    'Can use the inbox, contacts, broadcasts, automations, and flows. No settings or member access.',
-  viewer: 'Read-only access across every page. Cannot send or edit anything.',
+    'Puede usar la bandeja de entrada, contactos, campañas, automatizaciones y flujos. Sin acceso a configuración ni miembros.',
+  viewer: 'Acceso de solo lectura a todas las páginas. No puede enviar ni editar nada.',
 };
 
 // Server caps label at 80 chars (see src/app/api/account/invitations/route.ts).

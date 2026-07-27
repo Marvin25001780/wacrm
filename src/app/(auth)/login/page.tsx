@@ -78,11 +78,11 @@ function LoginPageInner() {
             )}
           </div>
           <CardTitle className="text-xl text-foreground">
-            {inviteToken ? "Sign in to accept" : "Bienvenido de nuevo"}
+            {inviteToken ? "Inicia sesión para aceptar" : "Bienvenido de nuevo"}
           </CardTitle>
           <CardDescription className="text-muted-foreground">
             {inviteToken
-              ? "Sign in and we'll take you to the invitation."
+              ? "Inicia sesión y te llevaremos a la invitación."
               : "Ingresa tus credenciales para acceder"}
           </CardDescription>
         </CardHeader>
@@ -101,7 +101,7 @@ function LoginPageInner() {
               <Input
                 id="email"
                 type="email"
-                placeholder="you@example.com"
+                placeholder="tu@ejemplo.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
@@ -124,7 +124,7 @@ function LoginPageInner() {
               <Input
                 id="password"
                 type="password"
-                placeholder="Enter your password"
+                placeholder="Ingresa tu contraseña"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
@@ -137,7 +137,7 @@ function LoginPageInner() {
               disabled={loading}
               className="mt-2 h-10 w-full bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
             >
-              {loading ? "Signing in..." : "Iniciar sesión"}
+              {loading ? "Iniciando sesión..." : "Iniciar sesión"}
             </Button>
           </form>
 

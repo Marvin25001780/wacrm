@@ -91,7 +91,7 @@ function ModeCard({
       role="radio"
       onClick={onPick}
       aria-checked={isActive}
-      aria-label={`Use ${mode} mode`}
+      aria-label={`Usar modo ${mode === 'light' ? 'claro' : 'oscuro'}`}
       className={cn(
         "flex items-center gap-3 rounded-lg border bg-card p-4 text-left transition-colors",
         isActive
@@ -111,7 +111,7 @@ function ModeCard({
       {isActive && (
         <span className="inline-flex items-center gap-1 rounded-full bg-primary/15 px-2 py-0.5 text-[11px] font-medium text-primary">
           <Check className="h-3 w-3" />
-          Active
+          Activo
         </span>
       )}
     </button>
@@ -138,7 +138,7 @@ function ThemeCard({
       type="button"
       onClick={onPick}
       aria-pressed={isActive}
-      aria-label={`Use ${name} theme`}
+      aria-label={`Usar tema ${name}`}
       className={cn(
         "flex flex-col gap-3 rounded-lg border bg-card p-4 text-left transition-colors",
         isActive

@@ -64,8 +64,8 @@ export function EditorHeader() {
         <button
           type="button"
           onClick={() => router.push("/flows")}
-          title="Back to Flows"
-          aria-label="Back to Flows"
+          title="Volver a Flujos"
+          aria-label="Volver a Flujos"
           className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
         >
           <ArrowLeft className="h-4 w-4" />
@@ -76,16 +76,16 @@ export function EditorHeader() {
         <input
           value={state.name}
           onChange={(e) => setState((s) => ({ ...s, name: e.target.value }))}
-          placeholder="Flow name"
+          placeholder="Nombre del flujo"
           spellCheck={false}
-          aria-label="Flow name"
+          aria-label="Nombre del flujo"
           className="min-w-[120px] max-w-[340px] rounded-lg border border-transparent bg-transparent px-2 py-1 text-lg font-bold leading-tight tracking-tight text-foreground outline-none transition-colors hover:bg-muted focus:border-primary focus:bg-transparent focus:shadow-[0_0_0_3px_var(--primary-soft)]"
         />
         <StatusChip status={state.status} />
         {dirty && (
           <span
             className="inline-flex shrink-0 items-center gap-1.5 text-[10px] font-medium uppercase tracking-wide text-amber-300"
-            title="Unsaved changes — hit Save to persist"
+            title="Cambios sin guardar — presiona Guardar para persistir"
             aria-live="polite"
           >
             <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
@@ -180,15 +180,15 @@ function StatusChip({ status }: { status: BuilderState["status"] }) {
       // Neutral, not amber — amber is reserved for the adjacent
       // "Edited" dirty signal, so the two don't read as the same alert.
       cls: "border-border bg-muted text-muted-foreground",
-      label: "Draft",
+      label: "Borrador",
     },
     active: {
       cls: "border-emerald-600/40 bg-emerald-500/10 text-emerald-300",
-      label: "Active",
+      label: "Activo",
     },
     archived: {
       cls: "border-border bg-muted/50 text-muted-foreground",
-      label: "Archived",
+      label: "Archivado",
     },
   }[status];
   return (

@@ -95,9 +95,9 @@ interface Invitation {
 // Editable roles in the inline dropdown. Owner is never an option —
 // promotions go through the (deferred) Transfer Ownership flow.
 const EDITABLE_ROLES: { value: AccountRole; label: string; hint: string }[] = [
-  { value: 'admin', label: 'Admin', hint: 'Manage members + everything' },
-  { value: 'agent', label: 'Agent', hint: 'Use features; no settings' },
-  { value: 'viewer', label: 'Viewer', hint: 'Read-only across the app' },
+  { value: 'admin', label: 'Admin', hint: 'Gestionar miembros y todo lo demás' },
+  { value: 'agent', label: 'Agente', hint: 'Usar funciones; sin configuración' },
+  { value: 'viewer', label: 'Espectador', hint: 'Solo lectura en toda la app' },
 ];
 
 // Per-role chip metadata (icon / label / colour) lives in the shared
@@ -117,11 +117,11 @@ function fmtDate(iso: string): string {
 
 function fmtExpiresIn(iso: string): string {
   const ms = new Date(iso).getTime() - Date.now();
-  if (ms <= 0) return 'expired';
+  if (ms <= 0) return 'expirado';
   const days = Math.floor(ms / (24 * 60 * 60 * 1000));
-  if (days >= 1) return `expires in ${days} day${days === 1 ? '' : 's'}`;
+  if (days >= 1) return `expira en ${days} día${days === 1 ? '' : 's'}`;
   const hours = Math.max(1, Math.floor(ms / (60 * 60 * 1000)));
-  return `expires in ${hours} hour${hours === 1 ? '' : 's'}`;
+  return `expira en ${hours} hora${hours === 1 ? '' : 's'}`;
 }
 
 export function MembersTab() {
@@ -149,7 +149,7 @@ export function MembersTab() {
 
       if (!mres.ok) {
         const payload = await mres.json().catch(() => ({}));
-        toast.error(payload.error || 'Failed to load members');
+        toast.error(payload.error || 'Error al cargar los miembros');
         return;
       }
       const mdata = (await mres.json()) as { members: Member[] };
@@ -158,7 +158,7 @@ export function MembersTab() {
       if (ires) {
         if (!ires.ok) {
           const payload = await ires.json().catch(() => ({}));
-          toast.error(payload.error || 'Failed to load invitations');
+          toast.error(payload.error || 'Error al cargar las invitaciones');
           return;
         }
         const idata = (await ires.json()) as { invitations: Invitation[] };
@@ -168,7 +168,7 @@ export function MembersTab() {
       }
     } catch (err) {
       console.error('[MembersTab] load error:', err);
-      toast.error('Could not reach the server');
+      toast.error('No se pudo conectar con el servidor');
     } finally {
       setLoading(false);
     }
@@ -208,10 +208,10 @@ export function MembersTab() {
           ),
         );
         const payload = await res.json().catch(() => ({}));
-        toast.error(payload.error || 'Failed to update role');
+        toast.error(payload.error || 'Error al actualizar el rol');
         return;
       }
-      toast.success(`Updated ${member.full_name || 'member'} to ${nextRole}`);
+      toast.success(`${member.full_name || 'miembro'} actualizado a ${nextRole}`);
     } catch (err) {
       // Same revert on network failure.
       setMembers((prev) =>
@@ -220,7 +220,7 @@ export function MembersTab() {
         ),
       );
       console.error('[MembersTab] role change error:', err);
-      toast.error('Could not reach the server');
+      toast.error('No se pudo conectar con el servidor');
     } finally {
       setPendingMemberAction(null);
     }
@@ -236,17 +236,17 @@ export function MembersTab() {
       );
       if (!res.ok) {
         const payload = await res.json().catch(() => ({}));
-        toast.error(payload.error || 'Failed to remove member');
+        toast.error(payload.error || 'Error al eliminar miembro');
         return;
       }
-      toast.success(`Removed ${removingMember.full_name || 'member'}`);
+      toast.success(`${removingMember.full_name || 'miembro'} eliminado`);
       setMembers((prev) =>
         prev.filter((m) => m.user_id !== removingMember.user_id),
       );
       setRemovingMember(null);
     } catch (err) {
       console.error('[MembersTab] remove error:', err);
-      toast.error('Could not reach the server');
+      toast.error('No se pudo conectar con el servidor');
     } finally {
       setPendingMemberAction(null);
     }
@@ -259,10 +259,10 @@ export function MembersTab() {
       });
       if (!res.ok) {
         const payload = await res.json().catch(() => ({}));
-        toast.error(payload.error || 'Failed to revoke invitation');
+        toast.error(payload.error || 'Error al revocar invitación');
         return;
       }
-      toast.success('Invitation revoked');
+      toast.success('Invitación revocada');
       setInvitations((prev) => prev.filter((i) => i.id !== invite.id));
     } catch (err) {
       console.error('[MembersTab] revoke error:', err);
@@ -355,7 +355,7 @@ export function MembersTab() {
                             {member.avatar_url ? (
                               <AvatarImage
                                 src={member.avatar_url}
-                                alt={member.full_name || 'Member'}
+                                alt={member.full_name || 'Miembro'}
                               />
                             ) : null}
                             <AvatarFallback className="bg-primary/10 text-sm font-medium text-primary">
@@ -381,7 +381,7 @@ export function MembersTab() {
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
                         <span className="truncate text-sm font-medium text-foreground">
-                          {member.full_name || 'Unnamed'}
+                          {member.full_name || 'Sin nombre'}
                         </span>
                         {isSelf && (
                           <Badge className="bg-muted text-muted-foreground border-border text-[10px] uppercase tracking-wide">
@@ -524,7 +524,7 @@ export function MembersTab() {
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
                           <span className="text-sm font-medium text-foreground">
-                            {inv.label || 'Untitled invite'}
+                            {inv.label || 'Invitación sin título'}
                           </span>
                           <span
                             className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-medium ${inviteRoleMeta.className}`}

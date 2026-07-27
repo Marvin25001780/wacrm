@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Shared status badge config for broadcasts + recipients.
  *
  * Previously `statusConfig` was defined inline in both
@@ -18,64 +18,64 @@ export interface StatusDisplay {
   classes: string;
   /**
    * Set true for statuses that should pulse in the UI to convey
-   * "live / in-flight" — currently only `sending`.
+   * "live / in-flight" â€” currently only `sending`.
    */
   pulse?: boolean;
 }
 
 export const broadcastStatusConfig: Record<BroadcastStatus, StatusDisplay> = {
   draft: {
-    label: "Draft",
+    label: "Borrador",
     classes: "bg-slate-500/10 text-muted-foreground border-slate-500/20",
   },
   scheduled: {
-    label: "Scheduled",
+    label: "Programado",
     classes: "bg-blue-500/10 text-blue-400 border-blue-500/20",
   },
   sending: {
-    label: "Sending",
+    label: "Enviando",
     classes: "bg-yellow-500/10 text-yellow-400 border-yellow-500/20",
     pulse: true,
   },
   sent: {
-    label: "Sent",
+    label: "Enviado",
     classes: "bg-primary/10 text-primary border-primary/20",
   },
   failed: {
-    label: "Failed",
+    label: "Fallido",
     classes: "bg-red-500/10 text-red-400 border-red-500/20",
   },
 };
 
 export const recipientStatusConfig: Record<RecipientStatus, StatusDisplay> = {
   pending: {
-    label: "Pending",
+    label: "Pendiente",
     classes: "bg-slate-500/10 text-muted-foreground border-slate-500/20",
   },
   sent: {
-    label: "Sent",
+    label: "Enviado",
     classes: "bg-blue-500/10 text-blue-400 border-blue-500/20",
   },
   delivered: {
-    label: "Delivered",
+    label: "Entregado",
     classes: "bg-primary/10 text-primary border-primary/20",
   },
   read: {
-    label: "Read",
+    label: "Leído",
     classes: "bg-primary/10 text-primary border-primary/20",
   },
   replied: {
-    label: "Replied",
+    label: "Respondido",
     classes: "bg-purple-500/10 text-purple-400 border-purple-500/20",
   },
   failed: {
-    label: "Failed",
+    label: "Fallido",
     classes: "bg-red-500/10 text-red-400 border-red-500/20",
   },
 };
 
 /**
- * Tolerant lookup — callers often have a generic string status
+ * Tolerant lookup â€” callers often have a generic string status
  * coming from Supabase. Falls back to the "draft" / "pending"
  * entry so the UI never crashes on an unknown value.
  */
@@ -92,3 +92,4 @@ export function getRecipientStatus(status: string): StatusDisplay {
     recipientStatusConfig.pending
   );
 }
+

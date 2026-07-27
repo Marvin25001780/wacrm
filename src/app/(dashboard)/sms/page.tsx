@@ -48,7 +48,7 @@ export default function SmsPage() {
   const [bulkTemplate, setBulkTemplate] = useState("");
   const [delaySeconds, setDelaySeconds] = useState(5);
   const [bulkSending, setBulkSending] = useState(false);
-  const [bulkProgress, setBulkProgress] = useState({ sent: 0, total: 0, failed: 0 });
+  const [bulkProgress, setBulkProgress] = useState({ sent: 0, total: 0, fallidos: 0 });
   const [previewRecipient, setPreviewRecipient] = useState("");
   const cancelRef = useRef(false);
 
@@ -63,7 +63,7 @@ export default function SmsPage() {
     localStorage.setItem("sms_device_id", deviceId);
     localStorage.setItem("sms_api_key", apiKey);
     setShowConfig(false);
-    toast.success("Credentials saved");
+    toast.success("Credenciales guardadas");
   };
 
   const sendSms = useCallback(async () => {
@@ -81,14 +81,14 @@ export default function SmsPage() {
       clearTimeout(timeout);
       if (!res.ok) {
         const err = await res.json();
-        throw new Error(err.error ?? "Error sending SMS");
+        throw new Error(err.error ?? "Error al enviar SMS");
       }
-      toast.success("SMS sent successfully");
+      toast.success("SMS enviado exitosamente");
       setHistory((prev) => [{ to: phone, message, sentAt: new Date().toISOString() }, ...prev]);
       setPhone("");
       setMessage("");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to send SMS");
+      toast.error(e instanceof Error ? e.message : "Error al enviar SMS");
     } finally {
       setSending(false);
     }
@@ -116,12 +116,12 @@ export default function SmsPage() {
   const handleCsvUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 1048576) { toast.error("File too large (max 1MB)"); return; }
+    if (file.size > 1048576) { toast.error("Archivo demasiado grande (m\u00e1x 1MB)"); return; }
     const reader = new FileReader();
     reader.onload = (ev) => {
       const text = ev.target?.result as string;
       const lines = text.split("\n").filter(Boolean);
-      if (lines.length < 2) { toast.error("CSV must have a header row and at least one data row"); return; }
+      if (lines.length < 2) { toast.error("El CSV debe tener una fila de encabezado y al menos una fila de datos"); return; }
       const headers = lines[0].split(",").map((h) => h.trim());
       const rows = lines.slice(1).map((line) => {
         const vals = line.split(",").map((v) => v.trim());
@@ -132,7 +132,7 @@ export default function SmsPage() {
       setCsvColumns(headers);
       setCsvData(rows);
       if (!selectedColumn && headers.length > 0) setSelectedColumn(headers[0]);
-      toast.success(`Loaded ${rows.length} contacts`);
+      toast.success(`Cargados ${rows.length} contactos`);
     };
     reader.readAsText(file);
   };
@@ -142,7 +142,7 @@ export default function SmsPage() {
     if (!deviceId || !apiKey || !selectedColumn || !bulkTemplate || csvData.length === 0) return;
     cancelRef.current = false;
     setBulkSending(true);
-    setBulkProgress({ sent: 0, total: csvData.length, failed: 0 });
+    setBulkProgress({ sent: 0, total: csvData.length, fallidos: 0 });
 
     for (let i = 0; i < csvData.length; i++) {
       if (cancelRef.current) break;
@@ -150,7 +150,7 @@ export default function SmsPage() {
       let msg = bulkTemplate;
       csvColumns.forEach((col) => { msg = msg.replaceAll(`{{ ${col} }}`, row[col] || ""); });
       const recipient = row[selectedColumn];
-      if (!recipient) { setBulkProgress((p) => ({ ...p, failed: p.failed + 1 })); continue; }
+      if (!recipient) { setBulkProgress((p) => ({ ...p, fallidos: p.fallidos + 1 })); continue; }
 
       try {
         const res = await fetch("/api/sms/send", {
@@ -162,7 +162,7 @@ export default function SmsPage() {
         setBulkProgress((p) => ({ ...p, sent: p.sent + 1 }));
         setHistory((prev) => [{ to: recipient, message: msg, sentAt: new Date().toISOString() }, ...prev]);
       } catch {
-        setBulkProgress((p) => ({ ...p, failed: p.failed + 1 }));
+        setBulkProgress((p) => ({ ...p, fallidos: p.fallidos + 1 }));
       }
 
       if (i < csvData.length - 1 && delaySeconds > 0) {
@@ -171,7 +171,7 @@ export default function SmsPage() {
     }
 
     setBulkSending(false);
-    toast.success(`Bulk send complete: ${bulkProgress.sent} sent, ${bulkProgress.failed} failed`);
+    toast.success(`Envío masivo completado: ${bulkProgress.sent} enviados, ${bulkProgress.fallidos} fallidos`);
   };
 
   // Preview for selected recipient
@@ -188,52 +188,52 @@ export default function SmsPage() {
     <div className="flex h-full flex-col gap-4 p-4 lg:p-6">
       {/* Top nav tabs */}
       <div className="flex gap-6 border-b border-border pb-2">
-        <button onClick={() => setTab("dashboard")} className={`pb-2 text-sm font-medium transition-colors ${tab === "dashboard" ? "border-b-2 border-primary text-foreground" : "text-muted-foreground hover:text-foreground"}`}>Dashboard</button>
-        <button onClick={() => setTab("messaging")} className={`pb-2 text-sm font-medium transition-colors ${tab === "messaging" ? "border-b-2 border-primary text-foreground" : "text-muted-foreground hover:text-foreground"}`}>Messaging</button>
-        <button onClick={() => setShowConfig(true)} className="pb-2 text-sm font-medium text-muted-foreground hover:text-foreground">Account</button>
+        <button onClick={() => setTab("dashboard")} className={`pb-2 text-sm font-medium transition-colors ${tab === "dashboard" ? "border-b-2 border-primary text-foreground" : "text-muted-foreground hover:text-foreground"}`}>Panel</button>
+        <button onClick={() => setTab("messaging")} className={`pb-2 text-sm font-medium transition-colors ${tab === "messaging" ? "border-b-2 border-primary text-foreground" : "text-muted-foreground hover:text-foreground"}`}>Mensajer\u00eda</button>
+        <button onClick={() => setShowConfig(true)} className="pb-2 text-sm font-medium text-muted-foreground hover:text-foreground">Cuenta</button>
       </div>
 
       {tab === "dashboard" && (
         <div className="flex flex-col gap-4">
-          <p className="text-lg font-semibold text-foreground">Welcome back, Aaron Carrillo</p>
+          <p className="text-lg font-semibold text-foreground">Bienvenido de nuevo, Aaron Carrillo</p>
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             <div className="rounded-lg border border-border bg-card p-4">
-              <div className="flex items-center justify-between"><span className="text-xs font-medium text-muted-foreground">Total SMS Sent</span><SmsIcon type="send" /></div>
+              <div className="flex items-center justify-between"><span className="text-xs font-medium text-muted-foreground">Total de SMS Enviados</span><SmsIcon type="send" /></div>
               <p className="mt-1 text-2xl font-bold text-foreground">{history.length}</p>
-              <span className="text-[10px] text-muted-foreground">Since last year</span>
+              <span className="text-[10px] text-muted-foreground">Desde el a\u00f1o pasado</span>
             </div>
             <div className="rounded-lg border border-border bg-card p-4">
-              <div className="flex items-center justify-between"><span className="text-xs font-medium text-muted-foreground">Active Devices</span><SmsIcon type="device" /></div>
+              <div className="flex items-center justify-between"><span className="text-xs font-medium text-muted-foreground">Dispositivos Activos</span><SmsIcon type="device" /></div>
               <p className="mt-1 text-2xl font-bold text-foreground">{deviceId ? 1 : 0}</p>
-              <span className="text-[10px] text-muted-foreground">Connected now</span>
+              <span className="text-[10px] text-muted-foreground">Conectado ahora</span>
             </div>
             <div className="rounded-lg border border-border bg-card p-4">
-              <div className="flex items-center justify-between"><span className="text-xs font-medium text-muted-foreground">API Keys</span><SmsIcon type="key" /></div>
+              <div className="flex items-center justify-between"><span className="text-xs font-medium text-muted-foreground">Claves de API</span><SmsIcon type="key" /></div>
               <p className="mt-1 text-2xl font-bold text-foreground">{apiKey ? 1 : 0}</p>
-              <span className="text-[10px] text-muted-foreground">Active keys</span>
+              <span className="text-[10px] text-muted-foreground">Claves activas</span>
             </div>
             <div className="rounded-lg border border-border bg-card p-4">
-              <div className="flex items-center justify-between"><span className="text-xs font-medium text-muted-foreground">SMS Received</span><SmsIcon type="sms" /></div>
+              <div className="flex items-center justify-between"><span className="text-xs font-medium text-muted-foreground">SMS Recibidos</span><SmsIcon type="sms" /></div>
               <p className="mt-1 text-2xl font-bold text-foreground">{lastReceived.length}</p>
-              <span className="text-[10px] text-muted-foreground">Since last year</span>
+              <span className="text-[10px] text-muted-foreground">Desde el a\u00f1o pasado</span>
             </div>
           </div>
           <div className="rounded-lg border border-border bg-card p-4">
             <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-foreground">API Keys</h3>
-              <Button variant="outline" size="sm" onClick={() => window.open("https://app.textbee.dev/dashboard", "_blank")}>Add API key</Button>
+              <h3 className="text-sm font-semibold text-foreground">Claves de API</h3>
+              <Button variant="outline" size="sm" onClick={() => window.open("https://app.textbee.dev/dashboard", "_blank")}>Agregar clave de API</Button>
             </div>
             {apiKey && (
               <div className="mt-3 rounded-md bg-muted/30 p-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2"><SmsIcon type="key" /><span className="text-xs font-mono text-muted-foreground">{apiKey.slice(0, 18)}**********</span></div>
-                  <span className="rounded-full bg-green-500/10 px-2 py-0.5 text-[10px] font-medium text-green-400">Active</span>
+                  <span className="rounded-full bg-green-500/10 px-2 py-0.5 text-[10px] font-medium text-green-400">Activo</span>
                 </div>
-                <p className="mt-1 text-[10px] text-muted-foreground">Created at: Jul 4, 2026</p>
-                <p className="text-[10px] text-muted-foreground">Last used: {new Date().toLocaleDateString()}</p>
+                <p className="mt-1 text-[10px] text-muted-foreground">Creada el: 4 de julio de 2026</p>
+                <p className="text-[10px] text-muted-foreground">\u00daltimo uso: {new Date().toLocaleDateString()}</p>
               </div>
             )}
-            {!apiKey && <p className="mt-3 text-xs text-muted-foreground">No API key configured</p>}
+            {!apiKey && <p className="mt-3 text-xs text-muted-foreground">No hay clave de API configurada</p>}
           </div>
         </div>
       )}
@@ -241,85 +241,85 @@ export default function SmsPage() {
       {tab === "messaging" && (
         <div className="flex flex-col gap-4">
           <div className="flex gap-4 border-b border-border pb-2">
-            <button onClick={() => setMsgTab("send")} className={`pb-2 text-sm font-medium ${msgTab === "send" ? "border-b-2 border-primary text-foreground" : "text-muted-foreground hover:text-foreground"}`}>Send</button>
-            <button onClick={() => setMsgTab("bulk")} className={`pb-2 text-sm font-medium ${msgTab === "bulk" ? "border-b-2 border-primary text-foreground" : "text-muted-foreground hover:text-foreground"}`}>Bulk Send</button>
-            <button onClick={() => setMsgTab("history")} className={`pb-2 text-sm font-medium ${msgTab === "history" ? "border-b-2 border-primary text-foreground" : "text-muted-foreground hover:text-foreground"}`}>History</button>
+            <button onClick={() => setMsgTab("send")} className={`pb-2 text-sm font-medium ${msgTab === "send" ? "border-b-2 border-primary text-foreground" : "text-muted-foreground hover:text-foreground"}`}>Enviar</button>
+            <button onClick={() => setMsgTab("bulk")} className={`pb-2 text-sm font-medium ${msgTab === "bulk" ? "border-b-2 border-primary text-foreground" : "text-muted-foreground hover:text-foreground"}`}>Env\u00edo Masivo</button>
+            <button onClick={() => setMsgTab("history")} className={`pb-2 text-sm font-medium ${msgTab === "history" ? "border-b-2 border-primary text-foreground" : "text-muted-foreground hover:text-foreground"}`}>Historial</button>
           </div>
 
           {msgTab === "send" && (
             <div className="rounded-lg border border-border bg-card p-4">
-              <h3 className="mb-1 text-sm font-semibold text-foreground">Send SMS</h3>
-              <p className="mb-3 text-xs text-muted-foreground">Send a message to any recipient(s)</p>
+              <h3 className="mb-1 text-sm font-semibold text-foreground">Enviar SMS</h3>
+              <p className="mb-3 text-xs text-muted-foreground">Env\u00eda un mensaje a cualquier destinatario</p>
               <div className="mb-3 flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2">
                 <SmsIcon type="device" />
-                <span className="flex-1 text-sm text-muted-foreground">{deviceId ? deviceId.slice(0, 16) + "..." : "Select a device"}</span>
-                <button onClick={() => setShowConfig(true)} className="text-xs text-primary underline">{deviceId ? "Change" : "Configure"}</button>
+                <span className="flex-1 text-sm text-muted-foreground">{deviceId ? deviceId.slice(0, 16) + "..." : "Seleccionar un dispositivo"}</span>
+                <button onClick={() => setShowConfig(true)} className="text-xs text-primary underline">{deviceId ? "Cambiar" : "Configurar"}</button>
               </div>
               <div className="flex flex-col gap-3">
-                <Input placeholder="Add Recipient" value={phone} onChange={(e) => setPhone(e.target.value)} className="font-mono" />
-                <textarea className="flex min-h-16 w-full rounded-lg border border-input bg-transparent px-2.5 py-2 text-base transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 md:text-sm" placeholder="Message" value={message} onChange={(e) => setMessage(e.target.value)} rows={3} />
-                <Button onClick={sendSms} disabled={sending || !phone || !message} className="self-start">{sending ? "Sending..." : "Send Message"}</Button>
+                <Input placeholder="Agregar destinatario" value={phone} onChange={(e) => setPhone(e.target.value)} className="font-mono" />
+                <textarea className="flex min-h-16 w-full rounded-lg border border-input bg-transparent px-2.5 py-2 text-base transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 md:text-sm" placeholder="Mensaje" value={message} onChange={(e) => setMessage(e.target.value)} rows={3} />
+                <Button onClick={sendSms} disabled={sending || !phone || !message} className="self-start">{sending ? "Enviando..." : "Enviar mensaje"}</Button>
               </div>
             </div>
           )}
 
           {msgTab === "bulk" && (
             <div className="rounded-lg border border-border bg-card p-4">
-              <h3 className="mb-1 text-sm font-semibold text-foreground">Send Bulk SMS</h3>
-              <p className="mb-4 text-xs text-muted-foreground">Upload a CSV, configure your message, and send bulk SMS in 3 simple steps.</p>
+              <h3 className="mb-1 text-sm font-semibold text-foreground">Enviar SMS Masivos</h3>
+              <p className="mb-4 text-xs text-muted-foreground">Sube un CSV, configura tu mensaje y env\u00eda SMS masivos en 3 simples pasos.</p>
 
               {/* Step 1: Upload CSV */}
               <div className="mb-4">
-                <p className="mb-2 text-sm font-medium text-foreground">1. Upload CSV</p>
+                <p className="mb-2 text-sm font-medium text-foreground">1. Subir CSV</p>
                 <div className="rounded-lg border-2 border-dashed border-border bg-muted/20 p-6 text-center">
                   <SmsIcon type="upload" />
-                  <p className="mt-2 text-sm text-muted-foreground">Upload a CSV file containing recipient information.</p>
+                  <p className="mt-2 text-sm text-muted-foreground">Sube un archivo CSV con informaci\u00f3n de los destinatarios.</p>
                   <label className="mt-2 inline-block cursor-pointer rounded-md bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90">
-                    Select CSV file
+                    Seleccionar archivo CSV
                     <input type="file" accept=".csv" onChange={handleCsvUpload} className="hidden" />
                   </label>
-                  {csvData.length > 0 && <p className="mt-2 text-xs text-muted-foreground">{csvData.length} contacts loaded</p>}
-                  <p className="mt-1 text-[10px] text-muted-foreground">Max file size: 1MB</p>
+                  {csvData.length > 0 && <p className="mt-2 text-xs text-muted-foreground">{csvData.length} contactos cargados</p>}
+                  <p className="mt-1 text-[10px] text-muted-foreground">Tama\u00f1o m\u00e1ximo: 1MB</p>
                 </div>
               </div>
 
               {/* Step 2: Configure */}
               <div className="mb-4">
-                <p className="mb-2 text-sm font-medium text-foreground">2. Configure SMS</p>
+                <p className="mb-2 text-sm font-medium text-foreground">2. Configurar SMS</p>
                 <div className="flex flex-col gap-3">
                   <div className="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2">
                     <SmsIcon type="device" />
-                    <span className="text-sm text-muted-foreground">{deviceId ? "Device: " + deviceId.slice(0, 12) + "..." : "No device"}</span>
+                    <span className="text-sm text-muted-foreground">{deviceId ? "Dispositivo: " + deviceId.slice(0, 12) + "..." : "Sin dispositivo"}</span>
                   </div>
                   <select value={selectedColumn} onChange={(e) => setSelectedColumn(e.target.value)} className="flex h-8 w-full rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm">
-                    <option value="">Select Recipient Column</option>
+                    <option value="">Seleccionar Columna de Destinatarios</option>
                     {csvColumns.filter((c) => c !== selectedColumn).map((col) => (<option key={col} value={col}>{col}</option>))}
                     {csvColumns.includes(selectedColumn) && <option value={selectedColumn}>{selectedColumn}</option>}
                   </select>
-                  <textarea value={bulkTemplate} onChange={(e) => setBulkTemplate(e.target.value)} className="flex min-h-16 w-full rounded-lg border border-input bg-transparent px-2.5 py-2 text-base transition-colors placeholder:text-muted-foreground focus-visible:border-ring md:text-sm" placeholder={'Enter your message template here. Use {{ column_name }} for dynamic content.'} rows={3} />
+                  <textarea value={bulkTemplate} onChange={(e) => setBulkTemplate(e.target.value)} className="flex min-h-16 w-full rounded-lg border border-input bg-transparent px-2.5 py-2 text-base transition-colors placeholder:text-muted-foreground focus-visible:border-ring md:text-sm" placeholder={'Ingresa tu plantilla de mensaje aqu\u00ed. Usa {{ nombre_columna }} para contenido din\u00e1mico.'} rows={3} />
                   {/* Delay configuration */}
                   <div className="flex items-center gap-2">
                     <SmsIcon type="clock" />
-                    <span className="text-xs text-muted-foreground">Delay between SMS:</span>
+                    <span className="text-xs text-muted-foreground">Retraso entre SMS:</span>
                     <select value={delaySeconds} onChange={(e) => setDelaySeconds(Number(e.target.value))} className="h-7 rounded-md border border-input bg-transparent px-2 text-xs">
-                      <option value={1}>1 second</option>
-                      <option value={3}>3 seconds</option>
-                      <option value={5}>5 seconds</option>
-                      <option value={10}>10 seconds</option>
-                      <option value={15}>15 seconds</option>
-                      <option value={30}>30 seconds</option>
-                      <option value={60}>1 minute</option>
+                      <option value={1}>1 segundo</option>
+                      <option value={3}>3 segundos</option>
+                      <option value={5}>5 segundos</option>
+                      <option value={10}>10 segundos</option>
+                      <option value={15}>15 segundos</option>
+                      <option value={30}>30 segundos</option>
+                      <option value={60}>1 minuto</option>
                     </select>
-                    <span className="text-[10px] text-muted-foreground">Total est: {csvData.length > 0 && delaySeconds > 0 ? `${Math.ceil((csvData.length * delaySeconds) / 60)} min` : "N/A"}</span>
+                    <span className="text-[10px] text-muted-foreground">Est. total: {csvData.length > 0 && delaySeconds > 0 ? `${Math.ceil((csvData.length * delaySeconds) / 60)} min` : "N/A"}</span>
                   </div>
                 </div>
               </div>
 
               {/* Step 3: Preview */}
               <div className="mb-4">
-                <p className="mb-2 text-sm font-medium text-foreground">3. Message Preview</p>
+                <p className="mb-2 text-sm font-medium text-foreground">3. Vista Previa del Mensaje</p>
                 <select value={previewRecipient} onChange={(e) => setPreviewRecipient(e.target.value)} className="flex h-8 w-full rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm">
-                  <option value="">Select a recipient</option>
+                  <option value="">Seleccionar un destinatario</option>
                   {csvData.map((row, i) => {
                     const val = selectedColumn ? row[selectedColumn] : `Row ${i + 1}`;
                     return <option key={i} value={val}>{val}</option>;
@@ -327,7 +327,7 @@ export default function SmsPage() {
                 </select>
                 {getPreview() && (
                   <div className="mt-2 rounded-md bg-muted/30 p-3">
-                    <p className="text-xs text-muted-foreground">To: {getPreview()?.phone}</p>
+                    <p className="text-xs text-muted-foreground">Para: {getPreview()?.phone}</p>
                     <p className="mt-1 text-sm text-foreground">{getPreview()?.message}</p>
                   </div>
                 )}
@@ -337,8 +337,8 @@ export default function SmsPage() {
               {bulkSending && (
                 <div className="mb-4">
                   <div className="flex items-center justify-between text-xs text-muted-foreground">
-                    <span>Sending: {bulkProgress.sent} / {bulkProgress.total}</span>
-                    <span>Failed: {bulkProgress.failed}</span>
+                    <span>Enviando: {bulkProgress.sent} / {bulkProgress.total}</span>
+                    <span>Fallidos: {bulkProgress.fallidos}</span>
                     <span>{Math.round((bulkProgress.sent / bulkProgress.total) * 100)}%</span>
                   </div>
                   <div className="mt-1 h-2 w-full rounded-full bg-muted">
@@ -349,17 +349,17 @@ export default function SmsPage() {
 
               <div className="flex gap-2">
                 <Button onClick={startBulkSend} disabled={bulkSending || !deviceId || !apiKey || !selectedColumn || !bulkTemplate || csvData.length === 0} className="self-start">
-                  {bulkSending ? `Sending... (${bulkProgress.sent}/${bulkProgress.total})` : "Send Bulk SMS"}
+                  {bulkSending ? `Sending... (${bulkProgress.sent}/${bulkProgress.total})` : "Enviar SMS Masivos"}
                 </Button>
-                {bulkSending && <Button variant="outline" size="sm" onClick={() => { cancelRef.current = true; toast.info("Cancelling..."); }} className="self-start">Cancel</Button>}
+                {bulkSending && <Button variant="outline" size="sm" onClick={() => { cancelRef.current = true; toast.info("Cancelando..."); }} className="self-start">Cancelar</Button>}
               </div>
             </div>
           )}
 
           {msgTab === "history" && (
             <div className="rounded-lg border border-border bg-card p-4">
-              <h3 className="mb-3 text-sm font-semibold text-foreground">Sent History</h3>
-              {history.length === 0 && <p className="text-xs text-muted-foreground">No messages sent yet</p>}
+              <h3 className="mb-3 text-sm font-semibold text-foreground">Historial de Env\u00edos</h3>
+              {history.length === 0 && <p className="text-xs text-muted-foreground">A\u00fan no se han enviado mensajes</p>}
               {history.map((item, i) => (
                 <div key={i} className="mb-2 rounded-md bg-muted/30 p-3">
                   <div className="flex items-center gap-2 text-sm">
@@ -378,15 +378,15 @@ export default function SmsPage() {
       {showConfig && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/70 backdrop-blur-sm">
           <div className="w-full max-w-sm rounded-lg border border-border bg-card p-6 shadow-lg">
-            <h3 className="mb-4 text-lg font-semibold text-foreground">Account Configuration</h3>
-            <p className="mb-4 text-xs text-muted-foreground">Get credentials from <a href="https://app.textbee.dev/dashboard" target="_blank" rel="noopener noreferrer" className="text-primary underline">app.textbee.dev</a></p>
+            <h3 className="mb-4 text-lg font-semibold text-foreground">Configuraci\u00f3n de la Cuenta</h3>
+            <p className="mb-4 text-xs text-muted-foreground">Obt\u00e9n credenciales de <a href="https://app.textbee.dev/dashboard" target="_blank" rel="noopener noreferrer" className="text-primary underline">app.textbee.dev</a></p>
             <div className="flex flex-col gap-3">
-              <Input placeholder="Device ID" value={deviceId} onChange={(e) => setDeviceId(e.target.value)} className="font-mono" />
-              <Input placeholder="API Key" value={apiKey} onChange={(e) => setApiKey(e.target.value)} className="font-mono" />
+              <Input placeholder="ID del Dispositivo" value={deviceId} onChange={(e) => setDeviceId(e.target.value)} className="font-mono" />
+              <Input placeholder="Clave de API" value={apiKey} onChange={(e) => setApiKey(e.target.value)} className="font-mono" />
             </div>
             <div className="mt-4 flex justify-end gap-2">
-              <Button variant="outline" size="sm" onClick={() => setShowConfig(false)}>Cancel</Button>
-              <Button size="sm" onClick={saveConfig}>Save</Button>
+              <Button variant="outline" size="sm" onClick={() => setShowConfig(false)}>Cancelar</Button>
+              <Button size="sm" onClick={saveConfig}>Guardar</Button>
             </div>
           </div>
         </div>

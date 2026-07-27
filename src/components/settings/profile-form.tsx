@@ -292,9 +292,9 @@ export function ProfileForm() {
               <p className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
                 <Mail className="mt-0.5 size-3.5 shrink-0" />
                 <span>
-                  Check the inbox for <strong>{profile?.email}</strong> and{' '}
-                  <strong>{email}</strong> — both need to confirm before the
-                  change takes effect.
+                  Revisa el buzón de <strong>{profile?.email}</strong> y{' '}
+                  <strong>{email}</strong> — ambos deben confirmar antes de
+                  que el cambio surta efecto.
                 </span>
               </p>
             )}
