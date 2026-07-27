@@ -23,10 +23,10 @@ export const metadata: Metadata = {
     default: "BEST VISION VENEZUELA, C.A.",
     template: "%s — BEST VISION VENEZUELA",
   },
-  description: "CRM autoalojable para WhatsApp.",
+  description: "NEXUS Contact Center — Gestión profesional de redes sociales, atención omnicanal y cobranza inteligente B2B/B2C.",
   robots: {
-    index: false,
-    follow: false,
+    index: true,
+    follow: true,
   },
   icons: {
     icon: [{ url: "/icon" }],
