@@ -145,19 +145,7 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* Stats */}
-        <section className="relative mt-16 max-w-6xl mx-auto px-[64px]" data-aos="fade-up">
-          <div className="action-gradient rounded-3xl shadow-2xl p-8 md:p-12">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-8 md:gap-0 text-center text-white">
-              {[["150+", "Clientes Activos"], ["50K+", "Interacciones/mes"], ["98%", "Satisfacción"], ["3min", "Tiempo de respuesta"]].map(([val, label], i) => (
-                <div key={i} className={`${i < 3 ? 'md:border-r border-white/20' : ''} py-4 md:py-0`}>
-                  <div className="text-3xl md:text-4xl font-extrabold font-display">{val}</div>
-                  <div className="text-xs text-white/70 mt-1 font-semibold uppercase tracking-wider">{label}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
+
 
         {/* Servicios */}
         <section id="servicios" className="py-24 px-[64px] scroll-mt-20">
