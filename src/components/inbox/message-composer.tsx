@@ -242,7 +242,7 @@ export function MessageComposer({
         if (data.code === "ai_not_configured") {
           toast.error("El asistente de IA no está configurado aún — actívalo en Configuración → Asistente de IA.");
         } else {
-          toast.error(data.error ?? "Couldn't draft a reply.");
+          toast.error(data.error ?? "No se pudo redactar una respuesta.");
         }
         return;
       }
