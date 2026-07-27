@@ -171,7 +171,7 @@ export default function LandingPage() {
         </section>
 
         {/* Stats */}
-        <section className="relative -mt-16 z-10 max-w-6xl mx-auto px-[64px]" data-aos="fade-up">
+        <section className="relative mt-16 max-w-6xl mx-auto px-[64px]" data-aos="fade-up">
           <div className="action-gradient rounded-3xl shadow-2xl p-8 md:p-12">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-8 md:gap-0 text-center text-white">
               {[["150+", "Clientes Activos"], ["50K+", "Interacciones/mes"], ["98%", "Satisfacción"], ["3min", "Tiempo de respuesta"]].map(([val, label], i) => (
