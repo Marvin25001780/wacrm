@@ -155,7 +155,7 @@ function SignupPageInner() {
           <CardDescription className="text-muted-foreground">
             {inviteToken
               ? "Verifica tu correo y acepta la invitación para unirte a tu equipo."
-              : "Comienza con Nexus CRM"}
+              : "Comienza con BEST VISION VENEZUELA, C.A."}
           </CardDescription>
         </CardHeader>
         <CardContent>
