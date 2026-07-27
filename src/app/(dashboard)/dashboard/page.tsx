@@ -226,6 +226,11 @@ export default function DashboardPage() {
 
       {/* Activity feed */}
       <ActivityFeed items={activity} loading={activityLoading} />
+
+      {/* Company branding */}
+      <p className="text-xs text-muted-foreground/50 text-left">
+        BEST VISION VENEZUELA, C.A.
+      </p>
     </div>
   )
 }
