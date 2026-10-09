@@ -229,7 +229,7 @@ export default function DashboardPage() {
 
       {/* Company branding */}
       <p className="text-xs text-muted-foreground/50 text-left">
-        BEST VISION VENEZUELA, C.A.
+        NEXUS CRM
       </p>
     </div>
   )

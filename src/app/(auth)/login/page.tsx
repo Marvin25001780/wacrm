@@ -69,7 +69,7 @@ function LoginPageInner() {
   return (
     <div className="relative flex min-h-screen items-center justify-center bg-background px-4">
       <p className="absolute bottom-4 left-4 text-xs text-muted-foreground/50">
-        BEST VISION VENEZUELA, C.A.
+        NEXUS CRM
       </p>
       <Card className="w-full max-w-md border-border bg-card">
         <CardHeader className="items-center text-center">

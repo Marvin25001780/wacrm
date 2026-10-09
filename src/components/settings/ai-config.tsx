@@ -219,7 +219,7 @@ export function AiConfig() {
     <div>
       <SettingsPanelHead
         title="Asistente de IA"
-        description="Usa tu propia clave de OpenAI, Anthropic o Google Gemini. BEST VISION VENEZUELA, C.A. llama al proveedor directamente con tu clave — sin cargos de IA por usuario, y tus datos se quedan contigo. Impulsa respuestas redactadas por IA en la bandeja de entrada y un bot opcional de respuestas automáticas."
+        description="Usa tu propia clave de OpenAI, Anthropic o Google Gemini. NEXUS CRM llama al proveedor directamente con tu clave — sin cargos de IA por usuario, y tus datos se quedan contigo. Impulsa respuestas redactadas por IA en la bandeja de entrada y un bot opcional de respuestas automáticas."
       />
 
       {!canEdit && (

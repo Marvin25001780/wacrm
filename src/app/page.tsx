@@ -119,7 +119,7 @@ export default function LandingPage() {
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
                   <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
                 </span>
-                <span className="text-primary text-xs tracking-widest font-semibold">BEST VISION VENEZUELA, C.A.</span>
+                <span className="text-primary text-xs tracking-widest font-semibold">NEXUS CRM</span>
               </div>
               <h1 className="font-display text-[56px] lg:text-[72px] leading-[1.1] font-extrabold tracking-tight">
                 Conectamos tu marca<br />
@@ -391,7 +391,7 @@ export default function LandingPage() {
             ))}
           </div>
           <div className="text-on-surface-variant text-sm text-center">
-            <p className="font-bold text-white/80">BEST VISION VENEZUELA, C.A.</p>
+            <p className="font-bold text-white/80">NEXUS CRM</p>
             <p className="text-xs text-slate-500 mt-1">RIF J-410713348</p>
             <p className="text-xs text-slate-500 mt-1">Av. Libertador, Edif. Centro Parima, Piso 9, Of. 3, Urb. Chacao, Caracas, Miranda, ZP 1060</p>
             <p className="text-xs text-slate-500 mt-2">© 2026 NEXUS Contact Center. Todos los derechos reservados.</p>
