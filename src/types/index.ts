@@ -384,6 +384,57 @@ export interface Attachment {
   activity?: Activity;
 }
 
+// ============================================================
+// Spaces / Espacios de trabajo (migration 036)
+// ============================================================
+
+/** Entidad vinculable a un espacio de trabajo. */
+export type SpaceEntityType = 'contact' | 'lead' | 'organization' | 'deal';
+
+export const SPACE_ENTITY_TYPES: { value: SpaceEntityType; label: string }[] = [
+  { value: 'contact', label: 'Contacto' },
+  { value: 'lead', label: 'Lead' },
+  { value: 'organization', label: 'Empresa' },
+  { value: 'deal', label: 'Oferta' },
+];
+
+export interface Space {
+  id: string;
+  /** Tenancy key — NOT NULL. */
+  account_id: string;
+  name: string;
+  description?: string | null;
+  /** Token de color de la paleta (ver `@/lib/spaces/colors`). */
+  color: string;
+  /** Autor (auth.users.id = profiles.user_id). */
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+  /** Hidratados por consultas agregadas. */
+  member_count?: number;
+  record_count?: number;
+}
+
+export interface SpaceMember {
+  space_id: string;
+  account_id: string;
+  /** auth.users.id = profiles.user_id. */
+  user_id: string;
+  created_at: string;
+  /** Hidratado con un mapa de perfiles. */
+  profile?: Profile;
+}
+
+export interface SpaceRecord {
+  id: string;
+  space_id: string;
+  account_id: string;
+  entity_type: SpaceEntityType;
+  entity_id: string;
+  added_by?: string | null;
+  created_at: string;
+}
+
 export interface Tag {
   id: string;
   user_id: string;
