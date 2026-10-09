@@ -82,7 +82,7 @@ export default function NotesPage() {
     const { data } = await supabase.from('profiles').select('*');
     if (data) {
       const map: Record<string, Profile> = {};
-      data.forEach((p) => (map[p.id] = p as Profile));
+      data.forEach((p) => (map[p.user_id] = p as Profile));
       setProfilesMap(map);
     }
   }, [supabase]);
