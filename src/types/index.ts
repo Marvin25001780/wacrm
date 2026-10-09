@@ -311,6 +311,48 @@ export interface Activity {
   deal?: Deal;
 }
 
+// ============================================================
+// Notes / Notas internas (migration 034)
+// ============================================================
+
+/** Entidad vinculable a una nota interna. */
+export type NoteEntityType = 'contact' | 'lead' | 'organization' | 'deal';
+
+export const NOTE_ENTITY_TYPES: { value: NoteEntityType; label: string }[] = [
+  { value: 'contact', label: 'Contacto' },
+  { value: 'lead', label: 'Lead' },
+  { value: 'organization', label: 'Empresa' },
+  { value: 'deal', label: 'Oferta' },
+];
+
+export function noteEntityTypeLabel(value?: string | null): string {
+  if (!value) return '';
+  return NOTE_ENTITY_TYPES.find((t) => t.value === value)?.label ?? value;
+}
+
+export interface Note {
+  id: string;
+  /** Tenancy key — NOT NULL. */
+  account_id: string;
+  /** Autor de la nota (auth.users.id, = profiles.id). */
+  user_id: string;
+  body: string;
+  /** Las notas fijadas se muestran primero. */
+  pinned: boolean;
+  contact_id?: string | null;
+  lead_id?: string | null;
+  organization_id?: string | null;
+  deal_id?: string | null;
+  created_at: string;
+  updated_at: string;
+  /** Hidratados por consultas con embeds / mapas. */
+  author?: Profile;
+  contact?: Contact;
+  lead?: Lead;
+  organization?: Organization;
+  deal?: Deal;
+}
+
 export interface Tag {
   id: string;
   user_id: string;
