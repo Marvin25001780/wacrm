@@ -334,7 +334,7 @@ export interface Note {
   id: string;
   /** Tenancy key — NOT NULL. */
   account_id: string;
-  /** Autor de la nota (auth.users.id, = profiles.id). */
+  /** Autor de la nota (auth.users.id = profiles.user_id). */
   user_id: string;
   body: string;
   /** Las notas fijadas se muestran primero. */
@@ -351,6 +351,37 @@ export interface Note {
   lead?: Lead;
   organization?: Organization;
   deal?: Deal;
+}
+
+// ============================================================
+// Attachments / Adjuntos (migration 035)
+// ============================================================
+
+export interface Attachment {
+  id: string;
+  /** Tenancy key — NOT NULL. */
+  account_id: string;
+  /** Quién subió el archivo (auth.users.id = profiles.user_id). */
+  user_id: string;
+  /** Nombre original mostrado al usuario. */
+  file_name: string;
+  /** Ruta del objeto en el bucket `attachments` (account-scoped). */
+  file_path: string;
+  file_size?: number | null;
+  mime_type?: string | null;
+  contact_id?: string | null;
+  lead_id?: string | null;
+  organization_id?: string | null;
+  deal_id?: string | null;
+  activity_id?: string | null;
+  created_at: string;
+  updated_at: string;
+  /** Hidratados por consultas con embeds. */
+  contact?: Contact;
+  lead?: Lead;
+  organization?: Organization;
+  deal?: Deal;
+  activity?: Activity;
 }
 
 export interface Tag {
