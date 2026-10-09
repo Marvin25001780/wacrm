@@ -165,6 +165,65 @@ export function contactSourceLabel(value?: string | null): string {
   return CONTACT_SOURCES.find((s) => s.value === value)?.label ?? value;
 }
 
+// ============================================================
+// Leads / Prospectos (migration 032)
+// ============================================================
+
+export type LeadStatus =
+  | 'new'
+  | 'contacted'
+  | 'qualified'
+  | 'unqualified'
+  | 'converted';
+
+/** Estado del lead — valor almacenado + etiqueta legible. */
+export const LEAD_STATUSES: { value: LeadStatus; label: string }[] = [
+  { value: 'new', label: 'Nuevo' },
+  { value: 'contacted', label: 'Contactado' },
+  { value: 'qualified', label: 'Calificado' },
+  { value: 'unqualified', label: 'Descartado' },
+  { value: 'converted', label: 'Convertido' },
+];
+
+/** Etiqueta legible para un estado de lead. */
+export function leadStatusLabel(value?: string | null): string {
+  if (!value) return '';
+  return LEAD_STATUSES.find((s) => s.value === value)?.label ?? value;
+}
+
+export interface Lead {
+  id: string;
+  /** Tenancy key — NOT NULL. */
+  account_id: string;
+  /** Autor original (auditoría). Nunca se usa para aislamiento. */
+  user_id: string;
+  /** Agente responsable (profiles.id). */
+  assigned_to?: string | null;
+  name: string;
+  phone?: string | null;
+  email?: string | null;
+  company?: string | null;
+  organization_id?: string | null;
+  job_title?: string | null;
+  source?: string | null;
+  status: LeadStatus;
+  /** Producto / servicio de interés. */
+  interest?: string | null;
+  value: number;
+  currency?: string | null;
+  notes?: string | null;
+  /** Resultado de la conversión (NULL hasta convertir). */
+  converted_contact_id?: string | null;
+  converted_deal_id?: string | null;
+  converted_at?: string | null;
+  created_at: string;
+  updated_at: string;
+  /** Hidratado por consultas que embeben `assignee:profiles(*)`. */
+  assignee?: Profile;
+  /** Hidratado por consultas que embeben `organization:organizations(*)`. */
+  organization?: Organization;
+}
+
 export interface Tag {
   id: string;
   user_id: string;
