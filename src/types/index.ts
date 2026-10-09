@@ -435,6 +435,84 @@ export interface SpaceRecord {
   created_at: string;
 }
 
+// ============================================================
+// Receivables / Cobranza (migration 037)
+// ============================================================
+
+export type ReceivableStatus = 'pending' | 'partial' | 'paid' | 'cancelled';
+
+/** Estado de cuenta por cobrar — valor almacenado + etiqueta legible. */
+export const RECEIVABLE_STATUSES: { value: ReceivableStatus; label: string }[] = [
+  { value: 'pending', label: 'Pendiente' },
+  { value: 'partial', label: 'Parcial' },
+  { value: 'paid', label: 'Pagada' },
+  { value: 'cancelled', label: 'Anulada' },
+];
+
+/** Etiqueta legible para un estado de cobranza. */
+export function receivableStatusLabel(value?: string | null): string {
+  if (!value) return '';
+  return RECEIVABLE_STATUSES.find((s) => s.value === value)?.label ?? value;
+}
+
+export type PaymentMethod = 'cash' | 'transfer' | 'card' | 'check' | 'other';
+
+/** Método de pago — valor almacenado + etiqueta legible. */
+export const PAYMENT_METHODS: { value: PaymentMethod; label: string }[] = [
+  { value: 'cash', label: 'Efectivo' },
+  { value: 'transfer', label: 'Transferencia' },
+  { value: 'card', label: 'Tarjeta' },
+  { value: 'check', label: 'Cheque' },
+  { value: 'other', label: 'Otro' },
+];
+
+/** Etiqueta legible para un método de pago. */
+export function paymentMethodLabel(value?: string | null): string {
+  if (!value) return '';
+  return PAYMENT_METHODS.find((m) => m.value === value)?.label ?? value;
+}
+
+/** Abono registrado contra una cuenta por cobrar. */
+export interface ReceivablePayment {
+  id: string;
+  receivable_id: string;
+  account_id: string;
+  amount: number;
+  paid_at: string;
+  method?: PaymentMethod | null;
+  reference?: string | null;
+  notes?: string | null;
+  created_by?: string | null;
+  created_at: string;
+}
+
+/** Cuenta por cobrar (factura / importe adeudado). */
+export interface Receivable {
+  id: string;
+  /** Tenancy key — NOT NULL. */
+  account_id: string;
+  /** Vínculos opcionales (historial preservado al borrar el registro). */
+  contact_id?: string | null;
+  organization_id?: string | null;
+  deal_id?: string | null;
+  concept: string;
+  amount: number;
+  /** ISO-4217. */
+  currency: string;
+  due_date?: string | null;
+  /** pending | partial | paid los mantiene la BD; cancelled es manual. */
+  status: ReceivableStatus;
+  notes?: string | null;
+  created_by?: string | null;
+  created_at: string;
+  updated_at: string;
+  /** Hidratados por consultas que embeben las relaciones. */
+  contact?: Contact;
+  organization?: Organization;
+  /** Abonos embebidos (`receivable_payments(*)`). */
+  payments?: ReceivablePayment[];
+}
+
 export interface Tag {
   id: string;
   user_id: string;
