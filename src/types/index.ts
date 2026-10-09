@@ -224,6 +224,93 @@ export interface Lead {
   organization?: Organization;
 }
 
+// ============================================================
+// Activities / Actividades (migration 033)
+// ============================================================
+
+export type ActivityType =
+  | 'call'
+  | 'meeting'
+  | 'task'
+  | 'email'
+  | 'whatsapp'
+  | 'visit'
+  | 'other';
+
+/** Tipo de actividad — valor almacenado + etiqueta legible. */
+export const ACTIVITY_TYPES: { value: ActivityType; label: string }[] = [
+  { value: 'call', label: 'Llamada' },
+  { value: 'meeting', label: 'Reunión' },
+  { value: 'task', label: 'Tarea' },
+  { value: 'email', label: 'Correo' },
+  { value: 'whatsapp', label: 'WhatsApp' },
+  { value: 'visit', label: 'Visita' },
+  { value: 'other', label: 'Otra' },
+];
+
+export type ActivityStatus = 'pending' | 'done' | 'cancelled';
+
+/** Estado de actividad — valor almacenado + etiqueta legible. */
+export const ACTIVITY_STATUSES: { value: ActivityStatus; label: string }[] = [
+  { value: 'pending', label: 'Pendiente' },
+  { value: 'done', label: 'Completada' },
+  { value: 'cancelled', label: 'Cancelada' },
+];
+
+export type ActivityPriority = 'low' | 'medium' | 'high';
+
+/** Prioridad de actividad — valor almacenado + etiqueta legible. */
+export const ACTIVITY_PRIORITIES: { value: ActivityPriority; label: string }[] = [
+  { value: 'low', label: 'Baja' },
+  { value: 'medium', label: 'Media' },
+  { value: 'high', label: 'Alta' },
+];
+
+/** Etiquetas de conveniencia. */
+export function activityTypeLabel(value?: string | null): string {
+  if (!value) return '';
+  return ACTIVITY_TYPES.find((t) => t.value === value)?.label ?? value;
+}
+export function activityStatusLabel(value?: string | null): string {
+  if (!value) return '';
+  return ACTIVITY_STATUSES.find((s) => s.value === value)?.label ?? value;
+}
+export function activityPriorityLabel(value?: string | null): string {
+  if (!value) return '';
+  return ACTIVITY_PRIORITIES.find((p) => p.value === value)?.label ?? value;
+}
+
+export interface Activity {
+  id: string;
+  /** Tenancy key — NOT NULL. */
+  account_id: string;
+  /** Autor original (auditoría). Nunca se usa para aislamiento. */
+  user_id: string;
+  /** Agente responsable (profiles.id). */
+  assigned_to?: string | null;
+  type: ActivityType;
+  subject: string;
+  description?: string | null;
+  due_at?: string | null;
+  duration_minutes?: number | null;
+  status: ActivityStatus;
+  priority: ActivityPriority;
+  outcome?: string | null;
+  completed_at?: string | null;
+  contact_id?: string | null;
+  lead_id?: string | null;
+  organization_id?: string | null;
+  deal_id?: string | null;
+  created_at: string;
+  updated_at: string;
+  /** Hidratados por consultas con embeds. */
+  assignee?: Profile;
+  contact?: Contact;
+  lead?: Lead;
+  organization?: Organization;
+  deal?: Deal;
+}
+
 export interface Tag {
   id: string;
   user_id: string;

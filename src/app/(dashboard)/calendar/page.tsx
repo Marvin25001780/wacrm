@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
 import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, addDays, addMonths, subMonths, isSameMonth, isSameDay, parseISO } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Radio, Briefcase, Loader2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Radio, Briefcase, CalendarCheck, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
@@ -13,7 +13,7 @@ interface CalendarEvent {
   id: string;
   title: string;
   date: string;
-  type: 'broadcast' | 'deal';
+  type: 'broadcast' | 'deal' | 'activity';
   status: string;
 }
 
@@ -31,6 +31,13 @@ export default function CalendarPage() {
       supabase.from('deals').select('id, title, expected_close_date, status').not('expected_close_date', 'is', null).order('expected_close_date', { ascending: true }),
     ]);
 
+    const activitiesRes = await supabase
+      .from('activities')
+      .select('id, subject, due_at, status')
+      .eq('status', 'pending')
+      .not('due_at', 'is', null)
+      .order('due_at', { ascending: true });
+
     const items: CalendarEvent[] = [];
 
     broadcastsRes.data?.forEach((b) => {
@@ -43,10 +50,17 @@ export default function CalendarPage() {
       }
     });
 
+    activitiesRes.data?.forEach((a) => {
+      if (a.due_at) {
+        items.push({ id: a.id, title: a.subject, date: a.due_at, type: 'activity', status: a.status });
+      }
+    });
+
     setEvents(items);
     setLoading(false);
   }, []);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { fetchEvents(); }, [fetchEvents]);
 
   const monthStart = startOfMonth(currentMonth);
@@ -144,15 +158,17 @@ export default function CalendarPage() {
                   {dayEvents.slice(0, 3).map((ev) => (
                     <button
                       key={ev.id}
-                      onClick={() => router.push(ev.type === 'broadcast' ? `/broadcasts/${ev.id}` : '/pipelines')}
+                      onClick={() => router.push(ev.type === 'broadcast' ? `/broadcasts/${ev.id}` : ev.type === 'activity' ? '/activities' : '/pipelines')}
                       className={cn(
                         'flex w-full items-center gap-1 truncate rounded px-1 py-0.5 text-[10px] transition-colors',
                         ev.type === 'broadcast'
                           ? 'bg-blue-500/10 text-blue-400 hover:bg-blue-500/20'
-                          : 'bg-primary/10 text-primary hover:bg-primary/20',
+                          : ev.type === 'activity'
+                            ? 'bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20'
+                            : 'bg-primary/10 text-primary hover:bg-primary/20',
                       )}
                     >
-                      {ev.type === 'broadcast' ? <Radio className="h-2.5 w-2.5 shrink-0" /> : <Briefcase className="h-2.5 w-2.5 shrink-0" />}
+                      {ev.type === 'broadcast' ? <Radio className="h-2.5 w-2.5 shrink-0" /> : ev.type === 'activity' ? <CalendarCheck className="h-2.5 w-2.5 shrink-0" /> : <Briefcase className="h-2.5 w-2.5 shrink-0" />}
                       <span className="truncate">{ev.title}</span>
                     </button>
                   ))}
