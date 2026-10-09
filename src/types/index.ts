@@ -97,12 +97,72 @@ export interface Contact {
   name?: string;
   email?: string;
   company?: string;
+  /** Linked company (migration 031). NULL when the contact has no
+   *  company registered. `company` stays as the free-text label for
+   *  backwards compatibility and CSV export. */
+  organization_id?: string | null;
+  /** Lead source / origen del contacto (migration 031). Free-text slug,
+   *  e.g. 'manual', 'whatsapp', 'webchat', 'import', 'referral',
+   *  'campaign', 'other'. */
+  source?: string | null;
   avatar_url?: string;
   created_at: string;
   updated_at: string;
   /** Hydrated by queries that embed `contact_tags(tags(*))` (e.g. the
    *  Inbox conversation list, for tag filtering). Absent otherwise. */
   tags?: Tag[];
+  /** Hydrated by queries that embed `organization:organizations(*)`. */
+  organization?: Organization;
+}
+
+// ============================================================
+// Organizations / Empresas (migration 031)
+// ============================================================
+
+export interface Organization {
+  id: string;
+  /** Tenancy key — NOT NULL. */
+  account_id: string;
+  /** Original author (audit). Never used for tenancy isolation. */
+  user_id: string;
+  /** Agente responsable de la empresa (opcional). */
+  owner_user_id?: string | null;
+  name: string;
+  industry?: string | null;
+  website?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  address?: string | null;
+  city?: string | null;
+  country?: string | null;
+  /** RIF / identificación fiscal. */
+  tax_id?: string | null;
+  notes?: string | null;
+  created_at: string;
+  updated_at: string;
+  /** Hydrated count of linked contacts (list queries embed
+   *  `contacts(count)`). Absent otherwise. */
+  contact_count?: number;
+  /** Hydrated responsible agent. */
+  owner?: Profile;
+}
+
+/** Origen del contacto (lead source) — valor almacenado + etiqueta. */
+export const CONTACT_SOURCES: { value: string; label: string }[] = [
+  { value: 'manual', label: 'Manual' },
+  { value: 'whatsapp', label: 'WhatsApp' },
+  { value: 'webchat', label: 'Webchat' },
+  { value: 'import', label: 'Importación' },
+  { value: 'referral', label: 'Referido' },
+  { value: 'campaign', label: 'Campaña' },
+  { value: 'other', label: 'Otro' },
+];
+
+/** Etiqueta legible para un `source`; devuelve el valor crudo si es
+ *  desconocido (o cadena vacía si es null/undefined). */
+export function contactSourceLabel(value?: string | null): string {
+  if (!value) return '';
+  return CONTACT_SOURCES.find((s) => s.value === value)?.label ?? value;
 }
 
 export interface Tag {

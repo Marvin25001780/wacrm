@@ -9,6 +9,7 @@ import { useTotalUnread } from "@/hooks/use-total-unread";
 import { useUnreadNotifications } from "@/hooks/use-unread-notifications";
 import {
   Bell,
+  Building2,
   CalendarDays,
   Crown,
   GitBranch,
@@ -97,6 +98,7 @@ const navItems: NavItem[] = [
   { href: "/notifications",     label: "Notificaciones", icon: Bell },
   { href: "/calendar",     label: "Calendario", icon: CalendarDays },
   { href: "/contacts",     label: "Contactos", icon: Users },
+  { href: "/organizations", label: "Empresas", icon: Building2 },
   { href: "/pipelines",     label: "Pipeline de ventas", icon: GitBranch },
   { href: "/broadcasts",     label: "Campañas", icon: Radio },
   { href: "/automations",     label: "Automatizaciones", icon: Zap },

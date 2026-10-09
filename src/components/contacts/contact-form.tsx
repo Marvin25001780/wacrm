@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
 import { toast } from 'sonner';
-import type { Contact, Tag, ContactTag } from '@/types';
+import { CONTACT_SOURCES, type Contact, type Tag, type ContactTag } from '@/types';
 import {
   findExistingContact,
   isExactMatch,
@@ -52,7 +52,11 @@ export function ContactForm({
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [company, setCompany] = useState('');
+  const [source, setSource] = useState('');
   const [saving, setSaving] = useState(false);
+
+  // Empresas registradas para el autocompletado del campo Empresa.
+  const [organizations, setOrganizations] = useState<{ id: string; name: string }[]>([]);
 
   // Duplicate-phone detection for NEW contacts. `exact` (same digits)
   // hard-blocks the save; a fuzzy trunk-variant match only warns. The
@@ -73,9 +77,11 @@ export function ContactForm({
       setPhone(contact?.phone ?? '');
       setEmail(contact?.email ?? '');
       setCompany(contact?.company ?? '');
+      setSource(contact?.source ?? '');
       setSelectedTagIds(contactTags.map((ct) => ct.tag_id));
       setDupMatch(null);
       fetchTags();
+      fetchOrganizations();
     }
   }, [open, contact]);
 
@@ -109,6 +115,40 @@ export function ContactForm({
       .order('name');
     if (data) setTags(data);
     setLoadingTags(false);
+  }
+
+  async function fetchOrganizations() {
+    const { data } = await supabase
+      .from('organizations')
+      .select('id, name')
+      .order('name');
+    if (data) setOrganizations(data);
+  }
+
+  // Resuelve el nombre escrito en `company` a una empresa registrada.
+  // Si no existe, la crea al vuelo (agent+). Devuelve el id o null.
+  async function resolveOrganizationId(
+    value: string,
+    userId: string,
+  ): Promise<string | null> {
+    const trimmed = value.trim();
+    if (!trimmed || !accountId) return null;
+
+    const { data: existing } = await supabase
+      .from('organizations')
+      .select('id')
+      .ilike('name', trimmed)
+      .limit(1)
+      .maybeSingle();
+    if (existing) return existing.id;
+
+    const { data: created, error } = await supabase
+      .from('organizations')
+      .insert({ user_id: userId, account_id: accountId, name: trimmed })
+      .select('id')
+      .single();
+    if (error) return null;
+    return created.id;
   }
 
   function toggleTag(tagId: string) {
@@ -146,6 +186,9 @@ export function ContactForm({
 
       let contactId = contact?.id;
 
+      // Resuelve / crea la empresa a partir del nombre escrito.
+      const organizationId = await resolveOrganizationId(company, user.id);
+
       if (isEdit && contactId) {
         const { error } = await supabase
           .from('contacts')
@@ -154,6 +197,8 @@ export function ContactForm({
             phone: phone.trim(),
             email: email.trim() || null,
             company: company.trim() || null,
+            organization_id: organizationId,
+            source: source || null,
             updated_at: new Date().toISOString(),
           })
           .eq('id', contactId);
@@ -168,6 +213,8 @@ export function ContactForm({
             phone: phone.trim(),
             email: email.trim() || null,
             company: company.trim() || null,
+            organization_id: organizationId,
+            source: source || null,
           })
           .select('id')
           .single();
@@ -317,11 +364,40 @@ export function ContactForm({
             </Label>
             <Input
               id="cf-company"
+              list="cf-org-list"
               value={company}
               onChange={(e) => setCompany(e.target.value)}
               placeholder="Acme S.A."
               className="bg-muted border-border text-foreground placeholder:text-muted-foreground"
             />
+            <datalist id="cf-org-list">
+              {organizations.map((org) => (
+                <option key={org.id} value={org.name} />
+              ))}
+            </datalist>
+            <p className="text-xs text-muted-foreground">
+              Elige una empresa existente o escribe una nueva; se registrará
+              automáticamente.
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="cf-source" className="text-muted-foreground">
+              Origen
+            </Label>
+            <select
+              id="cf-source"
+              value={source}
+              onChange={(e) => setSource(e.target.value)}
+              className="h-8 w-full min-w-0 rounded-lg border border-border bg-muted px-2.5 py-1 text-base text-foreground transition-colors outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 md:text-sm"
+            >
+              <option value="">Sin especificar</option>
+              {CONTACT_SOURCES.map((s) => (
+                <option key={s.value} value={s.value}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
           </div>
 
           <div className="space-y-2">
