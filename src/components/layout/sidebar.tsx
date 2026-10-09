@@ -8,6 +8,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useTotalUnread } from "@/hooks/use-total-unread";
 import { useUnreadNotifications } from "@/hooks/use-unread-notifications";
 import {
+  BarChart3,
   Bell,
   Building2,
   CalendarDays,
@@ -115,6 +116,7 @@ const navItems: NavItem[] = [
   { href: "/timeline",      label: "Timeline", icon: History },
   { href: "/spaces",        label: "Espacios", icon: FolderKanban },
   { href: "/receivables",   label: "Cobranza", icon: HandCoins },
+  { href: "/receivables/reports", label: "Reportes de cartera", icon: BarChart3 },
   { href: "/chat",          label: "Chat interno", icon: MessagesSquare },
   { href: "/productivity",  label: "Productividad", icon: Gauge },
   { href: "/pipelines",     label: "Pipeline de ventas", icon: GitBranch },
