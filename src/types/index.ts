@@ -513,6 +513,49 @@ export interface Receivable {
   payments?: ReceivablePayment[];
 }
 
+// ============================================================
+// Internal chat / Chat interno (migration 038)
+// ============================================================
+
+export interface ChatChannel {
+  id: string;
+  /** Tenancy key — NOT NULL. */
+  account_id: string;
+  name: string;
+  description?: string | null;
+  /** Reservado para mensajes directos 1:1. */
+  is_direct: boolean;
+  created_by?: string | null;
+  created_at: string;
+  updated_at: string;
+  /** Hidratado por consultas agregadas (`chat_channel_members(count)`). */
+  member_count?: number;
+}
+
+export interface ChatChannelMember {
+  channel_id: string;
+  account_id: string;
+  /** auth.users.id = profiles.user_id. */
+  user_id: string;
+  last_read_at?: string | null;
+  created_at: string;
+  /** Hidratado con un mapa de perfiles. */
+  profile?: Profile;
+}
+
+export interface ChatMessage {
+  id: string;
+  channel_id: string;
+  account_id: string;
+  /** auth.users.id = profiles.user_id. */
+  sender_id: string;
+  body: string;
+  edited_at?: string | null;
+  created_at: string;
+  /** Hidratado con un mapa de perfiles. */
+  sender?: Profile;
+}
+
 export interface Tag {
   id: string;
   user_id: string;
