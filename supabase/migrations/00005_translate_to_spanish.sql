@@ -46,25 +46,30 @@ CREATE TABLE IF NOT EXISTS integrations (
 -- Enable RLS on integrations
 ALTER TABLE integrations ENABLE ROW LEVEL SECURITY;
 
--- Allow account members to read their own integration config
+-- Allow account members to read their own integration config.
+-- NOTE: este fork usa `is_account_member()` (017_account_sharing.sql),
+-- NO la tabla `account_members` del wacrm original. Se usa DROP IF EXISTS
+-- para que la migración sea re-ejecutable.
+DROP POLICY IF EXISTS "Members can read own integration config" ON integrations;
 CREATE POLICY "Members can read own integration config"
   ON integrations FOR SELECT
-  USING (account_id IN (
-    SELECT account_id FROM account_members WHERE user_id = auth.uid()
-  ));
+  USING (is_account_member(account_id));
 
 -- Allow admins to upsert integration config
+DROP POLICY IF EXISTS "Admins can upsert integration config" ON integrations;
 CREATE POLICY "Admins can upsert integration config"
   ON integrations FOR INSERT
-  WITH CHECK (account_id IN (
-    SELECT account_id FROM account_members WHERE user_id = auth.uid() AND role IN ('owner', 'admin')
-  ));
+  WITH CHECK (is_account_member(account_id, 'admin'));
 
+DROP POLICY IF EXISTS "Admins can update integration config" ON integrations;
 CREATE POLICY "Admins can update integration config"
   ON integrations FOR UPDATE
-  USING (account_id IN (
-    SELECT account_id FROM account_members WHERE user_id = auth.uid() AND role IN ('owner', 'admin')
-  ));
+  USING (is_account_member(account_id, 'admin'));
+
+DROP POLICY IF EXISTS "Admins can delete integration config" ON integrations;
+CREATE POLICY "Admins can delete integration config"
+  ON integrations FOR DELETE
+  USING (is_account_member(account_id, 'admin'));
 
 -- ============================================================
 -- End of migration
