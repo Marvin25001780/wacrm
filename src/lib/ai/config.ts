@@ -1,10 +1,11 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { decrypt } from '@/lib/whatsapp/encryption'
-import type { AiConfig } from './types'
+import type { AiConfig, AiProvider } from './types'
 
 interface AiConfigRow {
-  provider: 'openai' | 'anthropic'
+  provider: AiProvider
   model: string
+  fallback_model: string | null
   api_key: string
   system_prompt: string | null
   is_active: boolean
@@ -13,7 +14,7 @@ interface AiConfigRow {
 }
 
 const CONFIG_COLUMNS =
-  'provider, model, api_key, system_prompt, is_active, auto_reply_enabled, auto_reply_max_per_conversation'
+  'provider, model, fallback_model, api_key, system_prompt, is_active, auto_reply_enabled, auto_reply_max_per_conversation'
 
 /**
  * Load and decrypt the account's AI config for *use* (draft or
@@ -54,5 +55,6 @@ export async function loadAiConfig(
     isActive: row.is_active,
     autoReplyEnabled: row.auto_reply_enabled,
     autoReplyMaxPerConversation: row.auto_reply_max_per_conversation,
+    fallbackModel: row.fallback_model,
   }
 }

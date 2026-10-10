@@ -6,7 +6,12 @@
 // whether the account is on OpenAI or Anthropic.
 // ============================================================
 
-export type AiProvider = 'openai' | 'anthropic' | 'gemini' | 'deepseek'
+export type AiProvider =
+  | 'openai'
+  | 'anthropic'
+  | 'gemini'
+  | 'deepseek'
+  | 'groq'
 
 /**
  * Account AI setup, decrypted and ready to use. Produced by
@@ -21,6 +26,14 @@ export interface AiConfig {
   isActive: boolean
   autoReplyEnabled: boolean
   autoReplyMaxPerConversation: number
+  /**
+   * Optional second model on the *same* provider used as an automatic
+   * fallback ("IA híbrida"): if the primary model times out, is rate
+   * limited, or errors upstream, the request is retried once with this
+   * model before failing. Typical pairing — a large, capable model for
+   * quality with a small/fast one to keep the conversation alive.
+   */
+  fallbackModel?: string | null
 }
 
 /** A single conversation turn in the shape both providers accept. */

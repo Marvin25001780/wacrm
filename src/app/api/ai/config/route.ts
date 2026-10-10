@@ -29,7 +29,7 @@ export async function GET() {
       // `api_key` is selected only to derive `has_key` — it is stripped
       // out below and never returned to the client.
       .select(
-        'provider, model, system_prompt, is_active, auto_reply_enabled, auto_reply_max_per_conversation, api_key',
+        'provider, model, fallback_model, system_prompt, is_active, auto_reply_enabled, auto_reply_max_per_conversation, api_key',
       )
       .eq('account_id', accountId)
       .maybeSingle()
@@ -70,11 +70,24 @@ export async function POST(request: Request) {
     if (!body || typeof body !== 'object') return bad('Invalid request body')
 
     const provider = body.provider as AiProvider
-    if (provider !== 'openai' && provider !== 'anthropic' && provider !== 'gemini' && provider !== 'deepseek') {
-      return bad('provider must be "openai", "anthropic", "gemini", or "deepseek"')
+    if (
+      provider !== 'openai' &&
+      provider !== 'anthropic' &&
+      provider !== 'gemini' &&
+      provider !== 'deepseek' &&
+      provider !== 'groq'
+    ) {
+      return bad(
+        'provider must be "openai", "anthropic", "gemini", "deepseek", or "groq"',
+      )
     }
     const model = typeof body.model === 'string' ? body.model.trim() : ''
     if (!model) return bad('model is required')
+
+    const fallbackModel =
+      typeof body.fallback_model === 'string' && body.fallback_model.trim()
+        ? body.fallback_model.trim()
+        : null
 
     const systemPrompt =
       typeof body.system_prompt === 'string' && body.system_prompt.trim()
@@ -146,6 +159,7 @@ export async function POST(request: Request) {
     const shared = {
       provider,
       model,
+      fallback_model: fallbackModel,
       system_prompt: systemPrompt,
       is_active: isActive,
       auto_reply_enabled: autoReplyEnabled,

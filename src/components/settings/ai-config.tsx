@@ -25,23 +25,17 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { SettingsPanelHead } from './settings-panel-head';
-import { AI_PROVIDER_DEFAULT_MODEL } from '@/lib/ai/defaults';
+import { AI_PROVIDER_DEFAULT_MODEL, AI_PROVIDER_LABEL } from '@/lib/ai/defaults';
 import type { AiProvider } from '@/lib/ai/types';
 
 const MASKED_KEY = '••••••••••••••••';
-
-const PROVIDER_LABEL: Record<AiProvider, string> = {
-  openai: 'OpenAI',
-  anthropic: 'Anthropic (Claude)',
-  gemini: 'Google Gemini',
-  deepseek: 'DeepSeek',
-};
 
 const KEY_PLACEHOLDER: Record<AiProvider, string> = {
   openai: 'sk-...',
   anthropic: 'sk-ant-...',
   gemini: 'AIza...',
   deepseek: 'sk-...',
+  groq: 'gsk_...',
 };
 
 export function AiConfig() {
@@ -56,6 +50,7 @@ export function AiConfig() {
   const [configured, setConfigured] = useState(false);
   const [provider, setProvider] = useState<AiProvider>('openai');
   const [model, setModel] = useState(AI_PROVIDER_DEFAULT_MODEL.openai);
+  const [fallbackModel, setFallbackModel] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [keyEdited, setKeyEdited] = useState(false);
   const [showKey, setShowKey] = useState(false);
@@ -84,6 +79,7 @@ export function AiConfig() {
         setConfigured(true);
         setProvider(data.provider);
         setModel(data.model);
+        setFallbackModel(data.fallback_model ?? '');
         setSystemPrompt(data.system_prompt ?? '');
         setIsActive(data.is_active);
         setAutoReplyEnabled(data.auto_reply_enabled);
@@ -113,6 +109,7 @@ export function AiConfig() {
       model === defaults.anthropic ||
       model === defaults.gemini ||
       model === defaults.deepseek ||
+      model === defaults.groq ||
       model.trim() === '';
     if (isDefaultModel) setModel(defaults[next]);
   };
@@ -122,6 +119,7 @@ export function AiConfig() {
   const buildBody = () => ({
     provider,
     model: model.trim(),
+    fallback_model: fallbackModel.trim() || null,
     api_key: keyPayload(),
     system_prompt: systemPrompt.trim() || null,
     is_active: isActive,
@@ -194,6 +192,7 @@ export function AiConfig() {
         setIsActive(false);
         setAutoReplyEnabled(false);
         setSystemPrompt('');
+        setFallbackModel('');
       } else {
         const data = await res.json();
         toast.error(data.error ?? 'Error al eliminar.');
@@ -219,7 +218,7 @@ export function AiConfig() {
     <div>
       <SettingsPanelHead
         title="Asistente de IA"
-        description="Usa tu propia clave de OpenAI, Anthropic o Google Gemini. NEXUS CRM llama al proveedor directamente con tu clave — sin cargos de IA por usuario, y tus datos se quedan contigo. Impulsa respuestas redactadas por IA en la bandeja de entrada y un bot opcional de respuestas automáticas."
+        description="Usa tu propia clave de OpenAI, Anthropic, Google Gemini, DeepSeek o Groq. NEXUS CRM llama al proveedor directamente con tu clave — sin cargos de IA por usuario, y tus datos se quedan contigo. Configura un modelo de respaldo para una IA híbrida más resistente. Impulsa respuestas redactadas por IA en la bandeja de entrada y un bot opcional de respuestas automáticas."
       />
 
       {!canEdit && (
@@ -249,18 +248,21 @@ export function AiConfig() {
                   disabled={disabled}
                 >
                   <SelectTrigger>
-                    <SelectValue />
+                    <SelectValue>{AI_PROVIDER_LABEL[provider]}</SelectValue>
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="openai">{PROVIDER_LABEL.openai}</SelectItem>
+                    <SelectItem value="openai">{AI_PROVIDER_LABEL.openai}</SelectItem>
                     <SelectItem value="anthropic">
-                      {PROVIDER_LABEL.anthropic}
+                      {AI_PROVIDER_LABEL.anthropic}
                     </SelectItem>
                     <SelectItem value="gemini">
-                      {PROVIDER_LABEL.gemini}
+                      {AI_PROVIDER_LABEL.gemini}
                     </SelectItem>
                     <SelectItem value="deepseek">
-                      {PROVIDER_LABEL.deepseek}
+                      {AI_PROVIDER_LABEL.deepseek}
+                    </SelectItem>
+                    <SelectItem value="groq">
+                      {AI_PROVIDER_LABEL.groq}
                     </SelectItem>
                   </SelectContent>
                 </Select>
@@ -276,6 +278,22 @@ export function AiConfig() {
                   disabled={disabled}
                 />
               </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="ai-fallback">Modelo de respaldo (IA híbrida)</Label>
+              <Input
+                id="ai-fallback"
+                value={fallbackModel}
+                onChange={(e) => setFallbackModel(e.target.value)}
+                placeholder="Opcional — p. ej. llama-3.1-8b-instant"
+                disabled={disabled}
+              />
+              <p className="text-xs text-muted-foreground">
+                Si el modelo principal falla por saturación, tiempo de espera o
+                límite de uso, se reintenta una vez con este modelo (misma clave).
+                Déjalo vacío para desactivar el respaldo.
+              </p>
             </div>
 
             <div className="space-y-2">

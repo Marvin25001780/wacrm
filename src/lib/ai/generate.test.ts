@@ -162,3 +162,89 @@ describe('generateReply — Anthropic', () => {
     expect(body.messages).toHaveLength(1)
   })
 })
+
+describe('generateReply — Groq', () => {
+  it('calls the Groq chat completions endpoint and returns the reply', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        okResponse({ choices: [{ message: { content: 'Hey!' } }] }),
+      )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const res = await generateReply({
+      config: config({ provider: 'groq', model: 'llama-3.3-70b-versatile' }),
+      systemPrompt: 'sys',
+      messages: [{ role: 'user', content: 'Hi' }],
+    })
+
+    expect(res).toEqual({ text: 'Hey!', handoff: false })
+    const [url, opts] = fetchMock.mock.calls[0]
+    expect(url).toContain('api.groq.com')
+    expect(opts.headers.Authorization).toBe('Bearer sk-test')
+    expect(JSON.parse(opts.body).model).toBe('llama-3.3-70b-versatile')
+  })
+})
+
+describe('generateReply — hybrid fallback', () => {
+  it('retries the fallback model on a rate-limited primary', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(errResponse(429, { error: { message: 'slow down' } }))
+      .mockResolvedValueOnce(
+        okResponse({ choices: [{ message: { content: 'fell back ok' } }] }),
+      )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const res = await generateReply({
+      config: config({
+        provider: 'groq',
+        model: 'big-model',
+        fallbackModel: 'small-model',
+      }),
+      systemPrompt: 'sys',
+      messages: [{ role: 'user', content: 'Hi' }],
+    })
+
+    expect(res.text).toBe('fell back ok')
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).model).toBe('big-model')
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body).model).toBe('small-model')
+  })
+
+  it('does not fall back on an auth failure (fails fast)', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(errResponse(401, { error: { message: 'bad key' } }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(
+      generateReply({
+        config: config({
+          provider: 'groq',
+          model: 'big-model',
+          fallbackModel: 'small-model',
+        }),
+        systemPrompt: 'sys',
+        messages: [{ role: 'user', content: 'Hi' }],
+      }),
+    ).rejects.toMatchObject({ code: 'invalid_key' })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('surfaces the primary error when no fallback is configured', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(errResponse(429, { error: { message: 'slow down' } }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(
+      generateReply({
+        config: config({ provider: 'groq', model: 'big-model' }),
+        systemPrompt: 'sys',
+        messages: [{ role: 'user', content: 'Hi' }],
+      }),
+    ).rejects.toMatchObject({ code: 'rate_limited' })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+})
