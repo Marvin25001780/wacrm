@@ -1111,3 +1111,39 @@ export interface AuditLog {
   } | null;
   created_at: string;
 }
+
+// ============================================================
+// Canales omnicanal (migration 044)
+// ============================================================
+
+export type ChannelType = 'evolution' | 'chatwoot';
+
+/** Config de Evolution API (WhatsApp no oficial). El api_key NUNCA se devuelve. */
+export interface EvolutionChannelConfig {
+  base_url: string;
+  instance: string;
+  /** Cifrado en reposo; write-only desde el cliente. */
+  api_key?: string;
+}
+
+/** Config de Chatwoot. El api_token NUNCA se devuelve. */
+export interface ChatwootChannelConfig {
+  base_url: string;
+  account_id: string;
+  /** Cifrado en reposo; write-only desde el cliente. */
+  api_token?: string;
+}
+
+/**
+ * Vista pública de un canal: `config` lleva los campos no secretos y
+ * banderas `has_*` que indican si hay un secreto guardado, sin exponerlo.
+ */
+export interface ChannelConfig {
+  id: string;
+  account_id: string;
+  channel: ChannelType;
+  config: Record<string, unknown>;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}

@@ -1,0 +1,77 @@
+import { NextResponse } from 'next/server'
+import { requireRole, toErrorResponse } from '@/lib/auth/account'
+import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit'
+import { decrypt } from '@/lib/whatsapp/encryption'
+import { isChannelType } from '@/lib/channels/config'
+
+/**
+ * POST /api/channels/[channel]/test
+ * Comprueba la conexión con el proveedor usando la config guardada.
+ * Requiere admin+. Devuelve `{ ok, status }` para mostrarlo en el panel.
+ */
+export async function POST(
+  _request: Request,
+  context: { params: Promise<{ channel: string }> },
+) {
+  try {
+    const { channel } = await context.params
+    if (!isChannelType(channel)) {
+      return NextResponse.json({ error: 'Canal desconocido' }, { status: 400 })
+    }
+
+    const ctx = await requireRole('admin')
+    const limited = checkRateLimit(
+      `channels-test:${ctx.userId}`,
+      RATE_LIMITS.adminAction,
+    )
+    if (!limited.success) return rateLimitResponse(limited)
+
+    const { data: row } = await ctx.supabase
+      .from('channel_configs')
+      .select('config')
+      .eq('account_id', ctx.accountId)
+      .eq('channel', channel)
+      .maybeSingle()
+
+    if (!row) {
+      return NextResponse.json({ error: 'Canal no configurado' }, { status: 404 })
+    }
+    const config = (row.config ?? {}) as Record<string, unknown>
+    const baseUrl = String(config.base_url ?? '').replace(/\/$/, '')
+    if (!baseUrl) {
+      return NextResponse.json({ error: 'Falta la URL base' }, { status: 400 })
+    }
+
+    let url: string
+    let headers: Record<string, string> = {}
+
+    if (channel === 'evolution') {
+      const instance = String(config.instance ?? '')
+      const apiKey = typeof config.api_key === 'string' ? decrypt(config.api_key) : ''
+      url = `${baseUrl}/instance/connectionState/${encodeURIComponent(instance)}`
+      headers = { apikey: apiKey }
+    } else {
+      const accountId = String(config.account_id ?? '')
+      const token = typeof config.api_token === 'string' ? decrypt(config.api_token) : ''
+      url = `${baseUrl}/api/v1/accounts/${encodeURIComponent(accountId)}`
+      headers = { api_access_token: token }
+    }
+
+    try {
+      const res = await fetch(url, {
+        method: 'GET',
+        headers,
+        signal: AbortSignal.timeout(8000),
+      })
+      return NextResponse.json({ ok: res.ok, status: res.status })
+    } catch (err) {
+      return NextResponse.json({
+        ok: false,
+        status: null,
+        error: err instanceof Error ? err.message : 'Error de red',
+      })
+    }
+  } catch (err) {
+    return toErrorResponse(err)
+  }
+}

@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Loader2, MessageCircle, Mail, Check } from 'lucide-react';
 import { WebhookEndpointsManager } from '@/components/settings/webhook-endpoints';
+import { OmnichannelPanel } from '@/components/settings/omnichannel-panel';
 
 export function IntegrationsPanel() {
   const { accountId } = useAuth();
@@ -182,6 +183,11 @@ export function IntegrationsPanel() {
       {/* Webhooks salientes (endpoints firmados) */}
       <div className="rounded-xl border border-border bg-card p-5">
         <WebhookEndpointsManager />
+      </div>
+
+      {/* Canales omnicanal (Evolution API / Chatwoot) */}
+      <div className="rounded-xl border border-border bg-card p-5">
+        <OmnichannelPanel />
       </div>
     </div>
   );
