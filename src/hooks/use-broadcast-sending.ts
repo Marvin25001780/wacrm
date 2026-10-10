@@ -46,6 +46,13 @@ interface BroadcastPayload {
    * falls back to the template's stored URL only when this is empty.
    */
   headerMediaUrl?: string;
+  /**
+   * Cuando está presente, la campaña se *programa* en vez de enviarse
+   * ya: se crea con status 'scheduled' + `scheduled_at`, se congelan
+   * los destinatarios como 'pending' y el cron
+   * (`/api/broadcasts/cron`) la termina a su hora.
+   */
+  scheduledAt?: string;
 }
 
 interface UseBroadcastSendingReturn {
@@ -353,6 +360,7 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
 
       // ── Step 2: Create broadcast row ──────────────────────────────
       setProgress(10);
+      const isScheduled = Boolean(payload.scheduledAt);
       const { data: broadcast, error: broadcastError } = await supabase
         .from('broadcasts')
         .insert({
@@ -368,7 +376,9 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
             customField: payload.audience.customField,
             excludeTagIds: payload.audience.excludeTagIds,
           },
-          status: 'sending',
+          status: isScheduled ? 'scheduled' : 'sending',
+          scheduled_at: payload.scheduledAt ?? null,
+          header_media_url: payload.headerMediaUrl?.trim() || null,
           total_recipients: contacts.length,
           sent_count: 0,
           delivered_count: 0,
@@ -415,6 +425,14 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
             `Failed to insert recipient batch ${i / INSERT_BATCH_SIZE + 1}: ${recipientError.message}`,
           );
         }
+      }
+
+      // ── Campaña programada: congelamos aquí ──────────────────────
+      // La lista de destinatarios ya quedó 'pending'. El cron la
+      // enviará a su hora (no dependemos de que esta pestaña siga viva).
+      if (isScheduled) {
+        setProgress(100);
+        return broadcast.id;
       }
 
       // ── Step 4: Fetch recipients (joined contact) + preload custom values

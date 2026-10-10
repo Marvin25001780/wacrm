@@ -805,6 +805,8 @@ export interface Broadcast {
   template_variables?: Record<string, unknown>;
   audience_filter?: Record<string, unknown>;
   scheduled_at?: string;
+  /** URL de medios del encabezado, persistida para el envío programado. */
+  header_media_url?: string | null;
   status: BroadcastStatus;
   total_recipients: number;
   sent_count: number;

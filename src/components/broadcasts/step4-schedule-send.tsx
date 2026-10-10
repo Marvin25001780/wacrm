@@ -14,7 +14,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
-import { ArrowLeft, Send, Loader2, Users, Save } from 'lucide-react';
+import { ArrowLeft, Send, Loader2, Users, Save, CalendarClock } from 'lucide-react';
 
 interface AudienciaConfig {
   type: string;
@@ -32,6 +32,16 @@ interface Step4Props {
   onBack: () => void;
   isProcessing: boolean;
   progress: number;
+  /** `datetime-local` string; vacío = enviar ya. */
+  scheduledAt: string;
+  onScheduledAtChange: (value: string) => void;
+}
+
+function toLocalInputValue(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(
+    date.getHours(),
+  )}:${pad(date.getMinutes())}`;
 }
 
 export function Step4ScheduleSend({
@@ -44,10 +54,13 @@ export function Step4ScheduleSend({
   onBack,
   isProcessing,
   progress,
+  scheduledAt,
+  onScheduledAtChange,
 }: Step4Props) {
   const [showConfirm, setShowConfirm] = useState(false);
   const [estimatedReach, setEstimatedReach] = useState<number>(0);
   const [loadingReach, setLoadingReach] = useState(true);
+  const [mode, setMode] = useState<'now' | 'later'>(scheduledAt ? 'later' : 'now');
 
   useEffect(() => {
     async function calculateReach() {
@@ -90,12 +103,36 @@ export function Step4ScheduleSend({
           ? 'Carga CSV'
           : 'Personalizado';
 
+  const minLocal = toLocalInputValue(new Date(Date.now() + 60 * 1000));
+
+  function chooseMode(next: 'now' | 'later') {
+    setMode(next);
+    if (next === 'now') {
+      onScheduledAtChange('');
+    } else if (!scheduledAt) {
+      onScheduledAtChange(toLocalInputValue(new Date(Date.now() + 60 * 60 * 1000)));
+    }
+  }
+
+  const scheduleValid =
+    mode === 'now' ||
+    (Boolean(scheduledAt) && new Date(scheduledAt).getTime() > Date.now());
+
+  const canSubmit = Boolean(name.trim()) && !isProcessing && scheduleValid;
+
+  const scheduledLabel = scheduledAt
+    ? new Date(scheduledAt).toLocaleString('es', {
+        dateStyle: 'medium',
+        timeStyle: 'short',
+      })
+    : '';
+
   return (
     <div className="space-y-6">
       <div>
         <h2 className="text-lg font-semibold text-foreground">Revisar y Enviar</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Nombra tu transmisión, revisa los detalles y envía.
+          Nombra tu transmisión, revisa los detalles y envíala o prográmala.
         </p>
       </div>
 
@@ -142,13 +179,67 @@ export function Step4ScheduleSend({
         </div>
       </div>
 
+      {/* Programación */}
+      <div className="rounded-xl border border-border bg-card/50 p-4 space-y-3">
+        <p className="flex items-center gap-2 text-sm font-medium text-foreground">
+          <CalendarClock className="h-4 w-4 text-primary" />
+          Programación
+        </p>
+        <div className="inline-flex rounded-lg border border-border bg-muted p-0.5">
+          <button
+            type="button"
+            onClick={() => chooseMode('now')}
+            className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+              mode === 'now'
+                ? 'bg-primary text-primary-foreground'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            Enviar ahora
+          </button>
+          <button
+            type="button"
+            onClick={() => chooseMode('later')}
+            className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+              mode === 'later'
+                ? 'bg-primary text-primary-foreground'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            Programar
+          </button>
+        </div>
+
+        {mode === 'later' && (
+          <div>
+            <label className="mb-1.5 block text-xs text-muted-foreground">
+              Fecha y hora de envío
+            </label>
+            <input
+              type="datetime-local"
+              value={scheduledAt}
+              min={minLocal}
+              onChange={(e) => onScheduledAtChange(e.target.value)}
+              className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none focus-visible:border-ring"
+            />
+            {!scheduleValid && (
+              <p className="mt-1.5 text-xs text-rose-400">
+                Elige una fecha y hora futuras.
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+
       {/* Processing overlay */}
       {isProcessing && (
         <div className="rounded-xl border border-primary/20 bg-primary/5 p-4">
           <div className="mb-2 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Loader2 className="h-4 w-4 animate-spin text-primary" />
-              <p className="text-sm font-medium text-foreground">Enviando transmisión...</p>
+              <p className="text-sm font-medium text-foreground">
+                {mode === 'later' ? 'Programando...' : 'Enviando transmisión...'}
+              </p>
             </div>
             <span className="text-xs font-medium text-primary">{progress}%</span>
           </div>
@@ -189,23 +280,42 @@ export function Step4ScheduleSend({
           <DialogTrigger
             render={
               <Button
-                disabled={!name.trim() || isProcessing}
+                disabled={!canSubmit}
                 className="bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
               />
             }
           >
-            <Send className="h-4 w-4" />
-            Enviar Transmisión
+            {mode === 'later' ? <CalendarClock className="h-4 w-4" /> : <Send className="h-4 w-4" />}
+            {mode === 'later' ? 'Programar Transmisión' : 'Enviar Transmisión'}
           </DialogTrigger>
           <DialogContent className="border-border bg-popover sm:max-w-md">
             <DialogHeader>
-              <DialogTitle className="text-popover-foreground">Confirmar Transmisión</DialogTitle>
+              <DialogTitle className="text-popover-foreground">
+                {mode === 'later' ? 'Confirmar Programación' : 'Confirmar Transmisión'}
+              </DialogTitle>
               <DialogDescription className="text-muted-foreground">
-                Estás a punto de enviar esta transmisión a{' '}
-                <span className="font-medium text-popover-foreground">{estimatedReach.toLocaleString()}</span>{' '}
-                contactos usando la plantilla{' '}
-                <span className="font-medium text-popover-foreground">{template.name}</span>.
-                Esta acción no se puede deshacer.
+                {mode === 'later' ? (
+                  <>
+                    Se programará una transmisión a{' '}
+                    <span className="font-medium text-popover-foreground">
+                      {estimatedReach.toLocaleString()}
+                    </span>{' '}
+                    contactos con la plantilla{' '}
+                    <span className="font-medium text-popover-foreground">{template.name}</span> para
+                    el{' '}
+                    <span className="font-medium text-popover-foreground">{scheduledLabel}</span>.
+                  </>
+                ) : (
+                  <>
+                    Estás a punto de enviar esta transmisión a{' '}
+                    <span className="font-medium text-popover-foreground">
+                      {estimatedReach.toLocaleString()}
+                    </span>{' '}
+                    contactos usando la plantilla{' '}
+                    <span className="font-medium text-popover-foreground">{template.name}</span>.
+                    Esta acción no se puede deshacer.
+                  </>
+                )}
               </DialogDescription>
             </DialogHeader>
             <DialogFooter>
@@ -223,8 +333,8 @@ export function Step4ScheduleSend({
                 }}
                 className="bg-primary text-primary-foreground hover:bg-primary/90"
               >
-                <Send className="h-4 w-4" />
-                Confirmar y Enviar
+                {mode === 'later' ? <CalendarClock className="h-4 w-4" /> : <Send className="h-4 w-4" />}
+                {mode === 'later' ? 'Confirmar y Programar' : 'Confirmar y Enviar'}
               </Button>
             </DialogFooter>
           </DialogContent>
