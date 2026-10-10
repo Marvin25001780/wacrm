@@ -190,9 +190,18 @@ export function ChannelMessaging() {
 
       {!loading && !error && pending.length > 0 && (
         <footer className="border-t border-border px-5 py-3">
-          <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-            Canales por habilitar
-          </p>
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              Canales por habilitar
+            </p>
+            <Link
+              href="/channels"
+              className="flex items-center gap-1 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+            >
+              Gestionar canales
+              <ArrowRight className="size-3" />
+            </Link>
+          </div>
           <div className="mt-2 flex flex-wrap gap-1.5">
             {pending.map((c) => {
               const Icon = c.icon

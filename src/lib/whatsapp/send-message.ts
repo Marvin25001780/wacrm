@@ -37,6 +37,7 @@ import {
 } from '@/lib/whatsapp/phone-utils';
 import type { MessageTemplate } from '@/types';
 import { isMessageTemplate } from '@/lib/whatsapp/template-row-guard';
+import { evolutionSendText } from '@/lib/channels/evolution';
 
 export const MEDIA_KINDS = ['image', 'video', 'document', 'audio'] as const;
 export const VALID_MESSAGE_TYPES = [
@@ -227,19 +228,24 @@ export async function sendMessageToConversation(
     );
   }
 
-  // WhatsApp config, account-scoped.
-  const { data: config, error: configError } = await db
+  // WhatsApp config, account-scoped. Si la cuenta no tiene Meta Cloud
+  // API, caemos a un canal Evolution (Baileys) activo — el camino que
+  // usa la bandeja para un número conectado por QR.
+  const { data: config } = await db
     .from('whatsapp_config')
     .select('*')
     .eq('account_id', accountId)
-    .single();
+    .maybeSingle();
 
-  if (configError || !config) {
-    throw new SendMessageError(
-      'whatsapp_not_configured',
-      'WhatsApp not configured. Please set up your WhatsApp integration first.',
-      400
-    );
+  if (!config) {
+    return sendEvolutionMessage(db, accountId, {
+      conversationId,
+      contact,
+      messageType,
+      contentText,
+      senderId,
+      replyToMessageId,
+    });
   }
 
   const accessToken = decrypt(config.access_token);
@@ -431,6 +437,148 @@ export async function sendMessageToConversation(
 
   // Pause any active Flow run for this contact — the agent stepping in
   // is the strongest "yield, human is here" signal. Best-effort.
+  try {
+    const { error: pauseErr } = await supabaseAdmin()
+      .from('flow_runs')
+      .update({
+        status: 'paused_by_agent',
+        ended_at: new Date().toISOString(),
+        end_reason: 'agent_replied',
+      })
+      .eq('account_id', accountId)
+      .eq('contact_id', contact.id)
+      .eq('status', 'active');
+    if (pauseErr) {
+      console.error('[flows] pause-on-agent-send failed:', pauseErr.message);
+    }
+  } catch (err) {
+    console.error(
+      '[flows] pause-on-agent-send threw:',
+      err instanceof Error ? err.message : err
+    );
+  }
+
+  return { messageId: messageRecord.id, whatsappMessageId: waMessageId };
+}
+
+/**
+ * Envío saliente de respaldo por Evolution API (WhatsApp/Baileys).
+ *
+ * Se usa cuando la cuenta NO tiene `whatsapp_config` (Meta) pero sí un
+ * canal `evolution` activo conectado por QR. Persiste el mensaje con
+ * `channel = 'whatsapp'` (es WhatsApp) y pausa los flujos activos del
+ * contacto, igual que el camino de Meta. Hoy soporta solo texto.
+ */
+async function sendEvolutionMessage(
+  db: SupabaseClient,
+  accountId: string,
+  params: {
+    conversationId: string;
+    contact: { id: string; phone: string | null } | null;
+    messageType: string;
+    contentText?: string | null;
+    senderId?: string | null;
+    replyToMessageId?: string | null;
+  }
+): Promise<SendMessageResult> {
+  const {
+    conversationId,
+    contact,
+    messageType,
+    contentText,
+    senderId,
+    replyToMessageId,
+  } = params;
+
+  const { data: row } = await db
+    .from('channel_configs')
+    .select('config, is_active')
+    .eq('account_id', accountId)
+    .eq('channel', 'evolution')
+    .maybeSingle();
+
+  const cfg = (row?.config ?? {}) as Record<string, unknown>;
+  const baseUrl = typeof cfg.base_url === 'string' ? cfg.base_url : '';
+  const instance = typeof cfg.instance === 'string' ? cfg.instance : '';
+  const apiKeyEnc = typeof cfg.api_key === 'string' ? cfg.api_key : '';
+
+  if (!row?.is_active || !baseUrl || !instance || !apiKeyEnc) {
+    throw new SendMessageError(
+      'whatsapp_not_configured',
+      'WhatsApp no está configurado. Conecta un número (Meta o Evolution) primero.',
+      400
+    );
+  }
+
+  if (messageType !== 'text') {
+    throw new SendMessageError(
+      'bad_request',
+      'Por WhatsApp (Evolution) solo se envían mensajes de texto por ahora.',
+      400
+    );
+  }
+
+  if (!contact?.phone) {
+    throw new SendMessageError('bad_request', 'Contact phone number not found', 400);
+  }
+
+  let apiKey = '';
+  try {
+    apiKey = decrypt(apiKeyEnc);
+  } catch (err) {
+    console.error('[send-message] no se pudo descifrar la api_key de Evolution:', err);
+    throw new SendMessageError('whatsapp_not_configured', 'Credenciales de WhatsApp inválidas.', 400);
+  }
+
+  const result = await evolutionSendText(
+    { baseUrl, apiKey },
+    instance,
+    contact.phone,
+    contentText || ''
+  );
+  if (!result.ok) {
+    console.error('[send-message] Evolution send failed:', result.error);
+    throw new SendMessageError('meta_error', `Evolution API error: ${result.error}`, 502);
+  }
+
+  const waMessageId = result.data.messageId ?? `evo_${Date.now()}`;
+
+  const { data: messageRecord, error: msgError } = await db
+    .from('messages')
+    .insert({
+      conversation_id: conversationId,
+      sender_type: 'agent',
+      sender_id: senderId ?? null,
+      content_type: 'text',
+      content_text: contentText || null,
+      media_url: null,
+      template_name: null,
+      message_id: waMessageId,
+      status: 'sent',
+      reply_to_message_id: replyToMessageId || null,
+      channel: 'whatsapp',
+    })
+    .select()
+    .single();
+
+  if (msgError) {
+    console.error('[send-message] error inserting Evolution message:', msgError);
+    throw new SendMessageError(
+      'db_error',
+      `Message sent to Evolution but failed to save to DB: ${msgError.message}`,
+      500
+    );
+  }
+
+  await db
+    .from('conversations')
+    .update({
+      last_message_text: contentText || '[...]',
+      last_message_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', conversationId);
+
   try {
     const { error: pauseErr } = await supabaseAdmin()
       .from('flow_runs')
