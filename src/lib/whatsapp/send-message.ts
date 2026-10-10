@@ -74,6 +74,13 @@ export interface SendMessageParams {
   /** Structured template params (header/body/buttons). */
   templateMessageParams?: unknown;
   replyToMessageId?: string | null;
+  /**
+   * `auth.users.id` del agente que envía. Se persiste en
+   * `messages.sender_id` para atribuir el mensaje en las métricas de
+   * productividad/mensajería. Omitir en envíos de sistema (bot,
+   * automatizaciones, API pública).
+   */
+  senderId?: string | null;
 }
 
 export interface SendMessageResult {
@@ -175,6 +182,7 @@ export async function sendMessageToConversation(
     templateParams,
     templateMessageParams,
     replyToMessageId,
+    senderId,
   } = params;
 
   if (!conversationId) {
@@ -391,6 +399,7 @@ export async function sendMessageToConversation(
     .insert({
       conversation_id: conversationId,
       sender_type: 'agent',
+      sender_id: senderId ?? null,
       content_type: messageType,
       content_text: contentText || null,
       media_url: mediaUrl || null,

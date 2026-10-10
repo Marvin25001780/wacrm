@@ -647,11 +647,27 @@ export type ContentType =
   | 'interactive';
 export type MessageStatus = 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
 
+/**
+ * Canal de origen/destino de un mensaje. `whatsapp` agrupa la Meta
+ * Cloud API y Evolution (WhatsApp no oficial). El resto son canales
+ * que se irán habilitando por integración; el desglose de métricas ya
+ * los contempla para que aparezcan en cuanto generen tráfico.
+ */
+export type MessageChannel =
+  | 'whatsapp'
+  | 'instagram'
+  | 'facebook'
+  | 'tiktok'
+  | 'telegram'
+  | 'email'
+  | 'webchat';
+
 export interface Message {
   id: string;
   conversation_id: string;
   sender_type: SenderType;
   sender_id?: string;
+  channel?: MessageChannel;
   content_type: ContentType;
   content_text?: string;
   media_url?: string;
