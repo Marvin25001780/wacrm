@@ -17,6 +17,7 @@ import { DealsSettings } from '@/components/settings/deals-settings';
 import { MembersTab } from '@/components/settings/members-tab';
 import { ApiKeysSettings } from '@/components/settings/api-keys-settings';
 import { AiConfig } from '@/components/settings/ai-config';
+import { WebchatPanel } from '@/components/settings/webchat-panel';
 import { IntegrationsPanel } from '@/components/settings/integrations-panel';
 import {
   resolveSection,
@@ -61,6 +62,7 @@ export default function SettingsPage() {
     deals: <DealsSettings />,
     members: <MembersTab />,
     ai: <AiConfig />,
+    webchat: <WebchatPanel />,
     api: <ApiKeysSettings />,
     integrations: <IntegrationsPanel />,
   };

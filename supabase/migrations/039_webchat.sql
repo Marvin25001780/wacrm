@@ -1,12 +1,12 @@
 -- ============================================================
--- 039_webchat.sql - Widget de webchat  ·  módulo 2.6
+-- 039_webchat.sql - Widget de webchat  ï¿½  mï¿½dulo 2.6
 --
--- Configuración por cuenta para un widget público que captura
--- leads (source='webchat'). Un token público identifica la cuenta
--- y permite servir la configuración + recibir mensajes.
+-- Configuraciï¿½n por cuenta para un widget pï¿½blico que captura
+-- leads (source='webchat'). Un token pï¿½blico identifica la cuenta
+-- y permite servir la configuraciï¿½n + recibir mensajes.
 --
 -- Crea:
---   1. webchat_configs — configuración del widget.
+--   1. webchat_configs ï¿½ configuraciï¿½n del widget.
 -- ============================================================
 
 -- ============================================================
@@ -43,13 +43,13 @@ CREATE POLICY webchat_configs_select ON webchat_configs
   FOR SELECT USING (is_account_member(account_id));
 
 CREATE POLICY webchat_configs_insert ON webchat_configs
-  FOR INSERT WITH CHECK (is_account_member(account_id, 'agent'));
+  FOR INSERT WITH CHECK (is_account_member(account_id, 'admin'));
 
 CREATE POLICY webchat_configs_update ON webchat_configs
-  FOR UPDATE USING (is_account_member(account_id, 'agent'));
+  FOR UPDATE USING (is_account_member(account_id, 'admin'));
 
 CREATE POLICY webchat_configs_delete ON webchat_configs
-  FOR DELETE USING (is_account_member(account_id, 'agent'));
+  FOR DELETE USING (is_account_member(account_id, 'admin'));
 
 DROP TRIGGER IF EXISTS set_updated_at ON webchat_configs;
 CREATE TRIGGER set_updated_at BEFORE UPDATE ON webchat_configs

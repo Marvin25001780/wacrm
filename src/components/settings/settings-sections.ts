@@ -1,6 +1,7 @@
 import {
   Coins,
   FileText,
+  Globe,
   KeyRound,
   LayoutGrid,
   Palette,
@@ -32,6 +33,7 @@ export const SETTINGS_SECTIONS = [
   'deals',
   'members',
   'ai',
+  'webchat',
   'api',
   'integrations',
 ] as const;
@@ -59,6 +61,7 @@ export const SECTION_META: Record<SettingsSection, SectionMeta> = {
   deals: { id: 'deals', label: 'Ofertas y moneda', icon: Coins, group: 'workspace' },
   members: { id: 'members', label: 'Miembros del equipo', icon: UsersRound, group: 'workspace' },
   ai: { id: 'ai', label: 'Asistente IA', icon: Sparkles, group: 'workspace' },
+  webchat: { id: 'webchat', label: 'Widget de webchat', icon: Globe, group: 'workspace' },
   api: { id: 'api', label: 'Claves API', icon: KeyRound, group: 'workspace' },
   integrations: { id: 'integrations', label: 'Integraciones', icon: PlugZap, group: 'workspace' },
 };

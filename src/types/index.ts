@@ -1018,3 +1018,36 @@ export interface AutomationLog {
   created_at: string;
   contact?: Contact;
 }
+
+// ============================================================
+// Webchat / Widget público (migration 039) — módulo 2.6
+// ============================================================
+
+export type WebchatPosition = 'bottom-right' | 'bottom-left';
+
+/** Configuración por cuenta del widget público de webchat. */
+export interface WebchatConfig {
+  id: string;
+  account_id: string;
+  created_by?: string | null;
+  enabled: boolean;
+  /** Token público usado en la URL del widget. */
+  token: string;
+  title: string;
+  welcome_message?: string | null;
+  color: string;
+  button_text: string;
+  position: WebchatPosition;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Payload público que devuelve el widget (sin datos sensibles). */
+export interface WebchatPublicConfig {
+  title: string;
+  welcome_message?: string | null;
+  color: string;
+  button_text: string;
+  position: WebchatPosition;
+  enabled: boolean;
+}
