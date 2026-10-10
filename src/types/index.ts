@@ -1058,6 +1058,42 @@ export interface WebchatPublicConfig {
 
 export type AuditOperation = 'INSERT' | 'UPDATE' | 'DELETE';
 
+// ============================================================
+// Segmentación (migration 042)
+// ============================================================
+
+export type SegmentEntity = 'contacts' | 'leads';
+
+export type SegmentOperator =
+  | 'equals'
+  | 'not_equals'
+  | 'contains'
+  | 'starts_with'
+  | 'gt'
+  | 'lt'
+  | 'is_set'
+  | 'is_not_set';
+
+/** Una condición del segmento. `value` se omite en is_set/is_not_set. */
+export interface SegmentRule {
+  field: string;
+  operator: SegmentOperator;
+  value?: string;
+}
+
+/** Segmento dinámico guardado (se evalúa al consultarlo). */
+export interface Segment {
+  id: string;
+  account_id: string;
+  created_by: string | null;
+  name: string;
+  description: string | null;
+  entity: SegmentEntity;
+  rules: SegmentRule[];
+  created_at: string;
+  updated_at: string;
+}
+
 /** Entrada de la bitácora de auditoría (append-only, por cuenta). */
 export interface AuditLog {
   id: string;
