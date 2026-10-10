@@ -1051,3 +1051,25 @@ export interface WebchatPublicConfig {
   position: WebchatPosition;
   enabled: boolean;
 }
+
+// ============================================================
+// Auditoría empresarial (migration 041)
+// ============================================================
+
+export type AuditOperation = 'INSERT' | 'UPDATE' | 'DELETE';
+
+/** Entrada de la bitácora de auditoría (append-only, por cuenta). */
+export interface AuditLog {
+  id: string;
+  account_id: string;
+  actor_id: string | null;
+  actor_email: string | null;
+  table_name: string;
+  operation: AuditOperation;
+  record_id: string | null;
+  changes: {
+    before?: Record<string, unknown>;
+    after?: Record<string, unknown>;
+  } | null;
+  created_at: string;
+}
