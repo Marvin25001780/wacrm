@@ -18,6 +18,12 @@ import type {
   ResponseTimeSummary,
   TopContactRow,
 } from './types'
+import {
+  aggregateMessaging,
+  type MessagingMessageRow,
+  type MessagingProfile,
+  type MessagingResult,
+} from '@/lib/metrics/aggregate'
 
 // ------------------------------------------------------------
 // All client-side aggregation. RLS scopes every query to the
@@ -128,6 +134,37 @@ export async function loadConversationsSeries(
   }
 
   return keys.map((day) => ({ day, ...(buckets.get(day) ?? { incoming: 0, outgoing: 0 }) }))
+}
+
+// --- 2b. Messaging breakdown by channel ---------------------------------
+
+/**
+ * Reúne los mensajes del período y los agrega por canal (enviados,
+ * recibidos, respondidos) reutilizando el agregador puro del módulo de
+ * métricas. Alimenta el widget "Mensajería por canal" del Panel.
+ */
+export async function loadChannelMessaging(
+  db: DB,
+  rangeDays: number,
+): Promise<MessagingResult> {
+  const start = daysAgoStart(rangeDays - 1).toISOString()
+  const [msgRes, profRes] = await Promise.all([
+    db
+      .from('messages')
+      .select('conversation_id, sender_type, sender_id, channel, created_at')
+      .gte('created_at', start)
+      .order('created_at', { ascending: true })
+      .limit(20000),
+    db.from('profiles').select('id, user_id, full_name, email'),
+  ])
+  if (msgRes.error) throw msgRes.error
+  if (profRes.error) throw profRes.error
+
+  return aggregateMessaging(
+    (msgRes.data ?? []) as unknown as MessagingMessageRow[],
+    (profRes.data ?? []) as unknown as MessagingProfile[],
+    rangeDays,
+  )
 }
 
 // --- 3. Pipeline donut -------------------------------------------------

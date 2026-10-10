@@ -33,6 +33,7 @@ import { MetricCard } from '@/components/dashboard/metric-card'
 import { SkeletonCard } from '@/components/dashboard/skeleton'
 import { QuickActions } from '@/components/dashboard/quick-actions'
 import { ConversationsChart } from '@/components/dashboard/conversations-chart'
+import { ChannelMessaging } from '@/components/dashboard/channel-messaging'
 import { PipelineDonut } from '@/components/dashboard/pipeline-donut'
 import { ResponseTimeChart } from '@/components/dashboard/response-time-chart'
 import { ActivityFeed } from '@/components/dashboard/activity-feed'
@@ -217,6 +218,9 @@ export default function DashboardPage() {
           />
         </div>
       </div>
+
+      {/* Messaging by channel — Kommo-style omnichannel breakdown */}
+      <ChannelMessaging />
 
       {/* Response time */}
       <ResponseTimeChart data={responseTime} loading={responseTimeLoading} />

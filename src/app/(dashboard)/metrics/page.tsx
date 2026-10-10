@@ -15,16 +15,10 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  Camera,
-  Globe,
   Inbox,
-  Mail,
-  MessageCircle,
-  Music2,
   Percent,
   Reply,
   Send,
-  ThumbsUp,
   Timer,
   Users,
 } from "lucide-react";
@@ -44,17 +38,6 @@ import {
   type MessagingProfile,
   type MetricPeriodKey,
 } from "@/lib/metrics/aggregate";
-import type { MessageChannel } from "@/types";
-
-const CHANNEL_ICON: Record<MessageChannel, typeof Globe> = {
-  whatsapp: MessageCircle,
-  email: Mail,
-  webchat: Globe,
-  instagram: Camera,
-  facebook: ThumbsUp,
-  tiktok: Music2,
-  telegram: Send,
-};
 
 function pct(rate: number): string {
   return `${Math.round(rate * 100)}%`;
@@ -214,7 +197,7 @@ export default function MetricsPage() {
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
               {CHANNEL_CATALOG.map((meta) => {
                 const m = byChannel.get(meta.key);
-                const Icon = CHANNEL_ICON[meta.key];
+                const Icon = meta.icon;
                 const connected = !!m && m.sent + m.received > 0;
                 return (
                   <div

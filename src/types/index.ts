@@ -655,6 +655,7 @@ export type MessageStatus = 'sending' | 'sent' | 'delivered' | 'read' | 'failed'
  */
 export type MessageChannel =
   | 'whatsapp'
+  | 'sms'
   | 'instagram'
   | 'facebook'
   | 'tiktok'
