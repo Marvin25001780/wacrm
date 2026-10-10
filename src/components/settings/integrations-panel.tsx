@@ -6,7 +6,8 @@ import { useAuth } from '@/hooks/use-auth';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Loader2, MessageCircle, Mail, Webhook, Check, X } from 'lucide-react';
+import { Loader2, MessageCircle, Mail, Check } from 'lucide-react';
+import { WebhookEndpointsManager } from '@/components/settings/webhook-endpoints';
 
 export function IntegrationsPanel() {
   const { accountId } = useAuth();
@@ -24,11 +25,6 @@ export function IntegrationsPanel() {
   const [smtpPass, setSmtpPass] = useState('');
   const [smtpFrom, setSmtpFrom] = useState('');
   const [emailEnabled, setEmailEnabled] = useState(false);
-
-  // Custom Webhook
-  const [webhookUrl, setWebhookUrl] = useState('');
-  const [webhookSecret, setWebhookSecret] = useState('');
-  const [webhookEnabled, setWebhookEnabled] = useState(false);
 
   useEffect(() => {
     if (!accountId) return;
@@ -49,9 +45,6 @@ export function IntegrationsPanel() {
         setSmtpPass(data.smtp_pass ?? '');
         setSmtpFrom(data.smtp_from ?? '');
         setEmailEnabled(data.email_enabled ?? false);
-        setWebhookUrl(data.custom_webhook_url ?? '');
-        setWebhookSecret(data.custom_webhook_secret ?? '');
-        setWebhookEnabled(data.custom_webhook_enabled ?? false);
       }
       setLoading(false);
     };
@@ -87,21 +80,6 @@ export function IntegrationsPanel() {
     }, { onConflict: 'account_id' });
     if (error) toast.error('Error al guardar correo');
     else toast.success('Correo configurado');
-    setSaving(null);
-  };
-
-  const saveWebhook = async () => {
-    if (!accountId) return;
-    setSaving('webhook');
-    const supabase = createClient();
-    const { error } = await supabase.from('integrations').upsert({
-      account_id: accountId,
-      custom_webhook_url: webhookUrl,
-      custom_webhook_secret: webhookSecret,
-      custom_webhook_enabled: true,
-    }, { onConflict: 'account_id' });
-    if (error) toast.error('Error al guardar webhook');
-    else toast.success('Webhook configurado');
     setSaving(null);
   };
 
@@ -201,42 +179,9 @@ export function IntegrationsPanel() {
         </div>
       </div>
 
-      {/* Custom Webhook */}
+      {/* Webhooks salientes (endpoints firmados) */}
       <div className="rounded-xl border border-border bg-card p-5">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted">
-            <Webhook className="h-5 w-5 text-muted-foreground" />
-          </div>
-          <div className="flex-1">
-            <h3 className="text-sm font-medium text-foreground">Webhook Personalizado</h3>
-            <p className="text-xs text-muted-foreground">
-              Recibe eventos del CRM en tu propio endpoint.
-            </p>
-          </div>
-          {webhookEnabled && <Check className="h-4 w-4 text-primary" />}
-        </div>
-        <div className="mt-4 space-y-3">
-          <Input value={webhookUrl} onChange={(e) => setWebhookUrl(e.target.value)} placeholder="https://tudominio.com/webhook" className="border-border text-foreground placeholder:text-muted-foreground" />
-          <Input value={webhookSecret} onChange={(e) => setWebhookSecret(e.target.value)} placeholder="Clave secreta (opcional)" className="border-border text-foreground placeholder:text-muted-foreground" />
-        </div>
-        <div className="mt-3 flex gap-2">
-          <Button onClick={saveWebhook} disabled={saving === 'webhook' || !webhookUrl} className="bg-primary text-primary-foreground hover:bg-primary/90">
-            {saving === 'webhook' && <Loader2 className="h-4 w-4 animate-spin" />}
-            Guardar Webhook
-          </Button>
-          {webhookEnabled && (
-            <Button variant="outline" className="border-border text-muted-foreground" onClick={async () => {
-              if (!accountId) return;
-              const supabase = createClient();
-              await supabase.from('integrations').upsert({
-                account_id: accountId,
-                custom_webhook_enabled: false,
-              }, { onConflict: 'account_id' });
-              setWebhookEnabled(false);
-              toast.success('Webhook desactivado');
-            }}>Desactivar</Button>
-          )}
-        </div>
+        <WebhookEndpointsManager />
       </div>
     </div>
   );
