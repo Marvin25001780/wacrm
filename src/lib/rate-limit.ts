@@ -153,6 +153,11 @@ export const RATE_LIMITS = {
    *  spend on the account's own LLM key against an accidental
    *  hold-down / script. */
   aiDraft: { limit: 20, windowMs: 60_000 },
+  /** SMS send, per user. 120/min gives the client-side bulk sender
+   *  (which fires one request per recipient with a configurable delay)
+   *  comfortable headroom even at the shortest 1s delay, while still
+   *  bounding a runaway script. */
+  smsSend: { limit: 120, windowMs: 60_000 },
   /** AI draft-reply generation, per account. Caps the WHOLE team's
    *  draws on the one shared BYO provider key — without this, N agents
    *  each under their per-user limit could still stampede the account's

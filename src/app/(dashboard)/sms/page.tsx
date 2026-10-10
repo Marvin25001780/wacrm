@@ -23,10 +23,10 @@ function SmsIcon({ type }: { type: "send" | "sms" | "key" | "device" | "history"
   );
 }
 
-function formatPhone(phone: string): string {
-  const digits = phone.replace(/\D/g, "");
-  if (digits.startsWith("58") && digits.length >= 11) return `+${digits}`;
-  return phone.startsWith("+") ? phone : `+${digits}`;
+interface SmsConfigState {
+  configured: boolean;
+  device_id: string | null;
+  has_key: boolean;
 }
 
 export default function SmsPage() {
@@ -37,9 +37,14 @@ export default function SmsPage() {
   const [sending, setSending] = useState(false);
   const [history, setHistory] = useState<Array<{ to: string; message: string; sentAt: string }>>([]);
   const [lastReceived, setLastReceived] = useState<Array<{ from: string; message: string; receivedAt: string }>>([]);
-  const [deviceId, setDeviceId] = useState("");
-  const [apiKey, setApiKey] = useState("");
+
+  // Account-scoped config, loaded from the server. The API key stays
+  // encrypted server-side and is never sent to the browser.
+  const [config, setConfig] = useState<SmsConfigState>({ configured: false, device_id: null, has_key: false });
   const [showConfig, setShowConfig] = useState(false);
+  const [deviceIdInput, setDeviceIdInput] = useState("");
+  const [apiKeyInput, setApiKeyInput] = useState("");
+  const [savingConfig, setSavingConfig] = useState(false);
 
   // Bulk send state
   const [csvData, setCsvData] = useState<Array<Record<string, string>>>([]);
@@ -52,22 +57,63 @@ export default function SmsPage() {
   const [previewRecipient, setPreviewRecipient] = useState("");
   const cancelRef = useRef(false);
 
-  useEffect(() => {
-    const d = localStorage.getItem("sms_device_id") ?? "";
-    const k = localStorage.getItem("sms_api_key") ?? "";
-    setDeviceId(d);
-    setApiKey(k);
+  const configured = config.configured;
+
+  const loadConfig = useCallback(async () => {
+    try {
+      const res = await fetch("/api/sms/config");
+      if (!res.ok) return;
+      const data = await res.json();
+      setConfig({
+        configured: !!data.configured,
+        device_id: data.device_id ?? null,
+        has_key: !!data.has_key,
+      });
+    } catch {
+      // Network hiccup — keep the last known state.
+    }
   }, []);
 
-  const saveConfig = () => {
-    localStorage.setItem("sms_device_id", deviceId);
-    localStorage.setItem("sms_api_key", apiKey);
-    setShowConfig(false);
-    toast.success("Credenciales guardadas");
+  useEffect(() => {
+    loadConfig();
+  }, [loadConfig]);
+
+  const openConfig = () => {
+    setDeviceIdInput(config.device_id ?? "");
+    setApiKeyInput("");
+    setShowConfig(true);
+  };
+
+  const saveConfig = async () => {
+    if (!deviceIdInput.trim()) {
+      toast.error("Ingresa el ID del dispositivo");
+      return;
+    }
+    setSavingConfig(true);
+    try {
+      const res = await fetch("/api/sms/config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          device_id: deviceIdInput.trim(),
+          api_key: apiKeyInput.trim() || undefined,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "Error al guardar las credenciales");
+      toast.success("Credenciales guardadas");
+      setShowConfig(false);
+      setApiKeyInput("");
+      await loadConfig();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Error al guardar las credenciales");
+    } finally {
+      setSavingConfig(false);
+    }
   };
 
   const sendSms = useCallback(async () => {
-    if (!phone || !message || !deviceId || !apiKey) return;
+    if (!phone || !message || !configured) return;
     setSending(true);
     try {
       const controller = new AbortController();
@@ -76,11 +122,11 @@ export default function SmsPage() {
         signal: controller.signal,
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ to: formatPhone(phone), message, deviceId, apiKey }),
+        body: JSON.stringify({ to: phone, message }),
       });
       clearTimeout(timeout);
       if (!res.ok) {
-        const err = await res.json();
+        const err = await res.json().catch(() => ({}));
         throw new Error(err.error ?? "Error al enviar SMS");
       }
       toast.success("SMS enviado exitosamente");
@@ -92,31 +138,31 @@ export default function SmsPage() {
     } finally {
       setSending(false);
     }
-  }, [phone, message, deviceId, apiKey]);
+  }, [phone, message, configured]);
 
   const fetchReceived = useCallback(async () => {
-    if (!deviceId || !apiKey) return;
+    if (!configured) return;
     try {
-      const res = await fetch("/api/sms/received", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ deviceId, apiKey }) });
+      const res = await fetch("/api/sms/received", { method: "POST" });
       if (res.ok) {
         const data = await res.json();
         setLastReceived(data.messages ?? []);
       }
     } catch {}
-  }, [deviceId, apiKey]);
+  }, [configured]);
 
   useEffect(() => {
-    if (!deviceId || !apiKey) return;
+    if (!configured) return;
     fetchReceived();
     const interval = setInterval(fetchReceived, 15000);
     return () => clearInterval(interval);
-  }, [deviceId, apiKey, fetchReceived]);
+  }, [configured, fetchReceived]);
 
   // CSV upload handler
   const handleCsvUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 1048576) { toast.error("Archivo demasiado grande (m\u00e1x 1MB)"); return; }
+    if (file.size > 1048576) { toast.error("Archivo demasiado grande (máx 1MB)"); return; }
     const reader = new FileReader();
     reader.onload = (ev) => {
       const text = ev.target?.result as string;
@@ -139,10 +185,13 @@ export default function SmsPage() {
 
   // Bulk send
   const startBulkSend = async () => {
-    if (!deviceId || !apiKey || !selectedColumn || !bulkTemplate || csvData.length === 0) return;
+    if (!configured || !selectedColumn || !bulkTemplate || csvData.length === 0) return;
     cancelRef.current = false;
     setBulkSending(true);
     setBulkProgress({ sent: 0, total: csvData.length, fallidos: 0 });
+
+    let sent = 0;
+    let fallidos = 0;
 
     for (let i = 0; i < csvData.length; i++) {
       if (cancelRef.current) break;
@@ -150,19 +199,21 @@ export default function SmsPage() {
       let msg = bulkTemplate;
       csvColumns.forEach((col) => { msg = msg.replaceAll(`{{ ${col} }}`, row[col] || ""); });
       const recipient = row[selectedColumn];
-      if (!recipient) { setBulkProgress((p) => ({ ...p, fallidos: p.fallidos + 1 })); continue; }
+      if (!recipient) { fallidos++; setBulkProgress((p) => ({ ...p, fallidos })); continue; }
 
       try {
         const res = await fetch("/api/sms/send", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ to: formatPhone(recipient), message: msg, deviceId, apiKey }),
+          body: JSON.stringify({ to: recipient, message: msg }),
         });
         if (!res.ok) throw new Error();
-        setBulkProgress((p) => ({ ...p, sent: p.sent + 1 }));
+        sent++;
+        setBulkProgress((p) => ({ ...p, sent }));
         setHistory((prev) => [{ to: recipient, message: msg, sentAt: new Date().toISOString() }, ...prev]);
       } catch {
-        setBulkProgress((p) => ({ ...p, fallidos: p.fallidos + 1 }));
+        fallidos++;
+        setBulkProgress((p) => ({ ...p, fallidos }));
       }
 
       if (i < csvData.length - 1 && delaySeconds > 0) {
@@ -171,7 +222,7 @@ export default function SmsPage() {
     }
 
     setBulkSending(false);
-    toast.success(`Envío masivo completado: ${bulkProgress.sent} enviados, ${bulkProgress.fallidos} fallidos`);
+    toast.success(`Envío masivo completado: ${sent} enviados, ${fallidos} fallidos`);
   };
 
   // Preview for selected recipient
@@ -190,7 +241,7 @@ export default function SmsPage() {
       <div className="flex gap-6 border-b border-border pb-2">
         <button onClick={() => setTab("dashboard")} className={`pb-2 text-sm font-medium transition-colors ${tab === "dashboard" ? "border-b-2 border-primary text-foreground" : "text-muted-foreground hover:text-foreground"}`}>Panel</button>
         <button onClick={() => setTab("messaging")} className={`pb-2 text-sm font-medium transition-colors ${tab === "messaging" ? "border-b-2 border-primary text-foreground" : "text-muted-foreground hover:text-foreground"}`}>Mensajería</button>
-        <button onClick={() => setShowConfig(true)} className="pb-2 text-sm font-medium text-muted-foreground hover:text-foreground">Cuenta</button>
+        <button onClick={openConfig} className="pb-2 text-sm font-medium text-muted-foreground hover:text-foreground">Cuenta</button>
       </div>
 
       {tab === "dashboard" && (
@@ -200,40 +251,39 @@ export default function SmsPage() {
             <div className="rounded-lg border border-border bg-card p-4">
               <div className="flex items-center justify-between"><span className="text-xs font-medium text-muted-foreground">Total de SMS Enviados</span><SmsIcon type="send" /></div>
               <p className="mt-1 text-2xl font-bold text-foreground">{history.length}</p>
-              <span className="text-[10px] text-muted-foreground">Desde el a\u00f1o pasado</span>
+              <span className="text-[10px] text-muted-foreground">En esta sesión</span>
             </div>
             <div className="rounded-lg border border-border bg-card p-4">
               <div className="flex items-center justify-between"><span className="text-xs font-medium text-muted-foreground">Dispositivos Activos</span><SmsIcon type="device" /></div>
-              <p className="mt-1 text-2xl font-bold text-foreground">{deviceId ? 1 : 0}</p>
-              <span className="text-[10px] text-muted-foreground">Conectado ahora</span>
+              <p className="mt-1 text-2xl font-bold text-foreground">{configured ? 1 : 0}</p>
+              <span className="text-[10px] text-muted-foreground">{configured ? "Conectado" : "Sin configurar"}</span>
             </div>
             <div className="rounded-lg border border-border bg-card p-4">
               <div className="flex items-center justify-between"><span className="text-xs font-medium text-muted-foreground">Claves de API</span><SmsIcon type="key" /></div>
-              <p className="mt-1 text-2xl font-bold text-foreground">{apiKey ? 1 : 0}</p>
+              <p className="mt-1 text-2xl font-bold text-foreground">{config.has_key ? 1 : 0}</p>
               <span className="text-[10px] text-muted-foreground">Claves activas</span>
             </div>
             <div className="rounded-lg border border-border bg-card p-4">
               <div className="flex items-center justify-between"><span className="text-xs font-medium text-muted-foreground">SMS Recibidos</span><SmsIcon type="sms" /></div>
               <p className="mt-1 text-2xl font-bold text-foreground">{lastReceived.length}</p>
-              <span className="text-[10px] text-muted-foreground">Desde el a\u00f1o pasado</span>
+              <span className="text-[10px] text-muted-foreground">Recientes</span>
             </div>
           </div>
           <div className="rounded-lg border border-border bg-card p-4">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-semibold text-foreground">Claves de API</h3>
-              <Button variant="outline" size="sm" onClick={() => window.open("https://app.textbee.dev/dashboard", "_blank")}>Agregar clave de API</Button>
+              <Button variant="outline" size="sm" onClick={openConfig}>Configurar</Button>
             </div>
-            {apiKey && (
+            {config.has_key && (
               <div className="mt-3 rounded-md bg-muted/30 p-3">
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2"><SmsIcon type="key" /><span className="text-xs font-mono text-muted-foreground">{apiKey.slice(0, 18)}**********</span></div>
+                  <div className="flex items-center gap-2"><SmsIcon type="key" /><span className="text-xs font-mono text-muted-foreground">{config.device_id ? `${config.device_id.slice(0, 18)}${config.device_id.length > 18 ? "…" : ""}` : "Dispositivo configurado"}</span></div>
                   <span className="rounded-full bg-green-500/10 px-2 py-0.5 text-[10px] font-medium text-green-400">Activo</span>
                 </div>
-                <p className="mt-1 text-[10px] text-muted-foreground">Creada el: 4 de julio de 2026</p>
-                <p className="text-[10px] text-muted-foreground">\u00daltimo uso: {new Date().toLocaleDateString()}</p>
+                <p className="mt-1 text-[10px] text-muted-foreground">La clave de API se guarda cifrada en el servidor y no se muestra aquí.</p>
               </div>
             )}
-            {!apiKey && <p className="mt-3 text-xs text-muted-foreground">No hay clave de API configurada</p>}
+            {!config.has_key && <p className="mt-3 text-xs text-muted-foreground">No hay clave de API configurada</p>}
           </div>
         </div>
       )}
@@ -249,16 +299,16 @@ export default function SmsPage() {
           {msgTab === "send" && (
             <div className="rounded-lg border border-border bg-card p-4">
               <h3 className="mb-1 text-sm font-semibold text-foreground">Enviar SMS</h3>
-              <p className="mb-3 text-xs text-muted-foreground">Env\u00eda un mensaje a cualquier destinatario</p>
+              <p className="mb-3 text-xs text-muted-foreground">Envía un mensaje a cualquier destinatario</p>
               <div className="mb-3 flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2">
                 <SmsIcon type="device" />
-                <span className="flex-1 text-sm text-muted-foreground">{deviceId ? deviceId.slice(0, 16) + "..." : "Seleccionar un dispositivo"}</span>
-                <button onClick={() => setShowConfig(true)} className="text-xs text-primary underline">{deviceId ? "Cambiar" : "Configurar"}</button>
+                <span className="flex-1 text-sm text-muted-foreground">{config.device_id ? config.device_id.slice(0, 16) + "..." : "Sin dispositivo configurado"}</span>
+                <button onClick={openConfig} className="text-xs text-primary underline">{configured ? "Cambiar" : "Configurar"}</button>
               </div>
               <div className="flex flex-col gap-3">
                 <Input placeholder="Agregar destinatario" value={phone} onChange={(e) => setPhone(e.target.value)} className="font-mono" />
                 <textarea className="flex min-h-16 w-full rounded-lg border border-input bg-transparent px-2.5 py-2 text-base transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 md:text-sm" placeholder="Mensaje" value={message} onChange={(e) => setMessage(e.target.value)} rows={3} />
-                <Button onClick={sendSms} disabled={sending || !phone || !message} className="self-start">{sending ? "Enviando..." : "Enviar mensaje"}</Button>
+                <Button onClick={sendSms} disabled={sending || !phone || !message || !configured} className="self-start">{sending ? "Enviando..." : "Enviar mensaje"}</Button>
               </div>
             </div>
           )}
@@ -266,20 +316,20 @@ export default function SmsPage() {
           {msgTab === "bulk" && (
             <div className="rounded-lg border border-border bg-card p-4">
               <h3 className="mb-1 text-sm font-semibold text-foreground">Enviar SMS Masivos</h3>
-              <p className="mb-4 text-xs text-muted-foreground">Sube un CSV, configura tu mensaje y env\u00eda SMS masivos en 3 simples pasos.</p>
+              <p className="mb-4 text-xs text-muted-foreground">Sube un CSV, configura tu mensaje y envía SMS masivos en 3 simples pasos.</p>
 
               {/* Step 1: Upload CSV */}
               <div className="mb-4">
                 <p className="mb-2 text-sm font-medium text-foreground">1. Subir CSV</p>
                 <div className="rounded-lg border-2 border-dashed border-border bg-muted/20 p-6 text-center">
                   <SmsIcon type="upload" />
-                  <p className="mt-2 text-sm text-muted-foreground">Sube un archivo CSV con informaci\u00f3n de los destinatarios.</p>
+                  <p className="mt-2 text-sm text-muted-foreground">Sube un archivo CSV con información de los destinatarios.</p>
                   <label className="mt-2 inline-block cursor-pointer rounded-md bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90">
                     Seleccionar archivo CSV
                     <input type="file" accept=".csv" onChange={handleCsvUpload} className="hidden" />
                   </label>
                   {csvData.length > 0 && <p className="mt-2 text-xs text-muted-foreground">{csvData.length} contactos cargados</p>}
-                  <p className="mt-1 text-[10px] text-muted-foreground">Tama\u00f1o m\u00e1ximo: 1MB</p>
+                  <p className="mt-1 text-[10px] text-muted-foreground">Tamaño máximo: 1MB</p>
                 </div>
               </div>
 
@@ -289,14 +339,14 @@ export default function SmsPage() {
                 <div className="flex flex-col gap-3">
                   <div className="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2">
                     <SmsIcon type="device" />
-                    <span className="text-sm text-muted-foreground">{deviceId ? "Dispositivo: " + deviceId.slice(0, 12) + "..." : "Sin dispositivo"}</span>
+                    <span className="text-sm text-muted-foreground">{config.device_id ? "Dispositivo: " + config.device_id.slice(0, 12) + "..." : "Sin dispositivo"}</span>
                   </div>
                   <select value={selectedColumn} onChange={(e) => setSelectedColumn(e.target.value)} className="flex h-8 w-full rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm">
                     <option value="">Seleccionar Columna de Destinatarios</option>
                     {csvColumns.filter((c) => c !== selectedColumn).map((col) => (<option key={col} value={col}>{col}</option>))}
                     {csvColumns.includes(selectedColumn) && <option value={selectedColumn}>{selectedColumn}</option>}
                   </select>
-                  <textarea value={bulkTemplate} onChange={(e) => setBulkTemplate(e.target.value)} className="flex min-h-16 w-full rounded-lg border border-input bg-transparent px-2.5 py-2 text-base transition-colors placeholder:text-muted-foreground focus-visible:border-ring md:text-sm" placeholder={'Ingresa tu plantilla de mensaje aqu\u00ed. Usa {{ nombre_columna }} para contenido din\u00e1mico.'} rows={3} />
+                  <textarea value={bulkTemplate} onChange={(e) => setBulkTemplate(e.target.value)} className="flex min-h-16 w-full rounded-lg border border-input bg-transparent px-2.5 py-2 text-base transition-colors placeholder:text-muted-foreground focus-visible:border-ring md:text-sm" placeholder={'Ingresa tu plantilla de mensaje aquí. Usa {{ nombre_columna }} para contenido dinámico.'} rows={3} />
                   {/* Delay configuration */}
                   <div className="flex items-center gap-2">
                     <SmsIcon type="clock" />
@@ -339,17 +389,17 @@ export default function SmsPage() {
                   <div className="flex items-center justify-between text-xs text-muted-foreground">
                     <span>Enviando: {bulkProgress.sent} / {bulkProgress.total}</span>
                     <span>Fallidos: {bulkProgress.fallidos}</span>
-                    <span>{Math.round((bulkProgress.sent / bulkProgress.total) * 100)}%</span>
+                    <span>{bulkProgress.total > 0 ? Math.round((bulkProgress.sent / bulkProgress.total) * 100) : 0}%</span>
                   </div>
                   <div className="mt-1 h-2 w-full rounded-full bg-muted">
-                    <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${(bulkProgress.sent / bulkProgress.total) * 100}%` }} />
+                    <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${bulkProgress.total > 0 ? (bulkProgress.sent / bulkProgress.total) * 100 : 0}%` }} />
                   </div>
                 </div>
               )}
 
               <div className="flex gap-2">
-                <Button onClick={startBulkSend} disabled={bulkSending || !deviceId || !apiKey || !selectedColumn || !bulkTemplate || csvData.length === 0} className="self-start">
-                  {bulkSending ? `Sending... (${bulkProgress.sent}/${bulkProgress.total})` : "Enviar SMS Masivos"}
+                <Button onClick={startBulkSend} disabled={bulkSending || !configured || !selectedColumn || !bulkTemplate || csvData.length === 0} className="self-start">
+                  {bulkSending ? `Enviando... (${bulkProgress.sent}/${bulkProgress.total})` : "Enviar SMS Masivos"}
                 </Button>
                 {bulkSending && <Button variant="outline" size="sm" onClick={() => { cancelRef.current = true; toast.info("Cancelando..."); }} className="self-start">Cancelar</Button>}
               </div>
@@ -358,8 +408,8 @@ export default function SmsPage() {
 
           {msgTab === "history" && (
             <div className="rounded-lg border border-border bg-card p-4">
-              <h3 className="mb-3 text-sm font-semibold text-foreground">Historial de Env\u00edos</h3>
-              {history.length === 0 && <p className="text-xs text-muted-foreground">A\u00fan no se han enviado mensajes</p>}
+              <h3 className="mb-3 text-sm font-semibold text-foreground">Historial de Envíos</h3>
+              {history.length === 0 && <p className="text-xs text-muted-foreground">Aún no se han enviado mensajes</p>}
               {history.map((item, i) => (
                 <div key={i} className="mb-2 rounded-md bg-muted/30 p-3">
                   <div className="flex items-center gap-2 text-sm">
@@ -378,15 +428,22 @@ export default function SmsPage() {
       {showConfig && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/70 backdrop-blur-sm">
           <div className="w-full max-w-sm rounded-lg border border-border bg-card p-6 shadow-lg">
-            <h3 className="mb-4 text-lg font-semibold text-foreground">Configuraci\u00f3n de la Cuenta</h3>
-            <p className="mb-4 text-xs text-muted-foreground">Obt\u00e9n credenciales de <a href="https://app.textbee.dev/dashboard" target="_blank" rel="noopener noreferrer" className="text-primary underline">app.textbee.dev</a></p>
+            <h3 className="mb-4 text-lg font-semibold text-foreground">Configuración de la Cuenta</h3>
+            <p className="mb-4 text-xs text-muted-foreground">Obtén credenciales de <a href="https://app.textbee.dev/dashboard" target="_blank" rel="noopener noreferrer" className="text-primary underline">app.textbee.dev</a></p>
             <div className="flex flex-col gap-3">
-              <Input placeholder="ID del Dispositivo" value={deviceId} onChange={(e) => setDeviceId(e.target.value)} className="font-mono" />
-              <Input placeholder="Clave de API" value={apiKey} onChange={(e) => setApiKey(e.target.value)} className="font-mono" />
+              <Input placeholder="ID del Dispositivo" value={deviceIdInput} onChange={(e) => setDeviceIdInput(e.target.value)} className="font-mono" />
+              <Input
+                type="password"
+                placeholder={config.has_key ? "Dejar vacío para mantener la clave actual" : "Clave de API"}
+                value={apiKeyInput}
+                onChange={(e) => setApiKeyInput(e.target.value)}
+                className="font-mono"
+              />
             </div>
+            <p className="mt-2 text-[10px] text-muted-foreground">La clave se guarda cifrada en el servidor y nunca se envía al navegador.</p>
             <div className="mt-4 flex justify-end gap-2">
-              <Button variant="outline" size="sm" onClick={() => setShowConfig(false)}>Cancelar</Button>
-              <Button size="sm" onClick={saveConfig}>Guardar</Button>
+              <Button variant="outline" size="sm" onClick={() => setShowConfig(false)} disabled={savingConfig}>Cancelar</Button>
+              <Button size="sm" onClick={saveConfig} disabled={savingConfig}>{savingConfig ? "Guardando..." : "Guardar"}</Button>
             </div>
           </div>
         </div>

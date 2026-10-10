@@ -1,29 +1,41 @@
-import { NextResponse } from "next/server";
+import { NextResponse } from 'next/server'
+import { getCurrentAccount, toErrorResponse } from '@/lib/auth/account'
+import { loadSmsConfig } from '@/lib/sms/config'
+import { textbeeFetchReceived } from '@/lib/sms/textbee'
+import { syncInboundSms } from '@/lib/sms/persist'
 
-const TEXTBEE_API = "https://api.textbee.dev/api/v1/gateway/devices";
-
-export async function POST(request: Request) {
+/**
+ * POST /api/sms/received
+ *
+ * Returns recently received SMS for the account's configured textbee
+ * device, and records any new ones in the CRM (channel = 'sms') so
+ * they surface in the shared inbox and the metrics widget.
+ * Credentials are loaded and decrypted server-side.
+ */
+export async function POST() {
   try {
-    const { deviceId, apiKey } = await request.json();
+    const { supabase, accountId, userId } = await getCurrentAccount()
 
-    const resolvedDeviceId = deviceId || process.env.TEXTBEE_DEVICE_ID;
-    const resolvedApiKey = apiKey || process.env.TEXTBEE_API_KEY;
+    const config = await loadSmsConfig(supabase, accountId)
+    if (!config) return NextResponse.json({ messages: [] })
 
-    if (!resolvedApiKey || !resolvedDeviceId) {
-      return NextResponse.json({ messages: [] });
+    const result = await textbeeFetchReceived(config.deviceId, config.apiKey)
+    const messages = result.ok ? result.data : []
+
+    if (messages.length) {
+      // Best-effort: never fail the feed because persistence hiccuped.
+      try {
+        await syncInboundSms(supabase, accountId, userId, messages)
+      } catch (persistErr) {
+        console.error(
+          '[sms/received] persist failed:',
+          persistErr instanceof Error ? persistErr.message : persistErr,
+        )
+      }
     }
 
-    const res = await fetch(`${TEXTBEE_API}/${resolvedDeviceId}/get-received-sms`, {
-      headers: { "x-api-key": resolvedApiKey },
-    });
-
-    if (!res.ok) {
-      return NextResponse.json({ messages: [] });
-    }
-
-    const data = await res.json();
-    return NextResponse.json({ messages: data ?? [] });
-  } catch {
-    return NextResponse.json({ messages: [] });
+    return NextResponse.json({ messages })
+  } catch (err) {
+    return toErrorResponse(err)
   }
 }

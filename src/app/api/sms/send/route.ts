@@ -1,58 +1,80 @@
-import { NextResponse } from "next/server";
+import { NextResponse } from 'next/server'
+import { getCurrentAccount, toErrorResponse } from '@/lib/auth/account'
+import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit'
+import { loadSmsConfig } from '@/lib/sms/config'
+import { textbeeSendSms } from '@/lib/sms/textbee'
+import { recordOutboundSms, extractGatewayMessageId } from '@/lib/sms/persist'
 
-const TEXTBEE_API = "https://api.textbee.dev/api/v1/gateway/devices";
-
-function formatPhone(phone: string): string {
-  const digits = phone.replace(/\D/g, "");
-  if (digits.startsWith("58") && digits.length >= 11) return `+${digits}`;
-  return phone.startsWith("+") ? phone : `+${digits}`;
-}
-
+/**
+ * POST /api/sms/send
+ *
+ * Sends a single SMS through the account's configured textbee device.
+ * Credentials are loaded and decrypted server-side — the client never
+ * sends (or sees) them.
+ */
 export async function POST(request: Request) {
   try {
-    const { to, message, deviceId, apiKey } = await request.json();
-    const formattedTo = formatPhone(to);
+    const { supabase, accountId, userId } = await getCurrentAccount()
+
+    const limit = checkRateLimit(`sms-send:${userId}`, RATE_LIMITS.smsSend)
+    if (!limit.success) return rateLimitResponse(limit)
+
+    const body = await request.json().catch(() => null)
+    if (!body || typeof body !== 'object') {
+      return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
+    }
+
+    const to = typeof body.to === 'string' ? body.to.trim() : ''
+    const message = typeof body.message === 'string' ? body.message.trim() : ''
 
     if (!to || !message) {
-      return NextResponse.json({ error: "Phone and message are required" }, { status: 400 });
-    }
-
-    const resolvedDeviceId = deviceId || process.env.TEXTBEE_DEVICE_ID;
-    const resolvedApiKey = apiKey || process.env.TEXTBEE_API_KEY;
-
-    if (!resolvedApiKey || !resolvedDeviceId) {
       return NextResponse.json(
-        { error: "Configure your API Key and Device ID in the SMS page settings" },
+        { error: 'to and message are required' },
         { status: 400 },
-      );
+      )
     }
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 20000);
-    const res = await fetch(`${TEXTBEE_API}/${resolvedDeviceId}/send-sms`, {
-      signal: controller.signal,
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": resolvedApiKey,
-      },
-      body: JSON.stringify({
-        recipients: [formattedTo],
+    const config = await loadSmsConfig(supabase, accountId)
+    if (!config) {
+      return NextResponse.json(
+        {
+          error:
+            'SMS is not configured. An admin must add the textbee device id and API key in the SMS page settings.',
+        },
+        { status: 400 },
+      )
+    }
+
+    const result = await textbeeSendSms(config.deviceId, config.apiKey, to, message)
+    if (!result.ok) {
+      console.error('sms send error:', result.status, result.error)
+      return NextResponse.json(
+        { error: 'Failed to send SMS. Check your textbee credentials.' },
+        { status: 502 },
+      )
+    }
+
+    // Record the send in the CRM so SMS shows up in the inbox and in
+    // the "Mensajería por canal" metrics. Best-effort: the SMS already
+    // went out, so a DB hiccup must not turn a success into an error.
+    try {
+      await recordOutboundSms(
+        supabase,
+        accountId,
+        userId,
+        to,
         message,
-      }),
-    });
-    clearTimeout(timeout);
-
-    if (!res.ok) {
-      const err = await res.text();
-      console.error("textbee error:", err);
-      return NextResponse.json({ error: "Failed to send SMS. Check your credentials." }, { status: 502 });
+        extractGatewayMessageId(result.data),
+      )
+    } catch (persistErr) {
+      console.error(
+        '[sms/send] persist failed:',
+        persistErr instanceof Error ? persistErr.message : persistErr,
+      )
     }
 
-    const data = await res.json();
-    return NextResponse.json({ success: true, data });
-  } catch (e) {
-    console.error("sms send error:", e);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return NextResponse.json({ success: true, data: result.data })
+  } catch (err) {
+    return toErrorResponse(err)
   }
 }
