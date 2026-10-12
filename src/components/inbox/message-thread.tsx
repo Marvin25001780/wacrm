@@ -930,7 +930,7 @@ export function MessageThread({
           {/* Selector de canal — al lado de la zona del timer. Solo
               WhatsApp tiene sesión de 24 h; el resto muestra su badge
               de canal aquí. */}
-          {onOpenChannel && (
+          {onOpenChannel && contact && (
             <ChannelSwitcher
               contactId={contact.id}
               activeChannel={(conversation.channel ?? "whatsapp") as MessageChannel}
