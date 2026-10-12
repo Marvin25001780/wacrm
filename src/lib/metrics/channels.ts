@@ -31,6 +31,8 @@ export interface ChannelMeta {
   tint: string;
   /** Cómo se alimenta hoy este canal (se muestra cuando no hay datos). */
   hint: string;
+  /** Ruta al logo oficial del canal (si existe). */
+  logoSrc?: string;
 }
 
 /**
@@ -46,6 +48,7 @@ export const CHANNEL_CATALOG: ChannelMeta[] = [
     color: "text-emerald-400",
     tint: "bg-emerald-400/10",
     hint: "Meta Cloud API y Evolution",
+    logoSrc: "/logos/whatsapp.svg",
   },
   {
     key: "sms",
@@ -78,6 +81,7 @@ export const CHANNEL_CATALOG: ChannelMeta[] = [
     color: "text-pink-400",
     tint: "bg-pink-400/10",
     hint: "Requiere conectar Instagram",
+    logoSrc: "/logos/instagram.svg",
   },
   {
     key: "facebook",
@@ -86,6 +90,7 @@ export const CHANNEL_CATALOG: ChannelMeta[] = [
     color: "text-blue-400",
     tint: "bg-blue-400/10",
     hint: "Requiere conectar Messenger",
+    logoSrc: "/logos/facebook.svg",
   },
   {
     key: "tiktok",
@@ -94,6 +99,7 @@ export const CHANNEL_CATALOG: ChannelMeta[] = [
     color: "text-fuchsia-400",
     tint: "bg-fuchsia-400/10",
     hint: "Requiere conectar TikTok",
+    logoSrc: "/logos/tiktok.svg",
   },
   {
     key: "telegram",

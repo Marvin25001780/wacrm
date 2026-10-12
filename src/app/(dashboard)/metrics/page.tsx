@@ -28,7 +28,8 @@ import { MetricCard } from "@/components/dashboard/metric-card";
 import { EmptyState } from "@/components/dashboard/empty-state";
 import { Skeleton } from "@/components/dashboard/skeleton";
 import { BarChart } from "@/components/tremor/bar-chart";
-import { CHANNEL_CATALOG } from "@/lib/metrics/channels";
+import { CHANNEL_CATALOG, channelMeta } from "@/lib/metrics/channels";
+import { ChannelIcon } from "@/components/channels/channel-icon";
 import {
   aggregateMessaging,
   formatDuration,
@@ -197,7 +198,6 @@ export default function MetricsPage() {
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
               {CHANNEL_CATALOG.map((meta) => {
                 const m = byChannel.get(meta.key);
-                const Icon = meta.icon;
                 const connected = !!m && m.sent + m.received > 0;
                 return (
                   <div
@@ -214,7 +214,7 @@ export default function MetricsPage() {
                             meta.color
                           }
                         >
-                          <Icon className="size-4.5" />
+                          <ChannelIcon meta={meta} size={18} />
                         </span>
                         <div className="min-w-0">
                           <p className="truncate text-sm font-semibold text-foreground">

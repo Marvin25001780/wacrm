@@ -15,6 +15,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/dashboard/skeleton';
 import { channelMeta } from '@/lib/metrics/channels';
+import { ChannelIcon } from '@/components/channels/channel-icon';
 import { ChannelConnectDialog } from '@/components/channels/channel-connect-dialog';
 import type { SerializedChannel } from '@/lib/channels/config';
 import type { MessageChannel } from '@/types';
@@ -105,7 +106,6 @@ export default function ChannelsPage() {
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {CHANNELS.map((c) => {
             const meta = channelMeta(c.key);
-            const Icon = meta.icon;
             const connected = isConnected(c.key);
             return (
               <div
@@ -117,7 +117,7 @@ export default function ChannelsPage() {
                     <div
                       className={`flex h-11 w-11 items-center justify-center rounded-lg ${meta.tint}`}
                     >
-                      <Icon className={`h-5 w-5 ${meta.color}`} />
+                      <ChannelIcon meta={meta} size={20} />
                     </div>
                     <div>
                       <h3 className="text-sm font-medium text-foreground">{meta.label}</h3>
