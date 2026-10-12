@@ -127,7 +127,7 @@ const navItems: NavItem[] = [
   { href: "/metrics",       label: "Métricas", icon: TrendingUp },
   { href: "/audit",         label: "Auditoría", icon: ScrollText },
   { href: "/segments",      label: "Segmentos", icon: Filter },
-  { href: "/pipelines",     label: "Pipeline de ventas", icon: GitBranch },
+  { href: "/pipelines",     label: "Pipelines", icon: GitBranch },
   { href: "/broadcasts",     label: "Campañas", icon: Radio },
   { href: "/automations",     label: "Automatizaciones", icon: Zap },
   { href: "/flows",     label: "Flujos", icon: Workflow, beta: true },
