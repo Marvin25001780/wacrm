@@ -115,6 +115,16 @@ const nextConfig: NextConfig = {
         ],
       },
       {
+        // Brand logos are plain files whose bytes we occasionally change
+        // (e.g. fixing a broken download). Never let the edge hold a
+        // long-lived stale copy: always revalidate so a fresh deploy is
+        // visible immediately.
+        source: "/logos/:path*",
+        headers: [
+          { key: "Cache-Control", value: "public, max-age=0, must-revalidate" },
+        ],
+      },
+      {
         // Security headers on every response, including /_next/static
         // assets (nosniff matters there) and /api/* (HSTS + referrer-
         // policy don't hurt).

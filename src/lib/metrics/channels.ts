@@ -48,7 +48,7 @@ export const CHANNEL_CATALOG: ChannelMeta[] = [
     color: "text-emerald-400",
     tint: "bg-emerald-400/10",
     hint: "Meta Cloud API y Evolution",
-    logoSrc: "/logos/whatsapp.svg",
+    logoSrc: "/logos/whatsapp.svg?v=2",
   },
   {
     key: "sms",
@@ -81,7 +81,7 @@ export const CHANNEL_CATALOG: ChannelMeta[] = [
     color: "text-pink-400",
     tint: "bg-pink-400/10",
     hint: "Requiere conectar Instagram",
-    logoSrc: "/logos/instagram.svg",
+    logoSrc: "/logos/instagram.svg?v=2",
   },
   {
     key: "facebook",
@@ -90,7 +90,7 @@ export const CHANNEL_CATALOG: ChannelMeta[] = [
     color: "text-blue-400",
     tint: "bg-blue-400/10",
     hint: "Requiere conectar Messenger",
-    logoSrc: "/logos/facebook.svg",
+    logoSrc: "/logos/facebook.svg?v=2",
   },
   {
     key: "tiktok",
@@ -99,7 +99,7 @@ export const CHANNEL_CATALOG: ChannelMeta[] = [
     color: "text-fuchsia-400",
     tint: "bg-fuchsia-400/10",
     hint: "Requiere conectar TikTok",
-    logoSrc: "/logos/tiktok.svg",
+    logoSrc: "/logos/tiktok.svg?v=2",
   },
   {
     key: "telegram",
