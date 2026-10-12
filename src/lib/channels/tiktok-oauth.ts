@@ -25,23 +25,17 @@ const TIKTOK_USERINFO_URL =
   'https://open.tiktokapis.com/v2/user/info/?fields=open_id,union_id,avatar_url,display_name,username'
 
 /**
- * Scopes por defecto (login + mensajería de negocio). Los scopes de
- * mensajería (`message.list.*`) exigen cuenta de empresa y acceso
- * aprobado por TikTok; si tu app no los tiene, TikTok rechazará la
- * autorización. Se pueden ajustar con la variable TIKTOK_SCOPES
- * (lista separada por comas).
+ * Scope por defecto: `user.info.basic` (nombre + avatar). Es el único
+ * que TikTok concede sin pre-aprobación en Login Kit. Cualquier scope
+ * adicional — incluidos los de mensajería `message.list.*` — debe estar
+ * habilitado en tu app; si no, TikTok rechaza la autorización entera.
+ * Ajusta la lista con la variable TIKTOK_SCOPES (separada por comas).
+ *
+ * Ojo: la mensajería (leer/enviar DM) NO está en el portal estándar de
+ * TikTok; `message.list.*` solo lo tienen partners aprobados de su
+ * Business Messaging API.
  */
-export const DEFAULT_TIKTOK_SCOPES = [
-  'user.info.basic',
-  'user.account.type',
-  'user.info.username',
-  'message.list.read',
-  'message.list.send',
-  'message.list.manage',
-  'video.list',
-  'comment.list',
-  'comment.list.manage',
-]
+export const DEFAULT_TIKTOK_SCOPES = ['user.info.basic']
 
 export interface TikTokOAuthState {
   /** Nonce anti-CSRF que también se manda a TikTok como `state`. */
