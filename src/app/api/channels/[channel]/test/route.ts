@@ -3,6 +3,7 @@ import { requireRole, toErrorResponse } from '@/lib/auth/account'
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit'
 import { decrypt } from '@/lib/whatsapp/encryption'
 import { isChannelType } from '@/lib/channels/config'
+import { fetchPageProfile } from '@/lib/channels/meta'
 
 /**
  * POST /api/channels/[channel]/test
@@ -37,6 +38,28 @@ export async function POST(
       return NextResponse.json({ error: 'Canal no configurado' }, { status: 404 })
     }
     const config = (row.config ?? {}) as Record<string, unknown>
+
+    // Canales de Meta (Instagram / Facebook): validar el token contra
+    // la Graph API consultando la página.
+    if (channel === 'instagram' || channel === 'facebook') {
+      const pageId = String(config.page_id ?? '')
+      const token =
+        typeof config.access_token === 'string' ? decrypt(config.access_token) : ''
+      if (!pageId || !token) {
+        return NextResponse.json(
+          { ok: false, status: null, error: 'Faltan credenciales' },
+          { status: 400 },
+        )
+      }
+      const res = await fetchPageProfile(pageId, token)
+      return NextResponse.json({
+        ok: res.ok,
+        status: res.ok ? 200 : res.status,
+        error: res.ok ? undefined : res.error,
+        page_name: res.ok ? res.data.name : undefined,
+      })
+    }
+
     const baseUrl = String(config.base_url ?? '').replace(/\/$/, '')
     if (!baseUrl) {
       return NextResponse.json({ error: 'Falta la URL base' }, { status: 400 })

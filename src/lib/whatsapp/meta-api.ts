@@ -212,6 +212,47 @@ export async function getSubscribedApps(
 }
 
 // ============================================================
+// Embedded Signup (WhatsApp Business onboarding)
+// ============================================================
+
+export interface ExchangeCodeForBusinessTokenArgs {
+  appId: string
+  appSecret: string
+  code: string
+}
+
+/**
+ * Canjear el `code` de un solo uso que devuelve el Embedded Signup de
+ * Meta por un business access token.
+ *
+ * El Embedded Signup entrega el `code` al navegador, pero el token
+ * SOLO puede pedirse desde el servidor con las credenciales de la app
+ * (el App Secret jamás debe llegar al cliente). El token devuelto está
+ * acotado a la WABA que el usuario eligió en el flujo.
+ */
+export async function exchangeCodeForBusinessToken(
+  args: ExchangeCodeForBusinessTokenArgs
+): Promise<string> {
+  const { appId, appSecret, code } = args
+  const url = new URL(`${META_API_BASE}/oauth/access_token`)
+  url.searchParams.set('client_id', appId)
+  url.searchParams.set('client_secret', appSecret)
+  url.searchParams.set('code', code)
+
+  const response = await fetch(url.toString())
+  if (!response.ok) {
+    await throwMetaError(response, `Meta API error: ${response.status}`)
+  }
+  const data = (await response.json()) as { access_token?: string }
+  if (!data.access_token) {
+    throw new Error(
+      'Meta no devolvió un token de acceso al canjear el código de Embedded Signup'
+    )
+  }
+  return data.access_token
+}
+
+// ============================================================
 // Sending
 // ============================================================
 

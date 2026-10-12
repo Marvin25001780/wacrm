@@ -1133,7 +1133,12 @@ export interface AuditLog {
 // Canales omnicanal (migration 044)
 // ============================================================
 
-export type ChannelType = 'evolution' | 'chatwoot';
+export type ChannelType =
+  | 'evolution'
+  | 'chatwoot'
+  | 'instagram'
+  | 'facebook'
+  | 'tiktok';
 
 /** Config de Evolution API (WhatsApp no oficial). El api_key NUNCA se devuelve. */
 export interface EvolutionChannelConfig {
@@ -1149,6 +1154,23 @@ export interface ChatwootChannelConfig {
   account_id: string;
   /** Cifrado en reposo; write-only desde el cliente. */
   api_token?: string;
+}
+
+/**
+ * Config de un canal de Meta (Instagram Direct / Facebook Messenger).
+ * El `access_token` y el `app_secret` se guardan cifrados y NUNCA se
+ * devuelven; `verify_token` es público porque hay que copiarlo en el
+ * panel de la app de Meta al configurar el webhook.
+ */
+export interface MetaChannelConfig {
+  /** Id de la página de Facebook (Messenger) o página enlazada (Instagram). */
+  page_id: string;
+  /** Token que Meta enviará en la verificación del webhook. */
+  verify_token: string;
+  /** Token de acceso de página/System User. Cifrado; write-only. */
+  access_token?: string;
+  /** App Secret de la app de Meta, para validar la firma del webhook. Cifrado; write-only. */
+  app_secret?: string;
 }
 
 /**

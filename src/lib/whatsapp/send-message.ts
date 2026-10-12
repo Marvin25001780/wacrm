@@ -38,6 +38,11 @@ import {
 import type { MessageTemplate } from '@/types';
 import { isMessageTemplate } from '@/lib/whatsapp/template-row-guard';
 import { evolutionSendText } from '@/lib/channels/evolution';
+import {
+  sendMetaText,
+  sendMetaAttachment,
+  metaAttachmentType,
+} from '@/lib/channels/meta';
 
 export const MEDIA_KINDS = ['image', 'video', 'document', 'audio'] as const;
 export const VALID_MESSAGE_TYPES = [
@@ -211,6 +216,28 @@ export async function sendMessageToConversation(
   }
 
   const contact = conversation.contact;
+
+  // Los hilos de Instagram/Facebook no se envían por teléfono (Meta
+  // Send API) sino por la página, con el id de plataforma del contacto.
+  const conversationChannel =
+    typeof conversation.channel === 'string' ? conversation.channel : 'whatsapp';
+  if (conversationChannel === 'instagram' || conversationChannel === 'facebook') {
+    return sendMetaChannelMessage(db, accountId, {
+      conversationId,
+      channel: conversationChannel,
+      contact,
+      externalContactId:
+        typeof conversation.external_contact_id === 'string'
+          ? conversation.external_contact_id
+          : null,
+      messageType,
+      contentText,
+      mediaUrl,
+      senderId,
+      replyToMessageId,
+    });
+  }
+
   if (!contact?.phone) {
     throw new SendMessageError(
       'bad_request',
@@ -601,4 +628,198 @@ async function sendEvolutionMessage(
   }
 
   return { messageId: messageRecord.id, whatsappMessageId: waMessageId };
+}
+
+/**
+ * Envío saliente por los canales de Meta (Instagram Direct / Facebook
+ * Messenger).
+ *
+ * A diferencia de WhatsApp, aquí no hay teléfono: el hilo guarda el
+ * `external_contact_id` (PSID/IGSID) del contacto y se envía por la
+ * Send API de la página. Persiste el mensaje con su `channel` y pausa
+ * los flujos activos, igual que los demás transportes. Soporta texto y
+ * adjuntos por URL (imagen/vídeo/audio/archivo).
+ */
+async function sendMetaChannelMessage(
+  db: SupabaseClient,
+  accountId: string,
+  params: {
+    conversationId: string;
+    channel: 'instagram' | 'facebook';
+    contact: { id: string } | null;
+    externalContactId: string | null;
+    messageType: string;
+    contentText?: string | null;
+    mediaUrl?: string | null;
+    senderId?: string | null;
+    replyToMessageId?: string | null;
+  }
+): Promise<SendMessageResult> {
+  const {
+    conversationId,
+    channel,
+    contact,
+    externalContactId,
+    messageType,
+    contentText,
+    mediaUrl,
+    senderId,
+    replyToMessageId,
+  } = params;
+
+  if (!externalContactId) {
+    throw new SendMessageError(
+      'bad_request',
+      'Falta el identificador del contacto en la plataforma',
+      400
+    );
+  }
+
+  const { data: row } = await db
+    .from('channel_configs')
+    .select('config, is_active')
+    .eq('account_id', accountId)
+    .eq('channel', channel)
+    .maybeSingle();
+
+  if (!row || !row.is_active) {
+    throw new SendMessageError(
+      'channel_inactive',
+      `El canal ${channel} no está conectado`,
+      400
+    );
+  }
+
+  const config = (row.config ?? {}) as Record<string, unknown>;
+  const pageId = typeof config.page_id === 'string' ? config.page_id : '';
+  let accessToken = '';
+  try {
+    accessToken =
+      typeof config.access_token === 'string' ? decrypt(config.access_token) : '';
+  } catch (err) {
+    console.error('[send-message] meta access_token decrypt failed:', err);
+  }
+  if (!pageId || !accessToken) {
+    throw new SendMessageError(
+      'channel_inactive',
+      `Faltan credenciales del canal ${channel}`,
+      400
+    );
+  }
+
+  const isMediaKind = (MEDIA_KINDS as readonly string[]).includes(messageType);
+  let sentMessageId = '';
+
+  if (isMediaKind) {
+    const kind = metaAttachmentType(messageType);
+    if (!kind) {
+      throw new SendMessageError(
+        'bad_request',
+        `Tipo de adjunto no soportado en ${channel}`,
+        400
+      );
+    }
+    if (!mediaUrl) {
+      throw new SendMessageError('bad_request', 'Falta la URL del adjunto', 400);
+    }
+    const res = await sendMetaAttachment({
+      pageId,
+      accessToken,
+      recipientId: externalContactId,
+      kind,
+      url: mediaUrl,
+    });
+    if (!res.ok) {
+      console.error('[send-message] Meta attachment send failed:', res.error);
+      throw new SendMessageError(
+        'meta_error',
+        `Error de ${channel}: ${res.error}`,
+        502
+      );
+    }
+    sentMessageId = res.data.messageId || `${channel}_${Date.now()}`;
+  } else if (messageType === 'text') {
+    const res = await sendMetaText({
+      pageId,
+      accessToken,
+      recipientId: externalContactId,
+      text: contentText || '',
+    });
+    if (!res.ok) {
+      console.error('[send-message] Meta text send failed:', res.error);
+      throw new SendMessageError(
+        'meta_error',
+        `Error de ${channel}: ${res.error}`,
+        502
+      );
+    }
+    sentMessageId = res.data.messageId || `${channel}_${Date.now()}`;
+  } else {
+    throw new SendMessageError(
+      'bad_request',
+      `Tipo de mensaje no soportado en ${channel}`,
+      400
+    );
+  }
+
+  const { data: messageRecord, error: msgError } = await db
+    .from('messages')
+    .insert({
+      conversation_id: conversationId,
+      sender_type: 'agent',
+      sender_id: senderId ?? null,
+      content_type: messageType,
+      content_text: contentText || null,
+      media_url: mediaUrl || null,
+      template_name: null,
+      message_id: sentMessageId,
+      status: 'sent',
+      reply_to_message_id: replyToMessageId || null,
+      channel,
+    })
+    .select()
+    .single();
+
+  if (msgError) {
+    console.error('[send-message] error inserting Meta channel message:', msgError);
+    throw new SendMessageError(
+      'db_error',
+      `Mensaje enviado a ${channel} pero no se pudo guardar: ${msgError.message}`,
+      500
+    );
+  }
+
+  await db
+    .from('conversations')
+    .update({
+      last_message_text: contentText || `[${messageType}]`,
+      last_message_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', conversationId);
+
+  if (contact) {
+    try {
+      const { error: pauseErr } = await supabaseAdmin()
+        .from('flow_runs')
+        .update({
+          status: 'paused_by_agent',
+          ended_at: new Date().toISOString(),
+          end_reason: 'agent_replied',
+        })
+        .eq('account_id', accountId)
+        .eq('contact_id', contact.id)
+        .eq('status', 'active');
+      if (pauseErr) {
+        console.error('[flows] pause-on-agent-send failed:', pauseErr.message);
+      }
+    } catch (err) {
+      console.error(
+        '[flows] pause-on-agent-send threw:',
+        err instanceof Error ? err.message : err
+      );
+    }
+  }
+
+  return { messageId: messageRecord.id, whatsappMessageId: sentMessageId };
 }

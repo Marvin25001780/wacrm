@@ -59,8 +59,12 @@ function supabaseAdmin() {
  *   { connected: false, reason: 'no_config',        message: '...' }
  *   { connected: false, reason: 'token_corrupted',  message: '...', needs_reset: true }
  *   { connected: false, reason: 'meta_api_error',   message: '...' }
+ *
+ * `?lazy=1` responde sin llamar a Meta (solo comprueba que exista la
+ * fila). Lo usa la página de Canales para pintar el badge sin coste de
+ * red; la verificación real se hace al abrir el diálogo.
  */
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const supabase = await createClient()
 
@@ -107,6 +111,18 @@ export async function GET() {
           message: 'No WhatsApp configuration saved yet. Fill in the form and click Save Configuration.',
         },
         { status: 200 }
+      )
+    }
+
+    // Camino ligero: la página de Canales solo quiere saber si hay una
+    // configuración guardada, sin pagar una llamada a Meta por carga.
+    if (new URL(request.url).searchParams.get('lazy') === '1') {
+      return NextResponse.json(
+        {
+          connected: config.status !== 'disconnected',
+          phone_number_id: config.phone_number_id,
+        },
+        { status: 200 },
       )
     }
 

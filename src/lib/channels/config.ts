@@ -12,26 +12,47 @@ import type { ChannelType } from '@/types'
 // en cada edición).
 // ============================================================
 
-export const CHANNEL_TYPES: ChannelType[] = ['evolution', 'chatwoot']
+export const CHANNEL_TYPES: ChannelType[] = [
+  'evolution',
+  'chatwoot',
+  'instagram',
+  'facebook',
+  'tiktok',
+]
 
 export const CHANNEL_LABEL: Record<ChannelType, string> = {
   evolution: 'WhatsApp (Evolution API)',
   chatwoot: 'Chatwoot',
+  instagram: 'Instagram Direct',
+  facebook: 'Facebook Messenger',
+  tiktok: 'TikTok',
 }
 
 const SECRET_FIELDS: Record<ChannelType, string[]> = {
   evolution: ['api_key'],
   chatwoot: ['api_token'],
+  instagram: ['access_token', 'app_secret'],
+  facebook: ['access_token', 'app_secret'],
+  tiktok: ['access_token', 'refresh_token'],
 }
 
 /** Campos de texto no secretos que se aceptan por canal. */
 const PUBLIC_FIELDS: Record<ChannelType, string[]> = {
   evolution: ['base_url', 'instance'],
   chatwoot: ['base_url', 'account_id'],
+  instagram: ['page_id', 'verify_token'],
+  facebook: ['page_id', 'verify_token'],
+  tiktok: ['open_id', 'display_name', 'username'],
 }
 
 export function isChannelType(v: unknown): v is ChannelType {
-  return v === 'evolution' || v === 'chatwoot'
+  return (
+    v === 'evolution' ||
+    v === 'chatwoot' ||
+    v === 'instagram' ||
+    v === 'facebook' ||
+    v === 'tiktok'
+  )
 }
 
 export interface SerializedChannel {
@@ -91,10 +112,13 @@ export function mergeChannelConfig(
     config[field] = value.trim()
   }
 
-  // base_url debe ser http(s).
-  const baseUrl = config.base_url as string
-  if (!/^https?:\/\//i.test(baseUrl)) {
-    return { ok: false, error: 'La URL base debe empezar por http:// o https://' }
+  // base_url debe ser http(s) — solo en los canales que la usan
+  // (Evolution / Chatwoot). Los canales de Meta no tienen base_url.
+  if (PUBLIC_FIELDS[channel].includes('base_url')) {
+    const baseUrl = config.base_url as string
+    if (!/^https?:\/\//i.test(baseUrl)) {
+      return { ok: false, error: 'La URL base debe empezar por http:// o https://' }
+    }
   }
 
   for (const secret of SECRET_FIELDS[channel]) {
