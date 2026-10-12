@@ -43,6 +43,9 @@ import {
   sendMetaAttachment,
   metaAttachmentType,
 } from '@/lib/channels/meta';
+import { loadSmsConfig } from '@/lib/sms/config';
+import { textbeeSendSms } from '@/lib/sms/textbee';
+import { extractGatewayMessageId } from '@/lib/sms/persist';
 
 export const MEDIA_KINDS = ['image', 'video', 'document', 'audio'] as const;
 export const VALID_MESSAGE_TYPES = [
@@ -248,6 +251,108 @@ export async function sendMessageToConversation(
       'El envío de mensajes de TikTok requiere acceso de partner aprobado por TikTok (Business Messaging API). La cuenta está conectada, pero la mensajería todavía no está habilitada.',
       400
     );
+  }
+
+  // Los hilos SMS tienen su propio canal: se mandan por el gateway
+  // textbee de la cuenta, no por WhatsApp. Solo texto.
+  if (conversationChannel === 'sms') {
+    if (messageType !== 'text') {
+      throw new SendMessageError(
+        'bad_request',
+        'SMS solo admite mensajes de texto.',
+        400
+      );
+    }
+    if (!contact?.phone) {
+      throw new SendMessageError('bad_request', 'Contact phone number not found', 400);
+    }
+
+    const smsConfig = await loadSmsConfig(db, accountId);
+    if (!smsConfig) {
+      throw new SendMessageError(
+        'sms_not_configured',
+        'SMS no está configurado. Un administrador debe agregar el device id y API key de textbee.',
+        400
+      );
+    }
+
+    const result = await textbeeSendSms(
+      smsConfig.deviceId,
+      smsConfig.apiKey,
+      contact.phone,
+      contentText ?? ''
+    );
+    if (!result.ok) {
+      console.error('[send-message] SMS send failed:', result.status, result.error);
+      throw new SendMessageError(
+        'sms_error',
+        `Gateway SMS error: ${result.error}`,
+        502
+      );
+    }
+
+    const gatewayId = extractGatewayMessageId(result.data);
+    const smsMessageId = gatewayId ?? `sms_${Date.now()}`;
+
+    const { data: messageRecord, error: msgError } = await db
+      .from('messages')
+      .insert({
+        conversation_id: conversationId,
+        sender_type: 'agent',
+        sender_id: senderId ?? null,
+        content_type: 'text',
+        content_text: contentText || null,
+        media_url: null,
+        template_name: null,
+        message_id: smsMessageId,
+        status: 'sent',
+        reply_to_message_id: replyToMessageId || null,
+        channel: 'sms',
+      })
+      .select()
+      .single();
+
+    if (msgError) {
+      console.error('[send-message] error inserting SMS message:', msgError);
+      throw new SendMessageError(
+        'db_error',
+        `SMS sent but failed to save to DB: ${msgError.message}`,
+        500
+      );
+    }
+
+    await db
+      .from('conversations')
+      .update({
+        last_message_text: contentText || '[...]',
+        last_message_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', conversationId);
+
+    // Pausar flujos activos del contacto (el agente tomó la mano).
+    try {
+      const { error: pauseErr } = await supabaseAdmin()
+        .from('flow_runs')
+        .update({
+          status: 'paused_by_agent',
+          ended_at: new Date().toISOString(),
+          end_reason: 'agent_replied',
+        })
+        .eq('account_id', accountId)
+        .eq('contact_id', contact.id)
+        .eq('status', 'active');
+      if (pauseErr) {
+        console.error('[flows] pause-on-agent-send failed:', pauseErr.message);
+      }
+    } catch (err) {
+      console.error(
+        '[flows] pause-on-agent-send threw:',
+        err instanceof Error ? err.message : err
+      );
+    }
+
+    return { messageId: messageRecord.id, whatsappMessageId: gatewayId ?? '' };
   }
 
   if (!contact?.phone) {

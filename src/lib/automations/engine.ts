@@ -26,6 +26,9 @@ export interface AutomationContext {
   message_text?: string
   /** Conversation the event belongs to, if any. */
   conversation_id?: string
+  /** Canal del evento (whatsapp/sms/instagram/facebook/tiktok/...) cuando
+   *  el webhook lo propagó — permite elegir el hilo correcto. */
+  channel?: string
   /** Arbitrary variables accumulated during execution. */
   vars?: Record<string, unknown>
   /** The tag id that was added, for tag_added trigger. */
@@ -567,15 +570,27 @@ async function resolveConversationId(args: ExecuteArgs): Promise<string> {
   const fromCtx = args.context.conversation_id
   if (fromCtx) return fromCtx
   if (!args.contactId) throw new Error('cannot resolve conversation: no contact')
+  // Con conversaciones por canal (049), hay que elegir el hilo del
+  // medio correcto: el del canal del contexto si viene, si no el de
+  // WhatsApp (las automatizaciones de envío son de WhatsApp) y como
+  // último recurso el más reciente.
   const { data, error } = await supabaseAdmin()
     .from('conversations')
-    .select('id')
+    .select('id, channel')
     .eq('account_id', args.automation.account_id)
     .eq('contact_id', args.contactId)
-    .maybeSingle()
+    .order('created_at', { ascending: false })
+    .limit(10)
   if (error) throw new Error(`conversation lookup failed: ${error.message}`)
-  if (!data?.id) throw new Error('no conversation for contact')
-  return data.id as string
+  if (!data || data.length === 0) throw new Error('no conversation for contact')
+  const ctxChannel = args.context.channel
+  if (ctxChannel) {
+    const match = data.find((c) => c.channel === ctxChannel)
+    if (match?.id) return match.id as string
+  }
+  const wa = data.find((c) => c.channel === 'whatsapp')
+  if (wa?.id) return wa.id as string
+  return (data[0].id) as string
 }
 
 function triggerMatches(automation: Automation, ctx: AutomationContext | undefined): boolean {

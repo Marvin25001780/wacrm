@@ -137,13 +137,16 @@ export async function resolveConversationByPhone(
   }
 
   // ---- conversation -------------------------------------------
-  // One conversation per (account, contact) — same convention as the
-  // webhook.
+  // Hilo del canal WhatsApp (un contacto puede tener hilos SMS/IG/FB
+  // aparte). external_contact_id = teléfono.
   const { data: conv } = await db
     .from('conversations')
     .select('id')
     .eq('account_id', accountId)
     .eq('contact_id', contactId)
+    .eq('channel', 'whatsapp')
+    .order('created_at', { ascending: false })
+    .limit(1)
     .maybeSingle();
 
   if (conv?.id) {
@@ -156,6 +159,8 @@ export async function resolveConversationByPhone(
       account_id: accountId,
       user_id: ownerUserId,
       contact_id: contactId,
+      channel: 'whatsapp',
+      external_contact_id: sanitized,
     })
     .select('id')
     .single();

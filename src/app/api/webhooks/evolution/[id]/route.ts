@@ -4,6 +4,8 @@ import { decrypt } from '@/lib/whatsapp/encryption'
 import { findExistingContact, isUniqueViolation } from '@/lib/contacts/dedupe'
 import { dispatchWebhookEvent } from '@/lib/webhooks/deliver'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { ensureLeadForContactRow } from '@/lib/leads/ensure-lead'
+import { syncContactAvatar } from '@/lib/avatar/sync'
 
 // ============================================================
 // POST /api/webhooks/evolution/[id]  —  ingesta de Evolution API
@@ -192,19 +194,29 @@ export async function POST(
     }
   }
 
-  // Conversación
+  // Conversación — hilo `whatsapp` propio (un contacto puede tener
+  // además hilo SMS/IG/FB). external_contact_id = número.
   const { data: existingConv } = await admin
     .from('conversations')
     .select('*')
     .eq('account_id', accountId)
     .eq('contact_id', contactId)
+    .eq('channel', 'whatsapp')
+    .order('created_at', { ascending: false })
+    .limit(1)
     .maybeSingle()
 
   let conversation = existingConv
   if (!conversation) {
     const { data: newConv, error: convErr } = await admin
       .from('conversations')
-      .insert({ account_id: accountId, user_id: ownerUserId, contact_id: contactId })
+      .insert({
+        account_id: accountId,
+        user_id: ownerUserId,
+        contact_id: contactId,
+        channel: 'whatsapp',
+        external_contact_id: phone,
+      })
       .select('*')
       .single()
     if (convErr || !newConv) {
@@ -217,6 +229,25 @@ export async function POST(
       contact_id: contactId,
       channel: 'evolution',
     })
+  }
+
+  // Lead automático + foto de perfil — best-effort, nunca romper la
+  // ingesta. Evolution expone la foto real de WhatsApp del contacto.
+  try {
+    await ensureLeadForContactRow(admin, accountId, ownerUserId, contactId, 'whatsapp')
+  } catch (err) {
+    console.warn('[evolution-webhook] ensureLead failed:', err)
+  }
+  try {
+    void syncContactAvatar(admin, accountId, {
+      id: contactId,
+      avatar_url: null,
+      phone,
+    }).catch((err: unknown) =>
+      console.warn('[evolution-webhook] avatar sync failed:', err)
+    )
+  } catch (err) {
+    console.warn('[evolution-webhook] avatar sync threw:', err)
   }
 
   // Mensaje

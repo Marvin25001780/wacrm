@@ -289,3 +289,60 @@ export async function evolutionSendText(
   }
   return { ok: true, status: res.status, data: { messageId: extractMessageId(parseJson(res.text)) } }
 }
+
+/**
+ * Foto de perfil de un contacto vía Evolution / Baileys.
+ *
+ * Evolution expone el perfil del contacto en
+ * `GET /chat/findContacts/{instance}/{jid}`; el nombre del campo de la
+ * foto varía según la versión (profilePicUrl / pictureUrl / pic / ...),
+ * así que probamos los más comunes. Best-effort: si no hay foto o la
+ * API no lo soporta, devuelve `picUrl: null` sin error fatal.
+ */
+export async function evolutionContactPicture(
+  creds: EvolutionCreds,
+  instance: string,
+  jid: string,
+): Promise<EvoResult<{ picUrl: string | null }>> {
+  const res = await evoRequest(
+    creds,
+    `/chat/findContacts/${encodeURIComponent(instance)}/${encodeURIComponent(jid)}`,
+    { method: 'GET' },
+  )
+  if (!res.ok) {
+    return { ok: false, status: res.status, error: res.text || 'Sin respuesta' }
+  }
+
+  type maybeRecord = Record<string, unknown> | null | undefined;
+  let entries: unknown[] = [];
+  try {
+    const parsed: unknown = res.text ? JSON.parse(res.text) : null;
+    if (Array.isArray(parsed)) entries = parsed;
+    else if (parsed && typeof parsed === 'object') entries = [parsed];
+  } catch {
+    entries = [];
+  }
+
+  const PICTURE_KEYS = ['profilePicUrl', 'pictureUrl', 'profilePicLink', 'pic', 'picture'];
+  for (const raw of entries) {
+    const item = raw as maybeRecord;
+    if (!item) continue;
+    // Evolution puede anidar bajo `contact` / `data`.
+    const candidates: maybeRecord[] = [
+      item,
+      (item.contact as maybeRecord) ?? null,
+      (item.data as maybeRecord) ?? null,
+    ];
+    for (const c of candidates) {
+      if (!c) continue;
+      for (const key of PICTURE_KEYS) {
+        const v = c[key];
+        if (typeof v === 'string' && v.trim() && v.startsWith('http')) {
+          return { ok: true, status: res.status, data: { picUrl: v.trim() } };
+        }
+      }
+    }
+  }
+
+  return { ok: true, status: res.status, data: { picUrl: null } };
+}

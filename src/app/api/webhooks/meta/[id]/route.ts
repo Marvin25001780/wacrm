@@ -9,6 +9,8 @@ import {
   fetchUserName,
   type MetaInboundMessage,
 } from '@/lib/channels/meta'
+import { ensureLeadForContactRow } from '@/lib/leads/ensure-lead'
+import { syncContactAvatar } from '@/lib/avatar/sync'
 
 // ============================================================
 // GET/POST /api/webhooks/meta/[id] — webhook de Meta para los canales
@@ -274,6 +276,25 @@ async function ingestMessage(
       contact_id: contactId,
       channel,
     })
+  }
+
+  // Lead automático + foto de perfil — best-effort, nunca romper la
+  // ingesta. Para IG/FB intentamos la foto por Graph API.
+  try {
+    await ensureLeadForContactRow(admin, accountId, ownerUserId, contactId, channel)
+  } catch (err) {
+    console.warn('[meta-webhook] ensureLead failed:', err)
+  }
+  try {
+    void syncContactAvatar(admin, accountId, {
+      id: contactId,
+      avatar_url: null,
+      phone: null,
+    }).catch((err: unknown) =>
+      console.warn('[meta-webhook] avatar sync failed:', err)
+    )
+  } catch (err) {
+    console.warn('[meta-webhook] avatar sync threw:', err)
   }
 
   const { contentType, text, mediaUrl } = mapContent(ev)

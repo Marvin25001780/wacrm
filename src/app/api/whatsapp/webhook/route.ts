@@ -13,6 +13,8 @@ import {
   handleTemplateWebhookChange,
   isTemplateWebhookField,
 } from '@/lib/whatsapp/template-webhook'
+import { ensureLeadForContactRow } from '@/lib/leads/ensure-lead'
+import { syncContactAvatar } from '@/lib/avatar/sync'
 
 // The `after()` callback in POST runs within this route's max duration.
 // Inbound processing can fan out to per-media Meta verification calls, so
@@ -583,14 +585,52 @@ async function processMessage(
   if (!contactOutcome) return
   const contactRecord = contactOutcome.contact
 
-  // Find or create conversation
+  // Find or create conversation. Canal explícito: el hilo SMS del mismo
+  // contacto vive en otro conversation row, así que aquí solo buscamos
+  // el hilo `whatsapp` y guardamos como external_contact_id el wa_id.
   const convResult = await findOrCreateConversation(
     accountId,
     configOwnerUserId,
-    contactRecord.id
+    contactRecord.id,
+    message.from
   )
   if (!convResult) return
   const conversation = convResult.conversation
+
+  // --- Lead automático + foto de perfil (best-effort, nunca romper) ---
+  // "Un lead por persona": al primer mensaje de un desconocido se crea
+  // (o asocia) el lead del contacto; los duplicados por tel/cédula/
+  // correo se fusionan. Y si el contacto aún no tiene avatar, intentamos
+  // capturar su foto de perfil (Evolution/Baileys cuando aplica).
+  try {
+    await ensureLeadForContactRow(
+      supabaseAdmin(),
+      accountId,
+      configOwnerUserId,
+      contactRecord.id,
+      'whatsapp'
+    )
+  } catch (err) {
+    console.warn('[webhook] ensureLead failed:', err)
+  }
+
+  try {
+    if (!contactRecord.avatar_url) {
+      void syncContactAvatar(
+        supabaseAdmin(),
+        accountId,
+        {
+          id: contactRecord.id,
+          avatar_url: contactRecord.avatar_url ?? null,
+          phone: contactRecord.phone ?? null,
+        }
+      ).catch((err: unknown) =>
+        console.warn('[webhook] avatar sync failed:', err)
+      )
+    }
+  } catch (err) {
+    console.warn('[webhook] avatar sync threw:', err)
+  }
 
   // Emit conversation.created as soon as the thread is opened — BEFORE
   // the reaction short-circuit below — so a conversation first opened by
@@ -781,6 +821,7 @@ async function processMessage(
       context: {
         message_text: inboundText,
         conversation_id: conversation.id,
+        channel: 'whatsapp',
       },
     }).catch((err) => console.error('[automations] dispatch failed:', err))
   }
@@ -1034,14 +1075,19 @@ async function findOrCreateConversation(
   accountId: string,
   configOwnerUserId: string,
   contactId: string,
+  externalContactId?: string
 ) {
-  // Look for existing conversation in this account
+  // Look for existing conversation in this account — SOLO el hilo del
+  // canal WhatsApp (un contacto puede tener hilos SMS/IG/FB aparte).
   const { data: existing, error: findError } = await supabaseAdmin()
     .from('conversations')
     .select('*')
     .eq('account_id', accountId)
     .eq('contact_id', contactId)
-    .single()
+    .eq('channel', 'whatsapp')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
 
   if (!findError && existing) {
     return { conversation: existing, created: false }
@@ -1055,6 +1101,8 @@ async function findOrCreateConversation(
       account_id: accountId,
       user_id: configOwnerUserId,
       contact_id: contactId,
+      channel: 'whatsapp',
+      external_contact_id: externalContactId || null,
     })
     .select()
     .single()

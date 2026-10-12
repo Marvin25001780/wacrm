@@ -22,6 +22,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { findExistingContact, isUniqueViolation } from '@/lib/contacts/dedupe'
 import { formatPhone } from '@/lib/sms/textbee'
+import { ensureLeadForContactRow } from '@/lib/leads/ensure-lead'
 
 /** A received SMS normalised from a (slightly varying) textbee shape. */
 export interface InboundSmsRecord {
@@ -89,21 +90,42 @@ async function resolveConversation(
   }
 
   // ---- conversation --------------------------------------------
+  // Hilo propio del canal SMS (migration 049). Antes SMS caía en la
+  // conversación WhatsApp del contacto; ahora cada medio tiene su hilo
+  // (contacto + canal + external_contact_id) para la vista dividida.
   const { data: conv, error: convErr } = await db
     .from('conversations')
     .select('id')
     .eq('account_id', accountId)
     .eq('contact_id', contactId)
+    .eq('channel', 'sms')
     .maybeSingle()
   if (convErr) throw convErr
   if (conv?.id) return conv.id as string
 
   const { data: newConv, error: createErr } = await db
     .from('conversations')
-    .insert({ account_id: accountId, user_id: userId, contact_id: contactId })
+    .insert({
+      account_id: accountId,
+      user_id: userId,
+      contact_id: contactId,
+      channel: 'sms',
+      external_contact_id: formatted,
+    })
     .select('id')
     .single()
   if (createErr || !newConv) {
+    // Carrera: otro webhook creó el hilo SMS justo antes.
+    if (isUniqueViolation(createErr as { code?: string } | null) || !createErr) {
+      const raced = await db
+        .from('conversations')
+        .select('id')
+        .eq('account_id', accountId)
+        .eq('contact_id', contactId)
+        .eq('channel', 'sms')
+        .maybeSingle()
+      if (raced.data?.id) return raced.data.id as string
+    }
     console.error('[sms/persist] conversation insert error:', createErr)
     throw createErr ?? new Error('Failed to create SMS conversation')
   }
@@ -235,6 +257,20 @@ export async function recordInboundSms(
     rec.phone,
     rec.phone,
   )
+
+  // Lead automático — best-effort, nunca romper la ingesta.
+  try {
+    const { data: convRow } = await db
+      .from('conversations')
+      .select('contact_id')
+      .eq('id', conversationId)
+      .maybeSingle()
+    if (convRow?.contact_id) {
+      await ensureLeadForContactRow(db, accountId, userId, convRow.contact_id as string, 'sms')
+    }
+  } catch (err) {
+    console.warn('[sms/persist] ensureLead failed:', err)
+  }
 
   const { data: conv } = await db
     .from('conversations')

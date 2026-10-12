@@ -14,6 +14,7 @@ import type {
   Contact,
   ConversationStatus,
   MessageTemplate,
+  MessageChannel,
   Profile,
 } from "@/types";
 import {
@@ -26,9 +27,12 @@ import {
   RefreshCw,
   PanelRightOpen,
   PanelRightClose,
+  Camera,
+  Loader2,
 } from "lucide-react";
 import { format, isToday, isYesterday, differenceInHours } from "date-fns";
 import { Badge } from "@/components/ui/badge";
+import { ChannelSwitcher } from "./channel-switcher";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -106,6 +110,24 @@ interface MessageThreadProps {
    */
   contactPanelOpen?: boolean;
   onToggleContactPanel?: () => void;
+  /**
+   * Abre otro canal del mismo contacto (vista dividida en escritorio /
+   * conmuta el hilo en celular). Cuando se provee, el encabezado
+   * muestra el selector de canales con la fecha del último mensaje por
+   * medio. Opcional para no romper callers existentes.
+   */
+  onOpenChannel?: (
+    channel: MessageChannel,
+    conversationId: string | null,
+  ) => void;
+  /** Canal abierto en la vista dividida secundaria (para marcarlo). */
+  secondaryChannel?: MessageChannel | string | null;
+  /**
+   * Notifica al padre que la foto de perfil del contacto cambió tras
+   * "Capturar foto de perfil" (para refrescar contact.avatar_url en
+   * estados de la página). Opcional; el botón se oculta sin él.
+   */
+  onContactAvatarChange?: (url: string | null) => void;
 }
 
 function formatDateSeparator(dateStr: string): string {
@@ -164,6 +186,9 @@ export function MessageThread({
   onRefresh,
   contactPanelOpen,
   onToggleContactPanel,
+  onOpenChannel,
+  secondaryChannel,
+  onContactAvatarChange,
 }: MessageThreadProps) {
   const { user } = useAuth();
   const { getPresence, getRow, now } = usePresence();
@@ -580,6 +605,45 @@ export function MessageThread({
     setTemplateModalOpen(true);
   }, []);
 
+  const isWhatsappChannel =
+    !conversation?.channel || conversation.channel === "whatsapp";
+
+  // "Capturar foto de perfil" — re-ejecuta el sync de avatar del
+  // contacto (Evolution para WhatsApp, Graph API para IG/FB).
+  const [capturingAvatar, setCapturingAvatar] = useState(false);
+  const handleCaptureAvatar = useCallback(async () => {
+    if (!contact || capturingAvatar || !onContactAvatarChange) return;
+    setCapturingAvatar(true);
+    try {
+      const res = await fetch("/api/inbox/avatar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contact_id: contact.id }),
+      });
+      const body = (await res.json().catch(() => ({}))) as {
+        updated?: boolean;
+        url?: string | null;
+        message?: string;
+        error?: string;
+      };
+      if (!res.ok) {
+        toast.error(body.error ?? "No se pudo capturar la foto");
+        return;
+      }
+      if (body.updated && body.url) {
+        onContactAvatarChange(body.url);
+        toast.success("Foto de perfil actualizada");
+      } else {
+        toast.info(body.message ?? "Sin foto disponible por ahora");
+      }
+    } catch (err) {
+      console.error("[thread] avatar capture failed:", err);
+      toast.error("Error al capturar la foto");
+    } finally {
+      setCapturingAvatar(false);
+    }
+  }, [contact, capturingAvatar, onContactAvatarChange]);
+
   const handleSendTemplate = useCallback(
     async (
       template: MessageTemplate,
@@ -834,8 +898,18 @@ export function MessageThread({
               <ArrowLeft className="h-5 w-5" />
             </button>
           )}
-          <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-muted text-sm font-medium text-foreground">
-            {displayName.charAt(0).toUpperCase()}
+          <div className={cn(
+              "flex h-9 w-9 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted text-sm font-medium text-foreground",
+            )}>
+            {contact.avatar_url ? (
+              <img
+                src={contact.avatar_url}
+                alt=""
+                className="h-9 w-9 rounded-full object-cover"
+              />
+            ) : (
+              displayName.charAt(0).toUpperCase()
+            )}
           </div>
           <div className="min-w-0">
             <h2 className="truncate text-sm font-semibold text-foreground">{displayName}</h2>
@@ -853,6 +927,18 @@ export function MessageThread({
             <Clock className="h-3 w-3" />
             {sessionInfo.remaining}
           </Badge>
+          {/* Selector de canal — al lado de la zona del timer. Solo
+              WhatsApp tiene sesión de 24 h; el resto muestra su badge
+              de canal aquí. */}
+          {onOpenChannel && (
+            <ChannelSwitcher
+              contactId={contact.id}
+              activeChannel={(conversation.channel ?? "whatsapp") as MessageChannel}
+              secondaryChannel={secondaryChannel}
+              onOpenChannel={onOpenChannel}
+              resyncToken={resyncToken}
+            />
+          )}
         </div>
 
         <div className="flex items-center gap-2">
@@ -879,6 +965,26 @@ export function MessageThread({
                 <PanelRightClose className="h-4 w-4" />
               ) : (
                 <PanelRightOpen className="h-4 w-4" />
+              )}
+            </button>
+          )}
+
+          {/* Capturar foto de perfil — re-ejecuta el sync de avatar
+              (Evolution/Graph API). Solo se muestra si el padre lo
+              habilita (contacto real + callback de refresco). */}
+          {onContactAvatarChange && (
+            <button
+              type="button"
+              onClick={handleCaptureAvatar}
+              disabled={capturingAvatar}
+              aria-label="Capturar foto de perfil"
+              title="Capturar foto de perfil del contacto"
+              className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-60"
+            >
+              {capturingAvatar ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Camera className="h-3.5 w-3.5" />
               )}
             </button>
           )}
@@ -1073,7 +1179,8 @@ export function MessageThread({
       {/* Composer */}
       <MessageComposer
         conversationId={conversation.id}
-        sessionExpired={sessionInfo.expired}
+        sessionExpired={isWhatsappChannel ? sessionInfo.expired : false}
+        hideTemplates={!isWhatsappChannel}
         onSend={handleSend}
         onSendMedia={handleSendMedia}
         onOpenTemplates={handleOpenTemplates}

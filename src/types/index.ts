@@ -96,6 +96,9 @@ export interface Contact {
   phone_normalized?: string;
   name?: string;
   email?: string;
+  /** Cédula / Documento del cliente (migration 049). Usado junto con
+   *  phone/email para asociar automáticamente el lead de la persona. */
+  document?: string | null;
   company?: string;
   /** Linked company (migration 031). NULL when the contact has no
    *  company registered. `company` stays as the free-text label for
@@ -202,10 +205,15 @@ export interface Lead {
   name: string;
   phone?: string | null;
   email?: string | null;
+  /** Cédula / Documento del prospecto (migration 049). */
+  document?: string | null;
   company?: string | null;
   organization_id?: string | null;
   job_title?: string | null;
   source?: string | null;
+  /** Contacto vinculado (migration 049) — "un lead por persona". El
+   *  helper `ensureLeadForContact` lo asocia y mantiene al día. */
+  contact_id?: string | null;
   status: LeadStatus;
   /** Producto / servicio de interés. */
   interest?: string | null;
@@ -604,6 +612,12 @@ export interface Conversation {
   contact_id: string;
   status: ConversationStatus;
   assigned_agent_id?: string;
+  /** Canal del hilo (migration 047). 'whatsapp' por defecto; también
+   *  'sms'/'instagram'/'facebook'/'tiktok' según el medio real. */
+  channel?: MessageChannel;
+  /** ID del usuario en el canal externo (teléfono E.164, IG/FB scoped
+   *  ID, jid de TikTok...) — la clave para reencontrar el hilo. */
+  external_contact_id?: string | null;
   last_message_text?: string;
   last_message_at?: string;
   unread_count: number;

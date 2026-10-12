@@ -7,7 +7,7 @@ import {
   CONVERSATION_SELECT,
   normalizeConversation,
 } from "@/lib/inbox/conversations";
-import type { Conversation, Message, Contact, ConversationStatus } from "@/types";
+import type { Conversation, Message, Contact, ConversationStatus, MessageChannel } from "@/types";
 import { useRealtime } from "@/hooks/use-realtime";
 import { ConversationList } from "@/components/inbox/conversation-list";
 import { MessageThread } from "@/components/inbox/message-thread";
@@ -35,6 +35,13 @@ export default function InboxPage() {
     useState<Conversation | null>(null);
   const [activeContact, setActiveContact] = useState<Contact | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
+  // ==== Vista dividida (04_mejoras_inbox) ======================
+  // Segunda conversación del mismo contacto abierta a la par en
+  // escritorio. En celular no se muestra: el switcher de canal cambia
+  // el hilo activo en vez de abrir un split.
+  const [secondaryConversation, setSecondaryConversation] =
+    useState<Conversation | null>(null);
+  const [secondaryMessages, setSecondaryMessages] = useState<Message[]>([]);
   const [whatsappConnected, setWhatsappConnected] = useState<boolean | null>(
     null
   );
@@ -221,6 +228,20 @@ export default function InboxPage() {
           });
         }
 
+        // Mismo tratamiento para el hilo secundario (vista dividida).
+        if (
+          secondaryConversation &&
+          newMsg.conversation_id === secondaryConversation.id
+        ) {
+          setSecondaryMessages((prev) => {
+            if (prev.some((m) => m.id === newMsg.id)) return prev;
+            const withoutOptimistic = prev.filter(
+              (m) => !m.id.startsWith("temp-")
+            );
+            return [...withoutOptimistic, newMsg];
+          });
+        }
+
         // Update conversation list preview. We need to know *synchronously*
         // whether the conv is already in state to decide between patching
         // the preview and triggering a hydrate — see the comment on
@@ -257,9 +278,12 @@ export default function InboxPage() {
         setMessages((prev) =>
           prev.map((m) => (m.id === newMsg.id ? { ...m, ...newMsg } : m))
         );
+        setSecondaryMessages((prev) =>
+          prev.map((m) => (m.id === newMsg.id ? { ...m, ...newMsg } : m))
+        );
       }
     },
-    [activeConversation, hydrateConversation]
+    [activeConversation, secondaryConversation, hydrateConversation]
   );
 
   // Handle realtime conversation events
@@ -288,12 +312,12 @@ export default function InboxPage() {
 
       if (event.eventType === "UPDATE") {
         if (knownConvIdsRef.current.has(conv.id)) {
-          // If this UPDATE is for the conv the user is currently viewing,
-          // suppress the incoming unread_count — the user is reading it
-          // RIGHT NOW, so any positive value would just flicker the badge
-          // back on for the ~100ms it takes for the reset effect's server
-          // UPDATE to round-trip. Non-active convs take the value as-is.
-          const isActive = activeConversation?.id === conv.id;
+          // If this UPDATE is for the conv the user is currently viewing
+          // (en el hilo activo o en la vista dividida), suppress the
+          // incoming unread_count — the user is reading it RIGHT NOW.
+          const isActive =
+            activeConversation?.id === conv.id ||
+            secondaryConversation?.id === conv.id;
           setConversations((prev) =>
             prev.map((c) =>
               c.id === conv.id
@@ -319,9 +343,15 @@ export default function InboxPage() {
             prev ? { ...prev, ...conv } : prev
           );
         }
+        // Update the secondary (split) conversation if it changed.
+        if (secondaryConversation && conv.id === secondaryConversation.id) {
+          setSecondaryConversation((prev) =>
+            prev ? { ...prev, ...conv } : prev
+          );
+        }
       }
     },
-    [activeConversation, hydrateConversation]
+    [activeConversation, secondaryConversation, hydrateConversation]
   );
 
   // Subscribe to realtime. The `isConnected` flag below feeds the
@@ -443,6 +473,12 @@ export default function InboxPage() {
       setActiveConversation(conv);
       setActiveContact(conv.contact ?? null);
       setMessages([]);
+      // Si la conversación elegida ya estaba en la vista dividida, la
+      // cerramos para no mostrar el mismo hilo dos veces.
+      if (secondaryConversation?.id === conv.id) {
+        setSecondaryConversation(null);
+        setSecondaryMessages([]);
+      }
       // Optimistically clear the unread badge for this conv. The
       // server-side reset is fired by the unread-reset effect inside
       // MessageThread (which reads activeConversation.unread_count, not
@@ -472,7 +508,7 @@ export default function InboxPage() {
       // replace() to avoid polluting browser history with every click.
       router.replace(`/inbox?c=${conv.id}`, { scroll: false });
     },
-    [activeConversation?.id, router]
+    [activeConversation?.id, secondaryConversation?.id, router]
   );
 
   // Mobile "back" — deselect the conversation so the list pane comes
@@ -482,6 +518,8 @@ export default function InboxPage() {
     setActiveConversation(null);
     setActiveContact(null);
     setMessages([]);
+    setSecondaryConversation(null);
+    setSecondaryMessages([]);
     // Clearing the ref lets the deep-link auto-selector fire again if
     // the user later visits /inbox?c=<same-id> — desirable UX.
     autoSelectedForDeepLinkRef.current = null;
@@ -539,6 +577,81 @@ export default function InboxPage() {
       }
     },
     [activeConversation]
+  );
+
+  // ============================================================
+  // Vista dividida por canal (04_mejoras_inbox)
+  // ============================================================
+  /**
+   * El switcher de canal del encabezado llama aquí al elegir un medio.
+   * En escritorio (lg+) abre/cierra la segunda conversación a la par;
+   * en celular cambia el hilo activo (la vista dividida no cabe).
+   */
+  const handleOpenChannel = useCallback(
+    (channel: MessageChannel, conversationId: string | null) => {
+      if (!conversationId) {
+        setSecondaryConversation(null);
+        setSecondaryMessages([]);
+        return;
+      }
+
+      const isDesktop =
+        typeof window !== "undefined" &&
+        window.matchMedia("(min-width: 1024px)").matches;
+
+      const target =
+        conversations.find((c) => c.id === conversationId) ??
+        (activeConversation?.id === conversationId ? activeConversation : null) ??
+        (secondaryConversation?.id === conversationId
+          ? secondaryConversation
+          : null);
+
+      if (!target) return;
+
+      if (!isDesktop) {
+        // Celular: conmutar el hilo principal.
+        setSecondaryConversation(null);
+        setSecondaryMessages([]);
+        handleSelectConversation(target);
+        return;
+      }
+
+      // Escritorio: toggle del panel secundario.
+      if (
+        target.id === activeConversation?.id ||
+        target.id === secondaryConversation?.id
+      ) {
+        setSecondaryConversation(null);
+        setSecondaryMessages([]);
+        return;
+      }
+
+      setSecondaryConversation(target);
+      setSecondaryMessages([]);
+      void channel;
+    },
+    [
+      conversations,
+      activeConversation,
+      secondaryConversation,
+      handleSelectConversation,
+    ]
+  );
+
+  /** Refresca el avatar del contacto en todos los estados de la página. */
+  const handleContactAvatarChange = useCallback(
+    (url: string | null) => {
+      if (!url) return;
+      const patch = (c: Conversation): Conversation =>
+        c.contact ? { ...c, contact: { ...c.contact, avatar_url: url } } : c;
+      setActiveConversation((prev) => (prev ? patch(prev) : prev));
+      setSecondaryConversation((prev) => (prev ? patch(prev) : prev));
+      setActiveContact((prev) => (prev ? { ...prev, avatar_url: url } : prev));
+      setConversations((prev) =>
+        prev.map((c) => (c.contact ? patch(c) : c))
+      );
+    },
+    []
   );
 
   // On mobile (<lg) we show a SINGLE pane — either the list or the
@@ -610,8 +723,42 @@ export default function InboxPage() {
             onRefresh={handleManualRefresh}
             contactPanelOpen={contactPanelOpen}
             onToggleContactPanel={handleToggleContactPanel}
+            onOpenChannel={handleOpenChannel}
+            secondaryChannel={secondaryConversation?.channel ?? null}
+            onContactAvatarChange={handleContactAvatarChange}
           />
         </div>
+
+        {/* Second pane (split view): otro canal del mismo contacto, a la
+            par. Solo en escritorio (lg+); en celular el switcher conmuta
+            el hilo activo en vez de abrir esta columna. */}
+        {secondaryConversation && (
+          <div className="hidden h-full min-w-0 flex-1 flex-col border-l border-border lg:flex">
+            <MessageThread
+              conversation={secondaryConversation}
+              contact={secondaryConversation.contact ?? activeContact}
+              messages={secondaryMessages}
+              onMessagesLoaded={setSecondaryMessages}
+              onNewMessage={(msg) =>
+                setSecondaryMessages((prev) =>
+                  prev.some((m) => m.id === msg.id) ? prev : [...prev, msg],
+                )
+              }
+              onUpdateMessage={(id, updates) =>
+                setSecondaryMessages((prev) =>
+                  prev.map((m) => (m.id === id ? { ...m, ...updates } : m)),
+                )
+              }
+              onStatusChange={handleStatusChange}
+              onAssignChange={handleAssignChange}
+              resyncToken={resyncToken}
+              onRefresh={handleManualRefresh}
+              onOpenChannel={handleOpenChannel}
+              secondaryChannel={activeConversation?.channel ?? null}
+              onContactAvatarChange={handleContactAvatarChange}
+            />
+          </div>
+        )}
 
         {/* Right panel: Contact sidebar — desktop only, and only when the
             agent hasn't collapsed it via the thread-header toggle (#258).

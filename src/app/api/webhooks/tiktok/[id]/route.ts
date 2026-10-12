@@ -11,6 +11,7 @@ import {
   TIKTOK_WEBHOOK_ACK,
   type TikTokInboundMessage,
 } from '@/lib/channels/tiktok'
+import { ensureLeadForContactRow } from '@/lib/leads/ensure-lead'
 
 // ============================================================
 // POST /api/webhooks/tiktok/[id] — webhook de TikTok para la
@@ -220,6 +221,14 @@ async function ingestMessage(
       contact_id: contactId,
       channel: 'tiktok',
     })
+  }
+
+  // Lead automático — best-effort, nunca romper la ingesta.
+  // (TikTok queda en modo lectura; sin foto de perfil por ahora.)
+  try {
+    await ensureLeadForContactRow(admin, accountId, ownerUserId, contactId, 'tiktok')
+  } catch (err) {
+    console.warn('[tiktok-webhook] ensureLead failed:', err)
   }
 
   const contentType = msg.mediaUrl ? 'image' : 'text'
