@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/client";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -132,41 +133,44 @@ export function ChannelSwitcher({
         <ChevronDown className="h-3 w-3" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-64 border-border bg-popover">
-        <DropdownMenuLabel className="text-xs text-muted-foreground">
-          Canales del contacto
-        </DropdownMenuLabel>
-        <DropdownMenuSeparator />
-        {entries.map((entry) => {
-          const isActive = entry.channel === activeKey;
-          const isSecondary = entry.channel === secondaryChannel;
-          const disabled = !entry.conversationId;
-          return (
-            <DropdownMenuItem
-              key={entry.channel}
-              disabled={disabled}
-              onSelect={() => onOpenChannel(entry.channel, entry.conversationId)}
-              className="flex items-center justify-between gap-2 text-sm"
-            >
-              <span className="flex min-w-0 items-center gap-2">
-                <ChannelIcon channel={entry.channel} className="h-4 w-4" imgClassName="h-4 w-4" />
-                <span className="truncate">
-                  {channelName(entry.channel)}
-                  {isSecondary &&
-                    (isActive ? " · pantalla" : " · a la par")}
+        {/* Base UI exige que el GroupLabel viva dentro de un Group. */}
+        <DropdownMenuGroup>
+          <DropdownMenuLabel className="text-xs text-muted-foreground">
+            Canales del contacto
+          </DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          {entries.map((entry) => {
+            const isActive = entry.channel === activeKey;
+            const isSecondary = entry.channel === secondaryChannel;
+            const disabled = !entry.conversationId;
+            return (
+              <DropdownMenuItem
+                key={entry.channel}
+                disabled={disabled}
+                onSelect={() => onOpenChannel(entry.channel, entry.conversationId)}
+                className="flex items-center justify-between gap-2 text-sm"
+              >
+                <span className="flex min-w-0 items-center gap-2">
+                  <ChannelIcon channel={entry.channel} className="h-4 w-4" imgClassName="h-4 w-4" />
+                  <span className="truncate">
+                    {channelName(entry.channel)}
+                    {isSecondary &&
+                      (isActive ? " · pantalla" : " · a la par")}
+                  </span>
+                  {entry.hasUnread && (
+                    <span className="ml-1 h-2 w-2 shrink-0 rounded-full bg-primary" />
+                  )}
                 </span>
-                {entry.hasUnread && (
-                  <span className="ml-1 h-2 w-2 shrink-0 rounded-full bg-primary" />
-                )}
-              </span>
-              <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
-                {entry.lastMessageAt
-                  ? format(new Date(entry.lastMessageAt), "dd/MM/yyyy")
-                  : "Sin comunicación"}
-                {isActive && <Check className="h-3.5 w-3.5 text-primary" />}
-              </span>
-            </DropdownMenuItem>
-          );
-        })}
+                <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
+                  {entry.lastMessageAt
+                    ? format(new Date(entry.lastMessageAt), "dd/MM/yyyy")
+                    : "Sin comunicación"}
+                  {isActive && <Check className="h-3.5 w-3.5 text-primary" />}
+                </span>
+              </DropdownMenuItem>
+            );
+          })}
+        </DropdownMenuGroup>
       </DropdownMenuContent>
     </DropdownMenu>
   );
