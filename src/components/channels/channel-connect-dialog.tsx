@@ -638,6 +638,30 @@ function TikTokConnectDialog({
                 conectada.
               </span>
             </div>
+
+            <div className="flex items-start gap-2 rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground">
+              <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
+              <span>
+                La cuenta está conectada (Login Kit). Leer y enviar mensajes
+                (Business Messaging API) requiere acceso de partner aprobado
+                por TikTok; hasta entonces la mensajería permanece
+                deshabilitada en el CRM.
+              </span>
+            </div>
+
+            <div className="space-y-2 rounded-lg bg-muted/50 p-3">
+              <p className="text-xs font-medium text-foreground">
+                Webhook de mensajes (para cuando tengas acceso de partner)
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Regístrala en TikTok API for Business → Webhooks:
+              </p>
+              <Field
+                label="Webhook URL"
+                value={`${origin}/api/webhooks/tiktok/${row?.id ?? ''}`}
+              />
+            </div>
+
             <DialogFooter>
               <Button
                 variant="outline"

@@ -238,6 +238,18 @@ export async function sendMessageToConversation(
     });
   }
 
+  // Los hilos de TikTok existen (la cuenta se conecta por Login Kit),
+  // pero el envío de DMs exige acceso de partner a la Business Messaging
+  // API de TikTok. Devolvemos un error claro en vez de fallar por falta
+  // de teléfono.
+  if (conversationChannel === 'tiktok') {
+    throw new SendMessageError(
+      'tiktok_messaging_unavailable',
+      'El envío de mensajes de TikTok requiere acceso de partner aprobado por TikTok (Business Messaging API). La cuenta está conectada, pero la mensajería todavía no está habilitada.',
+      400
+    );
+  }
+
   if (!contact?.phone) {
     throw new SendMessageError(
       'bad_request',
