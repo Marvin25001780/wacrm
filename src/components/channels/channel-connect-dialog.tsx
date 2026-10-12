@@ -109,9 +109,14 @@ export function ChannelConnectDialog({
 
 function Field({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex min-w-0 items-center gap-2">
       <span className="w-24 shrink-0 text-xs text-muted-foreground">{label}</span>
-      <code className="min-w-0 flex-1 truncate text-xs text-foreground">{value}</code>
+      <code
+        title={value}
+        className="min-w-0 flex-1 truncate text-xs text-foreground"
+      >
+        {value}
+      </code>
       <Button
         variant="ghost"
         size="icon-sm"
@@ -339,7 +344,7 @@ function MetaConnectDialog({
         </DialogHeader>
 
         {mode === 'connected' && (
-          <div className="space-y-4">
+          <div className="min-w-0 space-y-4">
             <div className="flex items-center gap-2 rounded-lg bg-emerald-400/10 p-3 text-sm">
               <Check className="h-4 w-4 text-emerald-400" />
               <span className="text-foreground">{network} está conectado.</span>
@@ -385,7 +390,7 @@ function MetaConnectDialog({
         )}
 
         {mode === 'choose' && (
-          <div className="space-y-4">
+          <div className="min-w-0 space-y-4">
             <p className="text-sm text-muted-foreground">
               Autorizaste varias cuentas. Elige cuál quieres conectar a {network}:
             </p>
@@ -433,7 +438,7 @@ function MetaConnectDialog({
         )}
 
         {mode === 'connect' && (
-          <div className="space-y-4">
+          <div className="min-w-0 space-y-4">
             <p className="text-sm text-muted-foreground">
               Conecta {network} con tu cuenta de Facebook. Te llevamos a Meta para
               autorizar el acceso a tu página; al volver quedará conectado aquí.
@@ -477,7 +482,7 @@ function MetaConnectDialog({
         )}
 
         {mode === 'manual' && (
-          <div className="space-y-4">
+          <div className="min-w-0 space-y-4">
             <p className="text-sm text-muted-foreground">
               {network} también admite credenciales de Meta (no usa QR). Necesitas una
               app en{' '}
@@ -626,7 +631,7 @@ function TikTokConnectDialog({
         </DialogHeader>
 
         {connected ? (
-          <div className="space-y-4">
+          <div className="min-w-0 space-y-4">
             <div className="flex items-center gap-2 rounded-lg bg-emerald-400/10 p-3 text-sm">
               <Check className="h-4 w-4 text-emerald-400" />
               <span className="text-foreground">
@@ -682,7 +687,7 @@ function TikTokConnectDialog({
             </DialogFooter>
           </div>
         ) : (
-          <div className="space-y-4">
+          <div className="min-w-0 space-y-4">
             <p className="text-sm text-muted-foreground">
               Inicia sesión en tu Cuenta de empresa de TikTok para autorizar el acceso.
               Para poder conectarte, tu cuenta de empresa debe estar registrada fuera
@@ -997,7 +1002,7 @@ function WhatsAppConnectDialog({
         </DialogHeader>
 
         {step === 'intro' && (
-          <div className="space-y-4">
+          <div className="min-w-0 space-y-4">
             <p className="text-sm text-muted-foreground">
               Vincula tu WhatsApp existente o comienza con un nuevo número de teléfono.
               Si aún no tienes un número, puedes comprar uno.
@@ -1029,7 +1034,7 @@ function WhatsAppConnectDialog({
         )}
 
         {step === 'method' && (
-          <div className="space-y-4">
+          <div className="min-w-0 space-y-4">
             <p className="text-sm text-muted-foreground">
               ¿Qué WhatsApp estás utilizando? Conecta tu aplicación de WhatsApp para
               seguir usándola en tu teléfono, o usa la conexión oficial de WhatsApp
@@ -1081,7 +1086,7 @@ function WhatsAppConnectDialog({
         )}
 
         {step === 'buy' && (
-          <div className="space-y-4">
+          <div className="min-w-0 space-y-4">
             <div className="flex items-start gap-2 rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground">
               <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
               <span>
@@ -1105,13 +1110,13 @@ function WhatsAppConnectDialog({
         )}
 
         {step === 'evolution' && evolutionMode === 'form' && (
-          <div className="space-y-4">
+          <div className="min-w-0 space-y-4">
             <p className="text-sm text-muted-foreground">
               Introduce la URL base y la API key global de tu servidor
               <strong className="text-foreground"> Evolution API</strong>. Crearemos la
               instancia y te mostraremos el QR automáticamente.
             </p>
-            <div className="space-y-4">
+            <div className="min-w-0 space-y-4">
               <div className="space-y-1">
                 <label className="text-xs font-medium text-foreground">Base URL</label>
                 <Input
@@ -1162,7 +1167,7 @@ function WhatsAppConnectDialog({
         )}
 
         {step === 'evolution' && evolutionMode === 'qr' && (
-          <div className="space-y-4">
+          <div className="min-w-0 space-y-4">
             <p className="text-sm text-muted-foreground">
               Abre WhatsApp en tu teléfono →{' '}
               <strong className="text-foreground">Dispositivos vinculados</strong> →{' '}
@@ -1212,7 +1217,7 @@ function WhatsAppConnectDialog({
         )}
 
         {step === 'facebook' && (
-          <div className="space-y-4">
+          <div className="min-w-0 space-y-4">
             <p className="text-sm text-muted-foreground">
               Te redirigiremos a Facebook para vincular tu cuenta de WhatsApp Business.
               Elige tu cuenta y tu número: el proceso puede tardar unos minutos.
@@ -1278,7 +1283,7 @@ function WhatsAppConnectDialog({
         )}
 
         {step === 'connected' && (
-          <div className="space-y-4">
+          <div className="min-w-0 space-y-4">
             <div className="flex items-center gap-2 rounded-lg bg-emerald-400/10 p-3 text-sm">
               <Check className="h-4 w-4 text-emerald-400" />
               <span className="text-foreground">
