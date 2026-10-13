@@ -1,403 +1,569 @@
 "use client";
 
 // ============================================================
-// Métricas de mensajería — módulo de métricas (multicanal).
+// Métricas · Conversaciones.
 //
-// Panel que agrega los mensajes de la cuenta en enviados, recibidos
-// y respondidos, y los desglosa por CANAL (WhatsApp, correo,
-// webchat, Instagram, Facebook, TikTok, Telegram) y por AGENTE.
+//   • KPIs (activas, nuevas, enviados, recibidos)
+//   • barras de conversaciones activas y nuevas por día
+//   • mapas de calor 7×24 de horas pico (entrantes / salientes)
+//   • barras apiladas de mensajes enviados vs recibidos
+//   • ranking de etiquetas de conversación
+//   • motivos de cierre
+//   • tabla resumen por canal con exportación CSV
 //
-// La agregación es pura (`@/lib/metrics/aggregate`) y se calcula en
-// el cliente sobre las filas del período; RLS acota todo a la cuenta.
-// Los canales sin integración activa aparecen en cero, listos para
-// iluminarse en cuanto empiecen a generar tráfico.
+// La agregación es pura (`@/lib/metrics/conversations`) y se calcula
+// en el cliente sobre las filas del período; RLS acota todo a la
+// cuenta y los filtros se aplican antes de agregar.
 // ============================================================
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
+  Download,
   Inbox,
-  Percent,
+  MessageSquare,
   Reply,
   Send,
-  Timer,
-  Users,
+  Tag,
+  XCircle,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { MetricCard } from "@/components/dashboard/metric-card";
 import { EmptyState } from "@/components/dashboard/empty-state";
 import { Skeleton } from "@/components/dashboard/skeleton";
+import { Panel } from "@/components/metrics/panel";
+import { Heatmap } from "@/components/metrics/heatmap";
 import { BarChart } from "@/components/tremor/bar-chart";
+import { Button } from "@/components/ui/button";
 import { CHANNEL_CATALOG, channelMeta } from "@/lib/metrics/channels";
-import { ChannelIcon } from "@/components/channels/channel-icon";
+import { useMetricsFilters } from "@/components/metrics/metrics-filter-context";
 import {
-  aggregateMessaging,
-  formatDuration,
-  METRIC_PERIODS,
-  periodStartIso,
-  type MessagingMessageRow,
-  type MessagingProfile,
-  type MetricPeriodKey,
-} from "@/lib/metrics/aggregate";
+  dayKeysInRange,
+  rangeToIso,
+  shortDayLabel,
+} from "@/lib/metrics/period";
+import { exportToCsv } from "@/lib/export/csv";
+import {
+  aggregateConversations,
+  type ConversationsResult,
+  type MetricsConversationRow,
+  type MetricsMessageRow,
+  type MetricsTagLinkRow,
+} from "@/lib/metrics/conversations";
 
-function pct(rate: number): string {
-  return `${Math.round(rate * 100)}%`;
+const CONVERSATION_SELECT =
+  "id, contact_id, assigned_agent_id, channel, status, created_at, last_message_at, closed_at, close_reason";
+
+const CHANNEL_INTEGRATION: Record<string, string> = {
+  whatsapp: "Meta Cloud API",
+  sms: "textbee",
+  email: "Correo",
+  webchat: "Demo Webchat",
+  instagram: "Instagram",
+  facebook: "Facebook",
+  tiktok: "TikTok",
+  telegram: "Telegram",
+};
+
+function normalizeChannel(channel: string | null | undefined): string {
+  const value = (channel ?? "").trim();
+  return value || "whatsapp";
 }
 
-export default function MetricsPage() {
+export default function ConversationsMetricsPage() {
   const supabase = createClient();
   const { accountId, profileLoading } = useAuth();
+  const { applied, range, agents } = useMetricsFilters();
 
-  const [period, setPeriod] = useState<MetricPeriodKey>("30");
-  const [rows, setRows] = useState<MessagingMessageRow[]>([]);
-  const [profiles, setProfiles] = useState<MessagingProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<ConversationsResult | null>(null);
 
-  const load = useCallback(
-    async (key: MetricPeriodKey) => {
-      setLoading(true);
-      setError(null);
-      try {
-        const since = periodStartIso(key);
-        const [msgRes, profRes] = await Promise.all([
-          supabase
-            .from("messages")
-            .select("conversation_id, sender_type, sender_id, channel, created_at")
-            .gte("created_at", since)
-            .order("created_at", { ascending: true })
-            .limit(20000),
-          supabase.from("profiles").select("id, user_id, full_name, email"),
-        ]);
+  const load = useCallback(async () => {
+    if (!accountId) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const { fromIso, toIsoExclusive } = rangeToIso(range);
 
-        if (msgRes.error) throw new Error(msgRes.error.message);
-        if (profRes.error) throw new Error(profRes.error.message);
+      const [msgRes, convActRes, convNewRes, tagRes] = await Promise.all([
+        supabase
+          .from("messages")
+          .select("conversation_id, sender_type, sender_id, channel, created_at")
+          .gte("created_at", fromIso)
+          .lt("created_at", toIsoExclusive)
+          .order("created_at", { ascending: true })
+          .limit(20000),
+        supabase
+          .from("conversations")
+          .select(CONVERSATION_SELECT)
+          .gte("last_message_at", fromIso)
+          .lt("last_message_at", toIsoExclusive)
+          .limit(20000),
+        supabase
+          .from("conversations")
+          .select(CONVERSATION_SELECT)
+          .gte("created_at", fromIso)
+          .lt("created_at", toIsoExclusive)
+          .limit(20000),
+        supabase
+          .from("conversation_tags")
+          .select("conversation_id, created_at, tag:tags(id, name, color)")
+          .gte("created_at", fromIso)
+          .lt("created_at", toIsoExclusive)
+          .limit(20000),
+      ]);
 
-        setRows((msgRes.data ?? []) as unknown as MessagingMessageRow[]);
-        setProfiles((profRes.data ?? []) as unknown as MessagingProfile[]);
-      } catch (err) {
-        setError(
-          err instanceof Error
-            ? err.message
-            : "No se pudieron cargar las métricas."
-        );
-        setRows([]);
-        setProfiles([]);
-      } finally {
-        setLoading(false);
+      if (msgRes.error) throw new Error(msgRes.error.message);
+
+      // Une conversaciones activas + nuevas (sin duplicados).
+      const convMap = new Map<string, MetricsConversationRow>();
+      for (const c of [
+        ...((convActRes.data ?? []) as unknown as MetricsConversationRow[]),
+        ...((convNewRes.data ?? []) as unknown as MetricsConversationRow[]),
+      ]) {
+        convMap.set(c.id, c);
       }
-    },
-    [supabase]
-  );
+      let conversations = [...convMap.values()];
+      let messages = (msgRes.data ?? []) as unknown as MetricsMessageRow[];
+
+      const channelById = new Map<string, string>();
+      for (const c of conversations) {
+        channelById.set(c.id, normalizeChannel(c.channel));
+      }
+
+      // ---- Filtro por agente ------------------------------------
+      if (applied.agentId !== "all") {
+        const agent = agents.find((a) => a.id === applied.agentId);
+        const ids = new Set<string>([applied.agentId]);
+        if (agent?.userId) ids.add(agent.userId);
+        conversations = conversations.filter(
+          (c) => c.assigned_agent_id && ids.has(c.assigned_agent_id)
+        );
+      }
+
+      // ---- Filtro por equipo ------------------------------------
+      if (applied.teamId !== "all") {
+        const { data: members } = await supabase
+          .from("team_members")
+          .select("profile_id")
+          .eq("team_id", applied.teamId);
+        const memberIds = new Set(
+          ((members ?? []) as Array<{ profile_id: string }>).map(
+            (m) => m.profile_id
+          )
+        );
+        conversations = conversations.filter(
+          (c) => c.assigned_agent_id && memberIds.has(c.assigned_agent_id)
+        );
+      }
+
+      const hasConvFilter =
+        applied.agentId !== "all" ||
+        applied.teamId !== "all" ||
+        applied.channel !== "all";
+
+      // ---- Filtro por canal -------------------------------------
+      if (applied.channel !== "all") {
+        conversations = conversations.filter(
+          (c) => normalizeChannel(c.channel) === applied.channel
+        );
+      }
+
+      if (hasConvFilter) {
+        const allowed = new Set(conversations.map((c) => c.id));
+        messages = messages.filter((m) => allowed.has(m.conversation_id));
+      }
+      if (applied.channel !== "all") {
+        messages = messages.filter(
+          (m) =>
+            normalizeChannel(
+              m.channel ?? channelById.get(m.conversation_id)
+            ) === applied.channel
+        );
+      }
+
+      // ---- Filtro por tipo (entrante / saliente) ----------------
+      if (applied.type === "incoming") {
+        messages = messages.filter((m) => m.sender_type === "customer");
+      } else if (applied.type === "outgoing") {
+        messages = messages.filter((m) => m.sender_type !== "customer");
+      }
+
+      // ---- Etiquetas de conversación ----------------------------
+      let tagLinks = tagRes.error
+        ? []
+        : ((tagRes.data ?? []) as unknown as MetricsTagLinkRow[]);
+      if (hasConvFilter) {
+        const allowed = new Set(conversations.map((c) => c.id));
+        tagLinks = tagLinks.filter((t) => allowed.has(t.conversation_id));
+      }
+
+      setResult(
+        aggregateConversations(
+          conversations,
+          messages,
+          tagLinks,
+          dayKeysInRange(range)
+        )
+      );
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "No se pudieron cargar las métricas."
+      );
+      setResult(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [accountId, applied, range, agents, supabase]);
 
   useEffect(() => {
     if (profileLoading || !accountId) return;
-    load(period);
-  }, [accountId, profileLoading, period, load]);
+    load();
+  }, [accountId, profileLoading, load]);
 
-  const days = METRIC_PERIODS.find((p) => p.key === period)?.days ?? 30;
-  const result = useMemo(
-    () => aggregateMessaging(rows, profiles, days),
-    [rows, profiles, days]
-  );
-
-  const byChannel = useMemo(
-    () => new Map(result.channels.map((c) => [c.channel, c])),
-    [result.channels]
-  );
-
-  const hasActivity = result.totals.sent + result.totals.received > 0;
-  const totalAgentSent = result.agents.reduce((sum, a) => sum + a.sent, 0);
-
-  const chartData = result.series.map((p) => ({
+  const activeChart = (result?.series ?? []).map((p) => ({
     day: shortDayLabel(p.day),
-    Entrantes: p.incoming,
-    Salientes: p.outgoing,
+    Activas: p.active,
   }));
+  const createdChart = (result?.series ?? []).map((p) => ({
+    day: shortDayLabel(p.day),
+    Nuevas: p.created,
+  }));
+  const messagesChart = (result?.series ?? []).map((p) => ({
+    day: shortDayLabel(p.day),
+    Enviados: p.sent,
+    Recibidos: p.received,
+  }));
+  const labelsChart = (result?.labels ?? []).slice(0, 8).map((l) => ({
+    name: l.name,
+    Etiquetas: l.count,
+  }));
+  const reasonsChart = (result?.closeReasons ?? []).slice(0, 8).map((r) => ({
+    name: r.reason,
+    Cierres: r.count,
+  }));
+
+  function channelRow(channel: string) {
+    return (
+      result?.channels.find((c) => c.channel === channel) ?? {
+        channel,
+        active: 0,
+        created: 0,
+        sent: 0,
+        received: 0,
+      }
+    );
+  }
+
+  function handleExport() {
+    if (!result) return;
+    exportToCsv(
+      "metricas-conversaciones.csv",
+      [
+        "Canal",
+        "Integración",
+        "Conversaciones activas",
+        "Nuevas conversaciones",
+        "Mensajes enviados",
+        "Mensajes recibidos",
+      ],
+      CHANNEL_CATALOG.map((channel) => {
+        const row = channelRow(channel.key);
+        return [
+          channel.label,
+          CHANNEL_INTEGRATION[channel.key] ?? channel.label,
+          String(row.active),
+          String(row.created),
+          String(row.sent),
+          String(row.received),
+        ];
+      })
+    );
+  }
 
   return (
     <div className="space-y-5">
-      {/* Header */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Métricas de mensajería</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Mensajes enviados, recibidos y respondidos por canal y por agente.
-          </p>
-        </div>
-        <div className="flex rounded-lg border border-border bg-card p-0.5">
-          {METRIC_PERIODS.map((p) => (
-            <button
-              key={p.key}
-              type="button"
-              onClick={() => setPeriod(p.key)}
-              className={
-                "rounded-md px-3 py-1.5 text-xs font-medium transition-colors " +
-                (period === p.key
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:text-foreground")
-              }
-            >
-              {p.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
       {loading ? (
-        <MetricsSkeleton />
+        <ConversationsSkeleton />
       ) : error ? (
-        <div className="rounded-lg border border-border bg-card py-16 text-center text-sm text-muted-foreground">
+        <div className="rounded-xl border border-border bg-card py-16 text-center text-sm text-muted-foreground">
           {error}
         </div>
-      ) : (
+      ) : !result ? null : (
         <>
           {/* KPIs */}
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6">
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             <MetricCard
-              title="Enviados"
-              value={String(result.totals.sent)}
-              icon={Send}
-              subtitle="Mensajes salientes"
-            />
-            <MetricCard
-              title="Recibidos"
-              value={String(result.totals.received)}
+              title="Conversaciones activas"
+              value={result.totals.active.toLocaleString("es-ES")}
               icon={Inbox}
-              subtitle="Mensajes entrantes"
+              subtitle="Con mensajes en el período"
             />
             <MetricCard
-              title="Respondidos"
-              value={String(result.totals.replied)}
+              title="Nuevas conversaciones"
+              value={result.totals.created.toLocaleString("es-ES")}
+              icon={MessageSquare}
+              subtitle="Iniciadas en el período"
+            />
+            <MetricCard
+              title="Mensajes enviados"
+              value={result.totals.sent.toLocaleString("es-ES")}
+              icon={Send}
+              subtitle="Salientes"
+            />
+            <MetricCard
+              title="Mensajes recibidos"
+              value={result.totals.received.toLocaleString("es-ES")}
               icon={Reply}
-              subtitle="Entrantes con respuesta"
-            />
-            <MetricCard
-              title="Tasa de respuesta"
-              value={pct(result.totals.responseRate)}
-              icon={Percent}
-              subtitle="Respondidos / recibidos"
-            />
-            <MetricCard
-              title="1ª respuesta"
-              value={formatDuration(result.totals.avgFirstResponseMin)}
-              icon={Timer}
-              subtitle="Promedio del período"
-            />
-            <MetricCard
-              title="Agentes activos"
-              value={String(result.totals.activeAgents)}
-              icon={Users}
-              subtitle="Con envíos atribuidos"
+              subtitle="Entrantes"
             />
           </div>
 
-          {/* Desglose por canal */}
-          <div>
-            <h2 className="mb-2 text-sm font-semibold text-foreground">Por canal</h2>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              {CHANNEL_CATALOG.map((meta) => {
-                const m = byChannel.get(meta.key);
-                const connected = !!m && m.sent + m.received > 0;
-                return (
-                  <div
-                    key={meta.key}
-                    className="rounded-xl border border-border bg-card p-4"
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex min-w-0 items-center gap-2.5">
-                        <span
-                          className={
-                            "flex size-9 shrink-0 items-center justify-center rounded-lg " +
-                            meta.tint +
-                            " " +
-                            meta.color
-                          }
-                        >
-                          <ChannelIcon meta={meta} size={18} />
-                        </span>
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-semibold text-foreground">
-                            {meta.label}
-                          </p>
-                          <p className="truncate text-[11px] text-muted-foreground">
-                            {connected ? "Conectado" : meta.hint}
-                          </p>
-                        </div>
-                      </div>
-                      <span
-                        className={
-                          "shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium " +
-                          (connected
-                            ? "bg-emerald-500/10 text-emerald-400"
-                            : "bg-muted text-muted-foreground")
-                        }
-                      >
-                        {connected ? pct(m?.responseRate ?? 0) : "Sin datos"}
-                      </span>
-                    </div>
-
-                    {connected ? (
-                      <>
-                        <div className="mt-3 grid grid-cols-3 gap-2 text-center">
-                          <ChannelStat label="Enviados" value={m?.sent ?? 0} />
-                          <ChannelStat label="Recibidos" value={m?.received ?? 0} />
-                          <ChannelStat label="Respondidos" value={m?.replied ?? 0} />
-                        </div>
-                        <p className="mt-2 text-[11px] text-muted-foreground">
-                          1ª respuesta {formatDuration(m?.avgFirstResponseMin ?? null)}
-                        </p>
-                      </>
-                    ) : (
-                      <p className="mt-3 text-xs text-muted-foreground">
-                        Sin actividad en el período.
-                      </p>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Tendencia diaria */}
-          <section className="rounded-xl border border-border bg-card">
-            <header className="border-b border-border px-5 py-4">
-              <h2 className="text-sm font-semibold text-foreground">
-                Mensajes por día
-              </h2>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                Volumen diario entrante y saliente
-              </p>
-            </header>
-            <div className="p-5">
-              {!hasActivity ? (
+          {/* Barras: activas / nuevas */}
+          <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+            <Panel
+              title="Conversaciones activas"
+              subtitle="Hilos con mensajes por día"
+            >
+              {result.totals.active === 0 ? (
                 <EmptyState
                   icon={Inbox}
-                  title="Sin actividad de mensajes en el período"
-                  hint="Envía o recibe mensajes para empezar a poblar este gráfico."
+                  title="Sin conversaciones activas"
+                  hint="Ajusta los filtros o el rango de tiempo."
                 />
               ) : (
                 <BarChart
-                  data={chartData}
+                  data={activeChart}
                   index="day"
-                  categories={["Entrantes", "Salientes"]}
-                  colors={["blue", "violet"]}
+                  categories={["Activas"]}
+                  colors={["emerald"]}
                   valueFormatter={(v) => v.toLocaleString("es-ES")}
-                  yAxisWidth={44}
-                  className="h-[260px]"
+                  yAxisWidth={40}
+                  allowDecimals={false}
+                  className="h-[240px]"
                 />
               )}
-            </div>
-          </section>
+            </Panel>
 
-          {/* Ranking por agente */}
-          <div>
-            <h2 className="mb-2 text-sm font-semibold text-foreground">Por agente</h2>
-            <div className="overflow-x-auto rounded-lg border border-border bg-card">
-              <table className="w-full min-w-[560px] border-collapse text-sm">
+            <Panel
+              title="Nuevas conversaciones"
+              subtitle="Conversaciones iniciadas por día"
+            >
+              {result.totals.created === 0 ? (
+                <EmptyState
+                  icon={MessageSquare}
+                  title="Sin conversaciones nuevas"
+                  hint="Ajusta los filtros o el rango de tiempo."
+                />
+              ) : (
+                <BarChart
+                  data={createdChart}
+                  index="day"
+                  categories={["Nuevas"]}
+                  colors={["blue"]}
+                  valueFormatter={(v) => v.toLocaleString("es-ES")}
+                  yAxisWidth={40}
+                  allowDecimals={false}
+                  className="h-[240px]"
+                />
+              )}
+            </Panel>
+          </div>
+
+          {/* Horas pico */}
+          <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+            <Panel
+              title="Horas pico — mensajes entrantes"
+              subtitle="Distribución por día de la semana y hora"
+              bodyClassName="overflow-x-auto"
+            >
+              <Heatmap matrix={result.heatmapIncoming} rgb={[16, 185, 129]} />
+            </Panel>
+            <Panel
+              title="Horas pico — mensajes salientes"
+              subtitle="Distribución por día de la semana y hora"
+              bodyClassName="overflow-x-auto"
+            >
+              <Heatmap matrix={result.heatmapOutgoing} rgb={[139, 92, 246]} />
+            </Panel>
+          </div>
+
+          {/* Enviados vs recibidos */}
+          <Panel
+            title="Mensajes enviados vs recibidos"
+            subtitle={`Volumen diario · ${(
+              result.totals.sent + result.totals.received
+            ).toLocaleString("es-ES")} mensajes en total`}
+          >
+            {result.totals.sent + result.totals.received === 0 ? (
+              <EmptyState
+                icon={Inbox}
+                title="Sin mensajes en el período"
+                hint="Ajusta los filtros o el rango de tiempo."
+              />
+            ) : (
+              <BarChart
+                data={messagesChart}
+                index="day"
+                categories={["Enviados", "Recibidos"]}
+                colors={["blue", "violet"]}
+                type="stacked"
+                valueFormatter={(v) => v.toLocaleString("es-ES")}
+                yAxisWidth={44}
+                allowDecimals={false}
+                className="h-[260px]"
+              />
+            )}
+          </Panel>
+
+          {/* Etiquetas + Motivos de cierre */}
+          <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+            <Panel
+              title="Etiquetas de conversación"
+              subtitle="Las etiquetas más usadas en el período"
+            >
+              {labelsChart.length === 0 ? (
+                <EmptyState
+                  icon={Tag}
+                  title="Sin etiquetas en el período"
+                  hint="Etiqueta conversaciones en la Bandeja para verlas aquí."
+                />
+              ) : (
+                <BarChart
+                  data={labelsChart}
+                  index="name"
+                  categories={["Etiquetas"]}
+                  colors={["pink"]}
+                  layout="vertical"
+                  valueFormatter={(v) => v.toLocaleString("es-ES")}
+                  yAxisWidth={110}
+                  allowDecimals={false}
+                  className="h-[280px]"
+                />
+              )}
+            </Panel>
+
+            <Panel
+              title="Motivos de cierre"
+              subtitle="Cómo terminaron las conversaciones cerradas"
+            >
+              {reasonsChart.length === 0 ? (
+                <EmptyState
+                  icon={XCircle}
+                  title="Sin motivos de cierre"
+                  hint="Aún no hay conversaciones cerradas con motivo en el período."
+                />
+              ) : (
+                <BarChart
+                  data={reasonsChart}
+                  index="name"
+                  categories={["Cierres"]}
+                  colors={["amber"]}
+                  layout="vertical"
+                  valueFormatter={(v) => v.toLocaleString("es-ES")}
+                  yAxisWidth={110}
+                  allowDecimals={false}
+                  className="h-[280px]"
+                />
+              )}
+            </Panel>
+          </div>
+
+          {/* Tabla resumen por canal */}
+          <Panel
+            title="Resumen por canal"
+            subtitle="Actividad del período agrupada por canal"
+            bodyClassName="p-0"
+            actions={
+              <Button variant="outline" size="sm" onClick={handleExport}>
+                <Download className="mr-1.5 h-3.5 w-3.5" />
+                Exportar CSV
+              </Button>
+            }
+          >
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[760px] border-collapse text-sm">
                 <thead>
                   <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
-                    <th className="px-4 py-3 font-medium">Agente</th>
-                    <th className="px-3 py-3 text-center font-medium">Enviados</th>
-                    <th className="px-3 py-3 text-center font-medium">Conversaciones</th>
-                    <th className="px-4 py-3 text-right font-medium">% del total</th>
+                    <th className="px-5 py-3 font-medium">Canal</th>
+                    <th className="px-3 py-3 font-medium">Integración</th>
+                    <th className="px-3 py-3 text-right font-medium">
+                      Conversaciones activas
+                    </th>
+                    <th className="px-3 py-3 text-right font-medium">
+                      Nuevas conversaciones
+                    </th>
+                    <th className="px-3 py-3 text-right font-medium">
+                      Mensajes enviados
+                    </th>
+                    <th className="px-5 py-3 text-right font-medium">
+                      Mensajes recibidos
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
-                  {result.agents.length === 0 ? (
-                    <tr>
-                      <td
-                        colSpan={4}
-                        className="px-4 py-10 text-center text-sm text-muted-foreground"
-                      >
-                        Aún no hay envíos atribuidos a un agente en el período.
-                      </td>
-                    </tr>
-                  ) : (
-                    result.agents.map((a) => (
+                  {CHANNEL_CATALOG.map((channel) => {
+                    const row = channelRow(channel.key);
+                    const meta = channelMeta(channel.key);
+                    const Icon = meta.icon;
+                    return (
                       <tr
-                        key={a.profileId}
+                        key={channel.key}
                         className="border-b border-border last:border-0 hover:bg-muted/40"
                       >
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-2.5">
-                            <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
-                              {a.fullName.charAt(0).toUpperCase()}
+                        <td className="px-5 py-3">
+                          <div className="flex items-center gap-2">
+                            <span
+                              className={`flex size-7 items-center justify-center rounded-lg ${meta.tint} ${meta.color}`}
+                            >
+                              <Icon className="h-3.5 w-3.5" />
                             </span>
-                            <div className="min-w-0">
-                              <p className="truncate font-medium text-foreground">
-                                {a.fullName}
-                              </p>
-                              {a.email && (
-                                <p className="truncate text-xs text-muted-foreground">
-                                  {a.email}
-                                </p>
-                              )}
-                            </div>
+                            <span className="font-medium text-foreground">
+                              {meta.label}
+                            </span>
                           </div>
                         </td>
-                        <td className="px-3 py-3 text-center font-medium text-foreground">
-                          {a.sent}
+                        <td className="px-3 py-3 text-muted-foreground">
+                          {CHANNEL_INTEGRATION[channel.key] ?? channel.label}
                         </td>
-                        <td className="px-3 py-3 text-center text-foreground">
-                          {a.conversations}
+                        <td className="px-3 py-3 text-right tabular-nums text-foreground">
+                          {row.active.toLocaleString("es-ES")}
                         </td>
-                        <td className="px-4 py-3 text-right text-muted-foreground">
-                          {totalAgentSent > 0
-                            ? pct(a.sent / totalAgentSent)
-                            : "—"}
+                        <td className="px-3 py-3 text-right tabular-nums text-foreground">
+                          {row.created.toLocaleString("es-ES")}
+                        </td>
+                        <td className="px-3 py-3 text-right tabular-nums text-muted-foreground">
+                          {row.sent.toLocaleString("es-ES")}
+                        </td>
+                        <td className="px-5 py-3 text-right tabular-nums text-muted-foreground">
+                          {row.received.toLocaleString("es-ES")}
                         </td>
                       </tr>
-                    ))
-                  )}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
-            <p className="mt-2 text-[11px] text-muted-foreground">
-              La atribución usa el autor del envío. Un mensaje saliente sin autor
-              (bot, automatización o API) no aparece en el ranking.
-            </p>
-          </div>
+          </Panel>
         </>
       )}
     </div>
   );
 }
 
-// ------------------------------------------------------------
-// Subcomponentes
-// ------------------------------------------------------------
-function ChannelStat({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="rounded-lg bg-muted/50 py-2">
-      <p className="text-base font-bold text-foreground tabular-nums">{value}</p>
-      <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
-        {label}
-      </p>
-    </div>
-  );
-}
-
-function MetricsSkeleton() {
+function ConversationsSkeleton() {
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6">
-        {Array.from({ length: 6 }).map((_, i) => (
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, i) => (
           <Skeleton key={i} className="h-[104px] w-full rounded-xl" />
         ))}
       </div>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <Skeleton key={i} className="h-[132px] w-full rounded-xl" />
-        ))}
-      </div>
-      <Skeleton className="h-[340px] w-full rounded-xl" />
+      <Skeleton className="h-[300px] w-full rounded-xl" />
+      <Skeleton className="h-[300px] w-full rounded-xl" />
     </div>
   );
-}
-
-function shortDayLabel(key: string): string {
-  const [y, m, d] = key.split("-").map(Number);
-  const date = new Date(y, m - 1, d);
-  return date.toLocaleDateString("es-ES", { month: "short", day: "numeric" });
 }
