@@ -18,22 +18,38 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { CHANNEL_CATALOG } from "@/lib/metrics/channels";
-import { PERIOD_OPTIONS } from "@/lib/metrics/period";
+import { CHANNEL_CATALOG, channelMeta } from "@/lib/metrics/channels";
+import {
+  PERIOD_OPTIONS,
+  formatRangeLabel,
+  type PeriodPreset,
+} from "@/lib/metrics/period";
 import { useMetricsFilters } from "@/components/metrics/metrics-filter-context";
-import { formatRangeLabel } from "@/lib/metrics/period";
 
 export function MetricsFilters() {
-  const {
-    draft,
-    setDraft,
-    apply,
-    reset,
-    isDirty,
-    range,
-    agents,
-    teams,
-  } = useMetricsFilters();
+  const { draft, setDraft, apply, reset, isDirty, range, agents, teams } =
+    useMetricsFilters();
+
+  const periodLabel =
+    PERIOD_OPTIONS.find((o) => o.key === draft.preset)?.label ?? "Personalizado";
+  const agentLabel =
+    draft.agentId === "all"
+      ? "Todos los agentes"
+      : agents.find((a) => a.id === draft.agentId)?.name ?? "Todos los agentes";
+  const teamLabel =
+    draft.teamId === "all"
+      ? "Todos los equipos"
+      : teams.find((t) => t.id === draft.teamId)?.name ?? "Todos los equipos";
+  const channelLabel =
+    draft.channel === "all"
+      ? "Todos los canales"
+      : channelMeta(draft.channel).label;
+  const typeLabel =
+    draft.type === "incoming"
+      ? "Entrantes"
+      : draft.type === "outgoing"
+      ? "Salientes"
+      : "Todos";
 
   return (
     <div className="rounded-xl border border-border bg-card p-3 sm:p-4">
@@ -46,11 +62,11 @@ export function MetricsFilters() {
           <Select
             value={draft.preset}
             onValueChange={(val) =>
-              setDraft({ preset: val as typeof draft.preset })
+              setDraft({ preset: (val ?? "7") as PeriodPreset })
             }
           >
             <SelectTrigger className="w-full border-border bg-muted text-foreground">
-              <SelectValue />
+              <SelectValue>{periodLabel}</SelectValue>
             </SelectTrigger>
             <SelectContent className="border-border bg-popover">
               {PERIOD_OPTIONS.map((opt) => (
@@ -99,7 +115,7 @@ export function MetricsFilters() {
             onValueChange={(val) => setDraft({ agentId: val ?? "all" })}
           >
             <SelectTrigger className="w-full border-border bg-muted text-foreground">
-              <SelectValue />
+              <SelectValue>{agentLabel}</SelectValue>
             </SelectTrigger>
             <SelectContent className="border-border bg-popover">
               <SelectItem value="all">Todos los agentes</SelectItem>
@@ -122,7 +138,7 @@ export function MetricsFilters() {
             onValueChange={(val) => setDraft({ teamId: val ?? "all" })}
           >
             <SelectTrigger className="w-full border-border bg-muted text-foreground">
-              <SelectValue />
+              <SelectValue>{teamLabel}</SelectValue>
             </SelectTrigger>
             <SelectContent className="border-border bg-popover">
               <SelectItem value="all">Todos los equipos</SelectItem>
@@ -145,7 +161,7 @@ export function MetricsFilters() {
             onValueChange={(val) => setDraft({ channel: val ?? "all" })}
           >
             <SelectTrigger className="w-full border-border bg-muted text-foreground">
-              <SelectValue />
+              <SelectValue>{channelLabel}</SelectValue>
             </SelectTrigger>
             <SelectContent className="border-border bg-popover">
               <SelectItem value="all">Todos los canales</SelectItem>
@@ -168,7 +184,7 @@ export function MetricsFilters() {
             onValueChange={(val) => setDraft({ type: val ?? "all" })}
           >
             <SelectTrigger className="w-full border-border bg-muted text-foreground">
-              <SelectValue />
+              <SelectValue>{typeLabel}</SelectValue>
             </SelectTrigger>
             <SelectContent className="border-border bg-popover">
               <SelectItem value="all">Todos</SelectItem>
@@ -198,13 +214,12 @@ export function MetricsFilters() {
       <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-border pt-3 text-[11px] text-muted-foreground">
         <CalendarRange className="h-3.5 w-3.5" />
         <span>{formatRangeLabel(range)}</span>
-        {!isDirty && (
-          <span className="inline-flex items-center gap-1 text-muted-foreground">
+        {!isDirty ? (
+          <span className="inline-flex items-center gap-1">
             <SlidersHorizontal className="h-3 w-3" />
             Filtros aplicados
           </span>
-        )}
-        {isDirty && (
+        ) : (
           <span className="inline-flex items-center gap-1 text-amber-400">
             <SlidersHorizontal className="h-3.5 w-3.5" />
             Hay cambios sin aplicar

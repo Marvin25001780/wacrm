@@ -165,3 +165,17 @@ CREATE TRIGGER track_closed_at BEFORE UPDATE ON conversations
 UPDATE conversations
   SET closed_at = COALESCE(closed_at, updated_at, created_at)
   WHERE status = 'closed' AND closed_at IS NULL;
+
+-- ============================================================
+-- 4. Permisos de tabla
+--
+-- Este proyecto no hereda los "default privileges" de Supabase en
+-- las tablas creadas por migración, así que otorgamos los permisos
+-- explícitamente. RLS sigue gobernando FILA por FILA el acceso:
+-- estos GRANT solo habilitan que los roles puedan tocar la tabla.
+-- ============================================================
+GRANT SELECT, INSERT, UPDATE, DELETE ON teams TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON team_members TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON conversation_tags TO authenticated;
+
+GRANT ALL ON teams, team_members, conversation_tags TO service_role;
