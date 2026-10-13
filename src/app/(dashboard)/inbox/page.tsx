@@ -654,6 +654,34 @@ export default function InboxPage() {
     []
   );
 
+  // Tras fusionar el contacto del hilo con uno existente (RPC
+  // merge_contacts), re-apuntamos el estado local al superviviente para
+  // que el panel de contacto, el switcher de canal y la lista reflejen
+  // el contacto correcto sin recargar.
+  const handleContactMerged = useCallback(
+    (loserId: string, survivor: Contact) => {
+      setActiveContact((prev) => (prev && prev.id === loserId ? survivor : prev));
+      setActiveConversation((prev) =>
+        prev && prev.contact_id === loserId
+          ? { ...prev, contact_id: survivor.id, contact: survivor }
+          : prev,
+      );
+      setSecondaryConversation((prev) =>
+        prev && prev.contact_id === loserId
+          ? { ...prev, contact_id: survivor.id, contact: survivor }
+          : prev,
+      );
+      setConversations((prev) =>
+        prev.map((c) =>
+          c.contact_id === loserId
+            ? { ...c, contact_id: survivor.id, contact: survivor }
+            : c,
+        ),
+      );
+    },
+    [],
+  );
+
   // On mobile (<lg) we show a SINGLE pane — either the list or the
   // thread — rather than cramming both side-by-side. Selecting a
   // conversation slides the thread in; the thread's back button pops
@@ -766,7 +794,10 @@ export default function InboxPage() {
             toggle — which is itself desktop-only — never affects it. */}
         {contactPanelOpen && (
           <div className="hidden lg:block">
-            <ContactSidebar contact={activeContact} />
+            <ContactSidebar
+              contact={activeContact}
+              onContactMerged={handleContactMerged}
+            />
           </div>
         )}
       </div>

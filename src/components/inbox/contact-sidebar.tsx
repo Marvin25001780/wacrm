@@ -16,16 +16,20 @@ import {
   StickyNote,
   Plus,
   IdCard,
+  Link2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { LinkContactDialog } from "@/components/inbox/link-contact-dialog";
 import { format } from "date-fns";
 
 interface ContactSidebarProps {
   contact: Contact | null;
+  /** Tras fusionar el contacto del hilo con uno existente. */
+  onContactMerged?: (loserId: string, survivor: Contact) => void;
 }
 
-export function ContactSidebar({ contact }: ContactSidebarProps) {
+export function ContactSidebar({ contact, onContactMerged }: ContactSidebarProps) {
   const { accountId } = useAuth();
   const [copied, setCopied] = useState(false);
   const [deals, setDeals] = useState<Deal[]>([]);
@@ -33,6 +37,7 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
   const [tags, setTags] = useState<(Tag & { contact_tag_id: string })[]>([]);
   const [newNote, setNewNote] = useState("");
   const [addingNote, setAddingNote] = useState(false);
+  const [linkOpen, setLinkOpen] = useState(false);
 
   const fetchContactData = useCallback(async () => {
     if (!contact) return;
@@ -186,6 +191,20 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
             )}
           </div>
 
+          {/* Vincular el hilo a un contacto/lead ya guardado. Útil con
+              canales donde no conocíamos ningún dato del cliente y se
+              creó un contacto duplicado. */}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setLinkOpen(true)}
+            className="mt-3 w-full border-border bg-transparent text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
+            <Link2 className="mr-1.5 h-3.5 w-3.5" />
+            Vincular a un contacto existente
+          </Button>
+
           {/* Divider */}
           <div className="my-4 border-t border-border" />
 
@@ -306,6 +325,16 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
           </div>
         </div>
       </ScrollArea>
+
+      <LinkContactDialog
+        open={linkOpen}
+        onOpenChange={setLinkOpen}
+        source={contact}
+        onLinked={(loserId, survivor) => {
+          setLinkOpen(false);
+          onContactMerged?.(loserId, survivor);
+        }}
+      />
     </div>
   );
 }
