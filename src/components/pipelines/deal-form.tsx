@@ -30,6 +30,9 @@ import {
   MessageSquare,
   DollarSign,
   Loader2,
+  Phone,
+  Mail,
+  IdCard,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -166,6 +169,11 @@ export function DealForm({
       assigned_to: assignedTo || null,
       notes: notes.trim() || null,
       expected_close_date: expectedCloseDate || null,
+      // Vinculación automática: la oferta queda ligada a la conversación
+      // del contacto (la más reciente). Si el contacto todavía no tiene
+      // hilo, queda NULL y el agente puede crearlo desde el enlace manual
+      // "Vincular a conversación".
+      conversation_id: linkedConversation?.id ?? null,
     };
 
     if (deal) {
@@ -243,6 +251,10 @@ export function DealForm({
     onSaved();
   }
 
+  // Contacto seleccionado, para mostrar (solo lectura) sus datos de
+  // contacto — correo, teléfono y cédula — junto al selector.
+  const selectedContact = contacts.find((c) => c.id === contactId) ?? null;
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
@@ -282,7 +294,43 @@ export function DealForm({
                 ))}
               </select>
 
-              {linkedConversation && (
+              {/* Datos del contacto (solo lectura) — correo, teléfono y
+                  cédula, para no tener que salir de la oferta a buscarlos. */}
+              {selectedContact && (
+                <div className="mt-1 space-y-1 rounded-lg border border-border bg-muted/50 px-3 py-2">
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <Phone className="h-3.5 w-3.5 shrink-0" />
+                    <span className="truncate">
+                      {selectedContact.phone || "Sin teléfono"}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <Mail className="h-3.5 w-3.5 shrink-0" />
+                    <span className="truncate">
+                      {selectedContact.email || "Sin correo"}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <IdCard className="h-3.5 w-3.5 shrink-0" />
+                    <span className="truncate">
+                      {selectedContact.document || "Sin cédula"}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* La conversación se vincula sola al guardar. El botón
+                  manual solo aparece cuando el contacto aún no tiene hilo
+                  (no se pudo vincular de forma automática). */}
+              {linkedConversation ? (
+                <Link
+                  href={`/inbox?c=${linkedConversation.id}`}
+                  className="mt-1 inline-flex items-center gap-1.5 self-start rounded-md bg-emerald-500/10 px-2 py-1 text-xs text-emerald-500 hover:bg-emerald-500/20"
+                >
+                  <Check className="h-3 w-3" />
+                  Conversación vinculada
+                </Link>
+              ) : contactId ? (
                 <Link
                   href="/inbox"
                   className="mt-1 inline-flex items-center gap-1.5 self-start rounded-md bg-primary/10 px-2 py-1 text-xs text-primary hover:bg-primary/20"
@@ -290,7 +338,7 @@ export function DealForm({
                   <MessageSquare className="h-3 w-3" />
                   Vincular a conversación
                 </Link>
-              )}
+              ) : null}
             </div>
 
             <div className="grid grid-cols-[1fr_110px] gap-3">
