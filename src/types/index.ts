@@ -274,6 +274,41 @@ export const ACTIVITY_PRIORITIES: { value: ActivityPriority; label: string }[] =
   { value: 'high', label: 'Alta' },
 ];
 
+// --- Llamadas (solo aplican a actividades type = 'call') -------------
+export type CallDirection = 'inbound' | 'outbound';
+
+/** Dirección de la llamada — valor almacenado + etiqueta legible. */
+export const CALL_DIRECTIONS: { value: CallDirection; label: string }[] = [
+  { value: 'outbound', label: 'Saliente' },
+  { value: 'inbound', label: 'Entrante' },
+];
+
+export type CallResult =
+  | 'answered'
+  | 'no_answer'
+  | 'busy'
+  | 'failed'
+  | 'voicemail';
+
+/** Resultado de la llamada — valor almacenado + etiqueta legible. */
+export const CALL_RESULTS: { value: CallResult; label: string }[] = [
+  { value: 'answered', label: 'Contestada' },
+  { value: 'no_answer', label: 'No contestada' },
+  { value: 'busy', label: 'Ocupado' },
+  { value: 'failed', label: 'Fallida' },
+  { value: 'voicemail', label: 'Buzón de voz' },
+];
+
+/** Etiquetas de conveniencia. */
+export function callDirectionLabel(value?: string | null): string {
+  if (!value) return '';
+  return CALL_DIRECTIONS.find((d) => d.value === value)?.label ?? value;
+}
+export function callResultLabel(value?: string | null): string {
+  if (!value) return '';
+  return CALL_RESULTS.find((r) => r.value === value)?.label ?? value;
+}
+
 /** Etiquetas de conveniencia. */
 export function activityTypeLabel(value?: string | null): string {
   if (!value) return '';
@@ -304,6 +339,10 @@ export interface Activity {
   status: ActivityStatus;
   priority: ActivityPriority;
   outcome?: string | null;
+  /** Dirección de la llamada (solo cuando type = 'call'). */
+  call_direction?: CallDirection | null;
+  /** Resultado de la llamada (solo cuando type = 'call'). */
+  call_result?: CallResult | null;
   completed_at?: string | null;
   contact_id?: string | null;
   lead_id?: string | null;

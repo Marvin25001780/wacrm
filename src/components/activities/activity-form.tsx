@@ -14,10 +14,14 @@ import {
   ACTIVITY_PRIORITIES,
   ACTIVITY_STATUSES,
   ACTIVITY_TYPES,
+  CALL_DIRECTIONS,
+  CALL_RESULTS,
   type Activity,
   type ActivityPriority,
   type ActivityStatus,
   type ActivityType,
+  type CallDirection,
+  type CallResult,
   type Profile,
 } from '@/types';
 import {
@@ -38,6 +42,8 @@ interface ActivityFormProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   activity?: Activity | null;
+  /** Tipo preseleccionado al crear (p. ej. 'call' desde Métricas). */
+  defaultType?: ActivityType;
   /** Prefills the "status" filter when creating from a filtered view. */
   onSaved: () => void;
 }
@@ -65,6 +71,7 @@ export function ActivityForm({
   open,
   onOpenChange,
   activity,
+  defaultType,
   onSaved,
 }: ActivityFormProps) {
   const supabase = createClient();
@@ -84,6 +91,8 @@ export function ActivityForm({
   const [dealId, setDealId] = useState('');
   const [description, setDescription] = useState('');
   const [outcome, setOutcome] = useState('');
+  const [callDirection, setCallDirection] = useState<CallDirection | ''>('');
+  const [callResult, setCallResult] = useState<CallResult | ''>('');
   const [saving, setSaving] = useState(false);
 
   const [profiles, setProfiles] = useState<Profile[]>([]);
@@ -95,7 +104,7 @@ export function ActivityForm({
   useEffect(() => {
     if (open) {
       setSubject(activity?.subject ?? '');
-      setType((activity?.type as ActivityType) ?? 'task');
+      setType((activity?.type as ActivityType) ?? defaultType ?? 'task');
       setDueAt(toLocalInput(activity?.due_at));
       setDuration(activity?.duration_minutes != null ? String(activity.duration_minutes) : '');
       setPriority((activity?.priority as ActivityPriority) ?? 'medium');
@@ -107,6 +116,8 @@ export function ActivityForm({
       setDealId(activity?.deal_id ?? '');
       setDescription(activity?.description ?? '');
       setOutcome(activity?.outcome ?? '');
+      setCallDirection((activity?.call_direction as CallDirection) ?? null);
+      setCallResult((activity?.call_result as CallResult) ?? null);
       fetchOptions();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -171,6 +182,8 @@ export function ActivityForm({
         deal_id: dealId || null,
         description: description.trim() || null,
         outcome: outcome.trim() || null,
+        call_direction: type === 'call' ? callDirection || null : null,
+        call_result: type === 'call' ? callResult || null : null,
         completed_at: status === 'done' ? new Date().toISOString() : null,
       };
 
@@ -332,6 +345,47 @@ export function ActivityForm({
               </select>
             </div>
           </div>
+
+          {type === 'call' && (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="act-direction" className="text-muted-foreground">
+                  Dirección
+                </Label>
+                <select
+                  id="act-direction"
+                  value={callDirection}
+                  onChange={(e) => setCallDirection(e.target.value as CallDirection | '')}
+                  className={selectClass}
+                >
+                  <option value="">Sin especificar</option>
+                  {CALL_DIRECTIONS.map((d) => (
+                    <option key={d.value} value={d.value}>
+                      {d.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="act-result" className="text-muted-foreground">
+                  Resultado
+                </Label>
+                <select
+                  id="act-result"
+                  value={callResult}
+                  onChange={(e) => setCallResult(e.target.value as CallResult | '')}
+                  className={selectClass}
+                >
+                  <option value="">Sin especificar</option>
+                  {CALL_RESULTS.map((r) => (
+                    <option key={r.value} value={r.value}>
+                      {r.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          )}
 
           {/* Vínculos */}
           <div className="rounded-lg border border-border p-3">
