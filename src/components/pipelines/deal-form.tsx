@@ -61,6 +61,7 @@ export function DealForm({
   const [title, setTitle] = useState("");
   const [value, setValue] = useState("");
   const [currency, setCurrency] = useState(defaultCurrency);
+  const [product, setProduct] = useState("");
   const [contactId, setContactId] = useState("");
   const [stageId, setStageId] = useState("");
   const [assignedTo, setAssignedTo] = useState("");
@@ -88,6 +89,7 @@ export function DealForm({
       setTitle(deal.title);
       setValue(String(deal.value ?? ""));
       setCurrency(deal.currency || defaultCurrency);
+      setProduct(deal.product ?? "");
       // contact_id is nullable when the contact has been deleted
       // (migration 004: ON DELETE SET NULL). "" means "no selection".
       setContactId(deal.contact_id ?? "");
@@ -99,6 +101,7 @@ export function DealForm({
       setTitle("");
       setValue("");
       setCurrency(defaultCurrency);
+      setProduct("");
       setContactId("");
       setStageId(defaultStageId || stages[0]?.id || "");
       setAssignedTo("");
@@ -163,6 +166,7 @@ export function DealForm({
       title: title.trim(),
       value: parseFloat(value) || 0,
       currency,
+      product: product.trim() || null,
       contact_id: contactId,
       pipeline_id: pipelineId,
       stage_id: stageId,
@@ -275,6 +279,16 @@ export function DealForm({
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder="Título de la oferta"
+                className="border-border bg-muted text-foreground"
+              />
+            </div>
+
+            <div className="grid gap-2">
+              <Label className="text-muted-foreground">Producto / servicio</Label>
+              <Input
+                value={product}
+                onChange={(e) => setProduct(e.target.value)}
+                placeholder="Ej. Plan mensual, Licencia anual…"
                 className="border-border bg-muted text-foreground"
               />
             </div>

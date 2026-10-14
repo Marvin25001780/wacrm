@@ -18,3 +18,11 @@ export function formatScore(avg: number | null | undefined): string {
   if (avg == null || !Number.isFinite(avg)) return "—";
   return `${avg.toFixed(1)} / 5`;
 }
+
+/** Formatea una proporción 0..1 como porcentaje: "42.5 %". */
+export function formatPercent(ratio: number | null | undefined): string {
+  if (ratio == null || !Number.isFinite(ratio)) return "—";
+  return `${(ratio * 100).toLocaleString("es-ES", {
+    maximumFractionDigits: 1,
+  })} %`;
+}

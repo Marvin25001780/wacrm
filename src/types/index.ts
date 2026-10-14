@@ -814,9 +814,13 @@ export interface Deal {
   title: string;
   value: number;
   currency?: string;
+  /** Producto / servicio de la oferta (migration 053). */
+  product?: string;
   notes?: string;
   expected_close_date?: string;
   status?: DealStatus;
+  /** Momento del cierre (migration 053) — ganada/perdida. */
+  closed_at?: string | null;
   created_at: string;
   updated_at?: string;
   contact?: Contact;
