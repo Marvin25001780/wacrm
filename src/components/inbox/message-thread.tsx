@@ -16,6 +16,7 @@ import type {
   MessageTemplate,
   MessageChannel,
   Profile,
+  Tag,
 } from "@/types";
 import {
   MessageSquare,
@@ -29,6 +30,7 @@ import {
   PanelRightClose,
   Camera,
   Loader2,
+  Tag as TagIcon,
 } from "lucide-react";
 import { format, isToday, isYesterday, differenceInHours } from "date-fns";
 import { Badge } from "@/components/ui/badge";
@@ -50,6 +52,7 @@ import {
 } from "./message-composer";
 import { deleteAccountMedia } from "@/lib/storage/upload-media";
 import { TemplatePicker } from "./template-picker";
+import { CloseConversationDialog, type CloseConversationPayload } from "./close-conversation-dialog";
 import { buildReplyPreview } from "./reply-quote";
 import { toast } from "sonner";
 
@@ -190,7 +193,7 @@ export function MessageThread({
   secondaryChannel,
   onContactAvatarChange,
 }: MessageThreadProps) {
-  const { user } = useAuth();
+  const { user, accountId } = useAuth();
   const { getPresence, getRow, now } = usePresence();
   const [loading, setLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -220,6 +223,7 @@ export function MessageThread({
     }, 700);
   }, [isRefreshing, onRefresh]);
   const [replyTo, setReplyTo] = useState<ReplyDraft | null>(null);
+  const [closeDialogOpen, setCloseDialogOpen] = useState(false);
 
   // Profiles are bounded by RLS to rows the current user is allowed to
   // see — today that's just the current user, but the dropdown keeps the
@@ -243,6 +247,56 @@ export function MessageThread({
       cancelled = true;
     };
   }, []);
+
+  // ------------------------------------------------------------
+  // Etiquetas de CONVERSACIÓN (migración 051 → `conversation_tags`)
+  //
+  // El catálogo de etiquetas es de la cuenta; cada conversación
+  // enlaza un subconjunto. Alimenta el ranking de etiquetas del
+  // reporte de Métricas → Conversaciones.
+  // ------------------------------------------------------------
+  const [accountTags, setAccountTags] = useState<Tag[]>([]);
+  const [conversationTagIds, setConversationTagIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (!accountId) return;
+    let cancelled = false;
+    const supabase = createClient();
+    supabase
+      .from("tags")
+      .select("*")
+      .eq("account_id", accountId)
+      .order("name")
+      .then(({ data, error }) => {
+        if (cancelled || error) return;
+        setAccountTags((data as Tag[]) ?? []);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [accountId]);
+
+  useEffect(() => {
+    if (!conversation?.id) {
+      setConversationTagIds([]);
+      return;
+    }
+    let cancelled = false;
+    const supabase = createClient();
+    supabase
+      .from("conversation_tags")
+      .select("tag_id")
+      .eq("conversation_id", conversation.id)
+      .then(({ data, error }) => {
+        if (cancelled || error) return;
+        setConversationTagIds(
+          ((data ?? []) as { tag_id: string }[]).map((r) => r.tag_id)
+        );
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [conversation?.id]);
 
   // 24-hour session timer
   const sessionInfo = useMemo(() => {
@@ -593,12 +647,95 @@ export function MessageThread({
       const supabase = createClient();
       await supabase
         .from("conversations")
-        .update({ status })
+        // Al reabrir/poner en pendiente se limpia el motivo de cierre
+        // para que las métricas de "motivos de cierre" no cuenten un
+        // cierre que ya no existe (el trigger limpia `closed_at`).
+        .update({ status, close_reason: null })
         .eq("id", conversation.id);
 
       onStatusChange(conversation.id, status);
     },
     [conversation, onStatusChange]
+  );
+
+  // Cierre con motivo + CSAT opcional. La persistencia vive aquí (el
+  // diálogo solo recolecta) para mantener el acceso a Supabase en un
+  // único lugar del hilo.
+  const handleCloseConversation = useCallback(
+    async ({ reason, score, comment }: CloseConversationPayload) => {
+      if (!conversation) return;
+
+      const supabase = createClient();
+      const { error } = await supabase
+        .from("conversations")
+        .update({ status: "closed", close_reason: reason })
+        .eq("id", conversation.id);
+
+      if (error) {
+        console.error("Failed to close conversation:", error);
+        toast.error("No se pudo cerrar la conversación");
+        return;
+      }
+
+      if (typeof score === "number") {
+        if (accountId) {
+          const { error: csatError } = await supabase
+            .from("csat_responses")
+            .insert({
+              account_id: accountId,
+              conversation_id: conversation.id,
+              contact_id: contact?.id ?? null,
+              // Mismo espacio que assigned_agent_id (auth.users.id).
+              agent_id: conversation.assigned_agent_id ?? null,
+              score,
+              comment: comment ?? null,
+              source: "manual",
+            });
+          if (csatError) {
+            console.error("Failed to save CSAT:", csatError);
+            toast.error(
+              "La conversación se cerró, pero no se pudo guardar el CSAT"
+            );
+          }
+        }
+      }
+
+      onStatusChange(conversation.id, "closed");
+    },
+    [conversation, contact, accountId, onStatusChange]
+  );
+
+  // Añade/quita una etiqueta de la conversación abierta.
+  const toggleConversationTag = useCallback(
+    async (tagId: string) => {
+      if (!conversation || !accountId) return;
+      const supabase = createClient();
+      const has = conversationTagIds.includes(tagId);
+      if (has) {
+        const { error } = await supabase
+          .from("conversation_tags")
+          .delete()
+          .eq("conversation_id", conversation.id)
+          .eq("tag_id", tagId);
+        if (error) {
+          toast.error("No se pudo quitar la etiqueta");
+          return;
+        }
+        setConversationTagIds((prev) => prev.filter((id) => id !== tagId));
+      } else {
+        const { error } = await supabase.from("conversation_tags").insert({
+          conversation_id: conversation.id,
+          tag_id: tagId,
+          account_id: accountId,
+        });
+        if (error) {
+          toast.error("No se pudo agregar la etiqueta");
+          return;
+        }
+        setConversationTagIds((prev) => [...prev, tagId]);
+      }
+    },
+    [conversation, accountId, conversationTagIds]
   );
 
   const handleOpenTemplates = useCallback(() => {
@@ -1011,6 +1148,65 @@ export function MessageThread({
             </button>
           )}
 
+          {/* Etiquetas de conversación */}
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              className={cn(
+                "inline-flex items-center justify-center h-7 gap-1 px-2 text-xs rounded-md hover:bg-muted",
+                conversationTagIds.length > 0
+                  ? "text-primary"
+                  : "text-muted-foreground",
+              )}
+              title="Etiquetas de la conversación"
+            >
+              <TagIcon className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Etiquetas</span>
+              {conversationTagIds.length > 0 && (
+                <Badge
+                  variant="outline"
+                  className="border-border px-1 text-[10px] text-primary"
+                >
+                  {conversationTagIds.length}
+                </Badge>
+              )}
+              <ChevronDown className="h-3 w-3" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="end"
+              className="border-border bg-popover"
+            >
+              {accountTags.length === 0 ? (
+                <DropdownMenuItem
+                  disabled
+                  className="text-sm text-muted-foreground"
+                >
+                  Sin etiquetas — créalas en Configuración
+                </DropdownMenuItem>
+              ) : (
+                accountTags.map((tag) => {
+                  const isSelected = conversationTagIds.includes(tag.id);
+                  return (
+                    <DropdownMenuItem
+                      key={tag.id}
+                      onClick={() => toggleConversationTag(tag.id)}
+                      className={cn(
+                        "text-sm",
+                        isSelected ? "text-primary" : "text-popover-foreground",
+                      )}
+                    >
+                      <span
+                        className="mr-2 size-2 rounded-full"
+                        style={{ backgroundColor: tag.color }}
+                      />
+                      <span className="flex-1">{tag.name}</span>
+                      {isSelected && <Check className="ml-2 h-3 w-3" />}
+                    </DropdownMenuItem>
+                  );
+                })
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+
           {/* Status dropdown */}
           <DropdownMenu>
             <DropdownMenuTrigger className={cn(
@@ -1027,7 +1223,12 @@ export function MessageThread({
               {STATUS_OPTIONS.map((opt) => (
                 <DropdownMenuItem
                   key={opt.value}
-                  onClick={() => handleStatusChange(opt.value)}
+                  onClick={() => {
+                    // Cerrar abre el diálogo para capturar motivo + CSAT;
+                    // el resto de estados se aplican directo.
+                    if (opt.value === "closed") setCloseDialogOpen(true);
+                    else handleStatusChange(opt.value);
+                  }}
                   className={cn("text-sm", opt.color)}
                 >
                   {opt.label}
@@ -1192,6 +1393,12 @@ export function MessageThread({
         open={templateModalOpen}
         onOpenChange={setTemplateModalOpen}
         onSelect={handleSendTemplate}
+      />
+
+      <CloseConversationDialog
+        open={closeDialogOpen}
+        onOpenChange={setCloseDialogOpen}
+        onConfirm={handleCloseConversation}
       />
     </div>
   );

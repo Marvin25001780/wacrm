@@ -15,6 +15,7 @@ import { TemplateManager } from '@/components/settings/template-manager';
 import { FieldsAndTagsPanel } from '@/components/settings/fields-and-tags-panel';
 import { DealsSettings } from '@/components/settings/deals-settings';
 import { MembersTab } from '@/components/settings/members-tab';
+import { TeamsTab } from '@/components/settings/teams-tab';
 import { ApiKeysSettings } from '@/components/settings/api-keys-settings';
 import { AiConfig } from '@/components/settings/ai-config';
 import { WebchatPanel } from '@/components/settings/webchat-panel';
@@ -61,6 +62,7 @@ export default function SettingsPage() {
     fields: <FieldsAndTagsPanel />,
     deals: <DealsSettings />,
     members: <MembersTab />,
+    teams: <TeamsTab />,
     ai: <AiConfig />,
     webchat: <WebchatPanel />,
     api: <ApiKeysSettings />,

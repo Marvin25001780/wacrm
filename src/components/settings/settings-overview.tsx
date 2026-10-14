@@ -183,6 +183,11 @@ export function SettingsOverview({
             }`,
     },
     {
+      section: 'teams',
+      loading: false,
+      subtitle: 'Agrupa agentes para los reportes',
+    },
+    {
       section: 'templates',
       loading: countsLoading,
       subtitle:
