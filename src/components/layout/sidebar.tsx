@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
-import { navItems, bottomNavItems } from "@/lib/nav";
+import { navItems, bottomNavItems, type NavItem } from "@/lib/nav";
 import { useAuth } from "@/hooks/use-auth";
 import { useTotalUnread } from "@/hooks/use-total-unread";
 import { useUnreadNotifications } from "@/hooks/use-unread-notifications";
 import {
+  ChevronDown,
   Crown,
   LogOut,
   MessageSquare,
@@ -75,6 +76,152 @@ interface SidebarProps {
   /** Controlled on mobile by the Header's hamburger button. Ignored on lg+. */
   open?: boolean;
   onClose?: () => void;
+}
+
+function isNavActive(pathname: string, href: string): boolean {
+  return (
+    pathname === href || (href !== "/dashboard" && pathname.startsWith(href))
+  );
+}
+
+function NavLeaf({
+  item,
+  pathname,
+  totalUnread,
+  unreadNotifications,
+  indent = false,
+}: {
+  item: NavItem;
+  pathname: string;
+  totalUnread: number;
+  unreadNotifications: number;
+  indent?: boolean;
+}) {
+  const active = isNavActive(pathname, item.href);
+  const showUnreadDot = item.href === "/inbox" && totalUnread > 0 && !active;
+  const showNotificationBadge =
+    item.href === "/notifications" && unreadNotifications > 0;
+
+  return (
+    <li>
+      <Link
+        href={item.href}
+        className={cn(
+          // Taller on mobile so fingers can hit the row reliably (≥44px).
+          "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors lg:py-2",
+          indent && "lg:pl-7",
+          active
+            ? "bg-primary/10 text-primary"
+            : "text-muted-foreground hover:bg-muted hover:text-foreground",
+        )}
+      >
+        <item.icon className="h-4 w-4" />
+        <span className="flex-1">{item.label}</span>
+        {item.beta && (
+          <span
+            aria-label="Beta feature"
+            className="rounded-full border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-amber-300"
+          >
+            Beta
+          </span>
+        )}
+        {showUnreadDot && (
+          <span
+            aria-label={`${totalUnread} unread conversation${totalUnread === 1 ? "" : "s"}`}
+            className="relative flex h-2 w-2"
+          >
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-75" />
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-primary" />
+          </span>
+        )}
+        {showNotificationBadge && (
+          <span
+            aria-label={`${unreadNotifications} unread notification${unreadNotifications === 1 ? "" : "s"}`}
+            className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground"
+          >
+            {unreadNotifications > 9 ? "9+" : unreadNotifications}
+          </span>
+        )}
+      </Link>
+    </li>
+  );
+}
+
+function NavGroup({
+  item,
+  pathname,
+}: {
+  item: NavItem;
+  pathname: string;
+}) {
+  const hasActiveChild = item.children?.some((child) =>
+    isNavActive(pathname, child.href),
+  );
+  const [expanded, setExpanded] = useState(
+    () => isNavActive(pathname, item.href) || !!hasActiveChild,
+  );
+  const parentActive = isNavActive(pathname, item.href);
+  const Icon = item.icon;
+
+  return (
+    <li className="flex flex-col gap-1">
+      <div
+        className={cn(
+          "flex items-center rounded-lg",
+          (parentActive || hasActiveChild) && "bg-primary/10",
+        )}
+      >
+        <Link
+          href={item.href}
+          className={cn(
+            "flex flex-1 items-center gap-3 px-3 py-2.5 text-sm font-medium transition-colors lg:py-2",
+            parentActive || hasActiveChild
+              ? "text-primary"
+              : "text-muted-foreground hover:bg-muted hover:text-foreground",
+          )}
+        >
+          <Icon className="h-4 w-4" />
+          <span className="flex-1">{item.label}</span>
+          {item.beta && (
+            <span
+              aria-label="Beta feature"
+              className="rounded-full border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-amber-300"
+            >
+              Beta
+            </span>
+          )}
+        </Link>
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          aria-label={expanded ? "Contraer menú" : "Expandir menú"}
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground lg:h-9 lg:w-9"
+        >
+          <ChevronDown
+            className={cn(
+              "h-4 w-4 transition-transform duration-200",
+              !expanded && "-rotate-90",
+            )}
+          />
+        </button>
+      </div>
+
+      {expanded && item.children ? (
+        <ul className="flex flex-col gap-1 lg:pl-7">
+          {item.children.map((child) => (
+            <NavLeaf
+              key={child.href}
+              item={child}
+              pathname={pathname}
+              totalUnread={0}
+              unreadNotifications={0}
+              indent
+            />
+          ))}
+        </ul>
+      ) : null}
+    </li>
+  );
 }
 
 export function Sidebar({ open = false, onClose }: SidebarProps) {
@@ -171,64 +318,19 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
         {/* Main navigation */}
         <nav className="flex-1 overflow-y-auto px-3 py-4">
           <ul className="flex flex-col gap-1">
-            {navItems.map((item) => {
-              const isActive =
-                pathname === item.href ||
-                (item.href !== "/dashboard" && pathname.startsWith(item.href));
-
-              const showUnreadDot =
-                item.href === "/inbox" && totalUnread > 0 && !isActive;
-
-              // Unlike the inbox dot, the notifications count stays visible
-              // even while the page is active — it reflects unread state
-              // (cleared by marking notifications read), not "currently
-              // viewing this section".
-              const showNotificationBadge =
-                item.href === "/notifications" && unreadNotifications > 0;
-
-              return (
-                <li key={item.href}>
-                  <Link
-                    href={item.href}
-                    className={cn(
-                      // Taller on mobile so fingers can hit the row reliably (≥44px).
-                      "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors lg:py-2",
-                      isActive
-                        ? "bg-primary/10 text-primary"
-                        : "text-muted-foreground hover:bg-muted hover:text-foreground",
-                    )}
-                  >
-                    <item.icon className="h-4 w-4" />
-                    <span className="flex-1">{item.label}</span>
-                    {item.beta && (
-                      <span
-                        aria-label="Beta feature"
-                        className="rounded-full border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-amber-300"
-                      >
-                        Beta
-                      </span>
-                    )}
-                    {showUnreadDot && (
-                      <span
-                        aria-label={`${totalUnread} unread conversation${totalUnread === 1 ? "" : "s"}`}
-                        className="relative flex h-2 w-2"
-                      >
-                        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-75" />
-                        <span className="relative inline-flex h-2 w-2 rounded-full bg-primary" />
-                      </span>
-                    )}
-                    {showNotificationBadge && (
-                      <span
-                        aria-label={`${unreadNotifications} unread notification${unreadNotifications === 1 ? "" : "s"}`}
-                        className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground"
-                      >
-                        {unreadNotifications > 9 ? "9+" : unreadNotifications}
-                      </span>
-                    )}
-                  </Link>
-                </li>
-              );
-            })}
+            {navItems.map((item) =>
+              item.children && item.children.length > 0 ? (
+                <NavGroup key={item.href} item={item} pathname={pathname} />
+              ) : (
+                <NavLeaf
+                  key={item.href}
+                  item={item}
+                  pathname={pathname}
+                  totalUnread={totalUnread}
+                  unreadNotifications={unreadNotifications}
+                />
+              ),
+            )}
           </ul>
 
           <div className="my-4 border-t border-border" />

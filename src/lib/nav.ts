@@ -11,6 +11,8 @@
 import {
   BarChart3,
   Bell,
+  Bot,
+  Brain,
   Building2,
   CalendarDays,
   CalendarCheck,
@@ -46,6 +48,11 @@ export interface NavItem {
    * Purely informational — doesn't affect routing or access.
    */
   beta?: boolean;
+  /**
+   * If present, the item renders as an expandable group in the sidebar
+   * with nested children (indented on desktop).
+   */
+  children?: NavItem[];
 }
 
 export const navItems: NavItem[] = [
@@ -72,8 +79,17 @@ export const navItems: NavItem[] = [
   { href: "/segments",      label: "Segmentos", icon: Filter },
   { href: "/pipelines",     label: "Pipelines", icon: GitBranch },
   { href: "/broadcasts",     label: "Campañas", icon: Radio },
-  { href: "/automations",     label: "Automatizaciones", icon: Zap },
-  { href: "/flows",     label: "Flujos", icon: Workflow, beta: true },
+  {
+    href: "/flows",
+    label: "Flujos",
+    icon: Workflow,
+    beta: true,
+    children: [
+      { href: "/flows/bots", label: "Bots", icon: Bot },
+      { href: "/automations", label: "Automatizaciones", icon: Zap },
+      { href: "/flows/agentes-ia", label: "Agentes de IA", icon: Brain },
+    ],
+  },
 ];
 
 export const bottomNavItems: NavItem[] = [
@@ -89,7 +105,12 @@ export const bottomNavItems: NavItem[] = [
  * Cae a "Panel" para rutas desconocidas, igual que antes.
  */
 export function pageTitleFor(pathname: string): string {
-  const all = [...navItems, ...bottomNavItems];
+  const flatten = (items: NavItem[]): NavItem[] =>
+    items.flatMap((item) => [
+      item,
+      ...(item.children ? flatten(item.children) : []),
+    ]);
+  const all = [...flatten(navItems), ...bottomNavItems];
   const exact = all.find((item) => item.href === pathname);
   if (exact) return exact.label;
   const byPrefix = all.find((item) => pathname.startsWith(`${item.href}/`));
