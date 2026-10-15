@@ -1,7 +1,7 @@
 // ============================================================
 // Tremor BarChart [v1.0.0] — vendored from tremorlabs/tremor.
 //
-// Two local adaptations vs the upstream file:
+// Three local adaptations vs the upstream file:
 //   1. `cx` (Tremor's `clsx`+`twMerge` helper) is replaced with
 //      our own `cn` from `@/lib/utils`. Aliased locally so the
 //      diff against upstream stays scoped to this `import` line.
@@ -9,6 +9,13 @@
 //      `RiArrowRightSLine` from `@remixicon/react`) are swapped
 //      for `ChevronLeft` / `ChevronRight` from `lucide-react`,
 //      which is already in the project's deps.
+//   3. Recharts 3 renders the axis tick labels in their own
+//      z-index layer, *outside* the axis `<g>` that carries
+//      Tremor's `fill-muted-foreground` class. The ticks therefore
+//      stopped inheriting it and fell back to black — unreadable on
+//      the dark theme. We pin the tick fill to
+//      `var(--muted-foreground)` on both axes so the colour follows
+//      the theme again.
 //
 // Everything else — the chart logic, accessibility behaviour,
 // tooltip / legend / slider implementation — is unchanged from
@@ -693,6 +700,7 @@ const BarChart = React.forwardRef<HTMLDivElement, BarChartProps>(
             <XAxis
               hide={!showXAxis}
               tick={{
+                fill: "var(--muted-foreground)",
                 transform:
                   layout !== "vertical" ? "translate(0, 6)" : undefined,
               }}
@@ -748,6 +756,7 @@ const BarChart = React.forwardRef<HTMLDivElement, BarChartProps>(
                 "fill-muted-foreground",
               )}
               tick={{
+                fill: "var(--muted-foreground)",
                 transform:
                   layout !== "vertical"
                     ? "translate(-3, 0)"
