@@ -26,6 +26,8 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { useAuth } from '@/hooks/use-auth';
+import { createClient } from '@/lib/supabase/client';
 import { cn } from '@/lib/utils';
 import { CLOSE_REASON_OTHER, CLOSE_REASONS } from '@/lib/inbox/close-reasons';
 
@@ -51,6 +53,12 @@ export function CloseConversationDialog({
   const [score, setScore] = useState<number | null>(null);
   const [comment, setComment] = useState('');
   const [saving, setSaving] = useState(false);
+  const [reasonOptions, setReasonOptions] = useState<string[]>([
+    ...CLOSE_REASONS,
+  ]);
+
+  const supabase = createClient();
+  const { accountId } = useAuth();
 
   // Reinicia el formulario cada vez que se abre.
   useEffect(() => {
@@ -61,6 +69,27 @@ export function CloseConversationDialog({
     setComment('');
     setSaving(false);
   }, [open]);
+
+  // Catálogo gestionado en Configuración → Cierre de conversaciones.
+  // Si la cuenta aún no tiene motivos, se conserva el catálogo estático.
+  useEffect(() => {
+    if (!open || !accountId) return;
+    let cancelled = false;
+    void (async () => {
+      const { data } = await supabase
+        .from('close_reasons')
+        .select('label')
+        .eq('account_id', accountId)
+        .eq('is_active', true)
+        .order('position', { ascending: true });
+      if (!cancelled && data && data.length > 0) {
+        setReasonOptions((data as { label: string }[]).map((r) => r.label));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, accountId, supabase]);
 
   const resolvedReason =
     reasonChoice === CLOSE_REASON_OTHER
@@ -99,7 +128,7 @@ export function CloseConversationDialog({
           <div className="space-y-2">
             <Label>Motivo de cierre</Label>
             <div className="flex flex-wrap gap-2">
-              {CLOSE_REASONS.map((reason) => (
+              {reasonOptions.map((reason) => (
                 <button
                   key={reason}
                   type="button"

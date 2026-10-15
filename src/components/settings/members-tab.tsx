@@ -281,8 +281,8 @@ export function MembersTab() {
   return (
     <section className="animate-in fade-in-50 space-y-6 duration-200">
       <SettingsPanelHead
-        title="Miembros del equipo"
-        description="Personas con acceso a esta cuenta. Los roles controlan lo que cada compañero puede hacer."
+        title="Equipo y permisos"
+        description="Personas con acceso a esta cuenta y el rol que tienen. Los roles controlan lo que cada compañero puede hacer."
         action={
           <RequireRole min="admin">
             <Button onClick={() => setInviteOpen(true)}>

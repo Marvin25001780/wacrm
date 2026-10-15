@@ -53,7 +53,7 @@ export function SettingsRail({
         'lg:sticky lg:top-0 lg:flex-col lg:overflow-visible lg:border-b-0 lg:pb-0',
       )}
     >
-      {RAIL_GROUPS.map(({ label, group }) => {
+      {RAIL_GROUPS.map(({ label, group, indent }) => {
         const items = SETTINGS_SECTIONS.filter(
           (s) => SECTION_META[s].group === group,
         );
@@ -81,6 +81,7 @@ export function SettingsRail({
                   className={cn(
                     'flex shrink-0 items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm font-medium whitespace-nowrap transition-colors',
                     'lg:w-full',
+                    indent && 'lg:pl-7',
                     isActive
                       ? 'bg-primary-soft text-primary'
                       : 'text-muted-foreground hover:bg-muted hover:text-foreground',

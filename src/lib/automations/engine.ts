@@ -16,6 +16,7 @@ import type {
 } from '@/types'
 import { supabaseAdmin } from './admin-client'
 import { engineSendText, engineSendTemplate } from './meta-send'
+import { resolveAssignmentAgent } from '@/lib/assignments/resolve'
 
 // ------------------------------------------------------------
 // Public API
@@ -428,15 +429,14 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
       if (!args.contactId) throw new Error('assign_conversation needs a contact')
       let agentId = cfg.agent_id
       if (cfg.mode === 'round_robin') {
-        // Pick any member of the account. The existing implementation
-        // only ever returned the automation's author; preserving that
-        // shape until a real round-robin algorithm replaces it.
-        const { data: profiles } = await db
-          .from('profiles')
-          .select('user_id')
-          .eq('account_id', args.automation.account_id)
-          .limit(1)
-        agentId = profiles?.[0]?.user_id
+        // Reparte por turnos: usa la primera regla de asignación activa
+        // que coincide por canal (Configuración → Reglas de asignación).
+        // Si no hay reglas, cae al comportamiento anterior (primer agente).
+        const picked = await resolveAssignmentAgent(db, {
+          accountId: args.automation.account_id,
+          channel: args.context.channel ?? null,
+        })
+        agentId = picked ?? agentId
       }
       if (!agentId) return 'no agent resolved'
       await db

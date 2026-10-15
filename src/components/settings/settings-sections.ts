@@ -1,6 +1,7 @@
 import {
   Coins,
   FileText,
+  Flag,
   Globe,
   KeyRound,
   LayoutGrid,
@@ -8,9 +9,12 @@ import {
   Palette,
   PlugZap,
   Shield,
+  ShieldCheck,
+  Shuffle,
   Sparkles,
   Tags,
   User,
+  Users,
   UsersRound,
   type LucideIcon,
 } from 'lucide-react';
@@ -34,6 +38,10 @@ export const SETTINGS_SECTIONS = [
   'deals',
   'members',
   'teams',
+  'groups',
+  'roles',
+  'assignment',
+  'close-reasons',
   'ai',
   'webchat',
   'api',
@@ -49,7 +57,9 @@ export interface SectionMeta {
   id: SettingsSection;
   label: string;
   icon: LucideIcon;
-  group: 'top' | 'account' | 'workspace';
+  group: 'top' | 'account' | 'team' | 'workspace';
+  /** (Opcional) descripción corta usada por el Overview. */
+  description?: string;
 }
 
 export const SECTION_META: Record<SettingsSection, SectionMeta> = {
@@ -61,17 +71,27 @@ export const SECTION_META: Record<SettingsSection, SectionMeta> = {
   templates: { id: 'templates', label: 'Plantillas', icon: FileText, group: 'workspace' },
   fields: { id: 'fields', label: 'Campos y etiquetas', icon: Tags, group: 'workspace' },
   deals: { id: 'deals', label: 'Ofertas y moneda', icon: Coins, group: 'workspace' },
-  members: { id: 'members', label: 'Miembros del equipo', icon: UsersRound, group: 'workspace' },
-  teams: { id: 'teams', label: 'Equipos', icon: Network, group: 'workspace' },
+  members: { id: 'members', label: 'Equipo y permisos', icon: UsersRound, group: 'team', description: 'Roster de miembros y sus roles.' },
+  teams: { id: 'teams', label: 'Equipos', icon: Network, group: 'team', description: 'Agrupa agentes para los reportes.' },
+  groups: { id: 'groups', label: 'Grupos de usuarios', icon: Users, group: 'team', description: 'Listas guardadas de miembros.' },
+  roles: { id: 'roles', label: 'Roles', icon: ShieldCheck, group: 'team', description: 'Qué puede hacer cada rol.' },
+  assignment: { id: 'assignment', label: 'Reglas de asignación', icon: Shuffle, group: 'team', description: 'Reparte conversaciones automáticamente.' },
+  'close-reasons': { id: 'close-reasons', label: 'Cierre de conversaciones', icon: Flag, group: 'team', description: 'Motivos disponibles al cerrar.' },
   ai: { id: 'ai', label: 'Asistente IA', icon: Sparkles, group: 'workspace' },
   webchat: { id: 'webchat', label: 'Widget de webchat', icon: Globe, group: 'workspace' },
   api: { id: 'api', label: 'Claves API', icon: KeyRound, group: 'workspace' },
   integrations: { id: 'integrations', label: 'Integraciones', icon: PlugZap, group: 'workspace' },
 };
 
-export const RAIL_GROUPS: { label: string | null; group: SectionMeta['group'] }[] = [
+export const RAIL_GROUPS: {
+  label: string | null;
+  group: SectionMeta['group'];
+  /** Indenta los hijos (submenú de una sección padre). */
+  indent?: boolean;
+}[] = [
   { label: null, group: 'top' },
   { label: 'Cuenta', group: 'account' },
+  { label: 'Gestión de equipos', group: 'team', indent: true },
   { label: 'Espacio de trabajo', group: 'workspace' },
 ];
 
