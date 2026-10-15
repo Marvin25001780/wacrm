@@ -46,6 +46,7 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { uploadAccountMedia, MEDIA_MAX_BYTES } from "@/lib/storage/upload-media";
+import type { AccountMember } from "@/types";
 import { slugify, type BuilderNode } from "../shared";
 import { NextNodeRow, NodeKeySelect, TextRow } from "./fields";
 
@@ -190,12 +191,7 @@ export function NodeConfigForm({
 
     case "handoff":
       return (
-        <TextRow
-          label="Internal note (for the agent picking up)"
-          value={(cfg as { note?: string }).note ?? ""}
-          onChange={(v) => onUpdateConfig({ note: v })}
-          rows={2}
-        />
+        <HandoffForm cfg={cfg as HandoffCfg} onUpdateConfig={onUpdateConfig} />
       );
 
     case "end":
@@ -206,6 +202,114 @@ export function NodeConfigForm({
         </p>
       );
   }
+}
+
+// ============================================================
+// handoff
+// ============================================================
+
+interface HandoffCfg {
+  note?: string;
+  assign_to?: string;
+}
+
+/** Sentinel for "let the assignment rules decide" — stored as an
+ *  unset `assign_to`, never persisted as a value. */
+const HANDOFF_RULES = "__rules__";
+
+/**
+ * Handoff routing picker.
+ *
+ * The default leaves `assign_to` unset so the runner resolves the
+ * assignee from Configuración → Reglas de asignación, exactly like an
+ * inbound conversation would. Picking a concrete agent pins the
+ * conversation to that member's user_id and skips the rules — the
+ * escape hatch for "this branch always goes to X".
+ *
+ * The member roster is loaded once from `/api/account/members`; on
+ * older deployments or fresh accounts it falls back to rules-only.
+ */
+function HandoffForm({
+  cfg,
+  onUpdateConfig,
+}: {
+  cfg: HandoffCfg;
+  onUpdateConfig: (patch: Record<string, unknown>) => void;
+}) {
+  const [members, setMembers] = useState<AccountMember[] | null>(null);
+  const assignTo = cfg.assign_to ?? "";
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/account/members", { cache: "no-store" });
+        if (!res.ok) throw new Error(String(res.status));
+        const json = (await res.json()) as { members?: AccountMember[] };
+        if (!cancelled) setMembers(json.members ?? []);
+      } catch {
+        if (!cancelled) setMembers([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const knownAgent = members?.some((m) => m.user_id === assignTo) ?? false;
+
+  return (
+    <>
+      <div>
+        <label className="mb-1 block text-xs text-muted-foreground">
+          Assign to
+        </label>
+        <Select
+          value={assignTo || HANDOFF_RULES}
+          onValueChange={(v) =>
+            onUpdateConfig({ assign_to: v === HANDOFF_RULES ? undefined : v })
+          }
+        >
+          <SelectTrigger className="w-full bg-muted">
+            <SelectValue placeholder="Assignment rules">
+              {(value) => {
+                if (!value || value === HANDOFF_RULES) return "Assignment rules";
+                const m = members?.find((x) => x.user_id === value);
+                return m
+                  ? m.full_name || m.email || m.user_id
+                  : `${value} (unknown agent)`;
+              }}
+            </SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={HANDOFF_RULES}>Assignment rules</SelectItem>
+            {(members ?? []).map((m) => (
+              <SelectItem key={m.user_id} value={m.user_id}>
+                {m.full_name || m.email || m.user_id}
+              </SelectItem>
+            ))}
+            {assignTo && !knownAgent && (
+              <SelectItem value={assignTo}>
+                {assignTo} (unknown agent)
+              </SelectItem>
+            )}
+          </SelectContent>
+        </Select>
+        <p className="mt-1 text-[10px] text-muted-foreground">
+          {assignTo
+            ? "Pins this branch to a fixed agent."
+            : "Uses Configuración → Reglas de asignación."}
+        </p>
+      </div>
+
+      <TextRow
+        label="Internal note (for the agent picking up)"
+        value={cfg.note ?? ""}
+        onChange={(v) => onUpdateConfig({ note: v })}
+        rows={2}
+      />
+    </>
+  );
 }
 
 // ============================================================

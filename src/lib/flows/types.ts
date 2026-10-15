@@ -101,8 +101,10 @@ export interface HandoffNodeConfig {
   /** Optional internal note written to flow_run_events.payload.note. */
   note?: string;
   /**
-   * Optional agent user_id to assign on the conversation when this
-   * node fires. Leave unset to flip the status without assignment.
+   * Optional agent user_id to pin on the conversation when this node
+   * fires. Leave unset to route through the account's assignment
+   * rules (Configuración → Reglas de asignación); if no rule matches,
+   * the conversation is left unassigned.
    */
   assign_to?: string;
 }
