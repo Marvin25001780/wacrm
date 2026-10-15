@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
+import { pageTitleFor } from "@/lib/nav";
 import { LogOut, Menu, Settings as SettingsIcon, User } from "lucide-react";
 import {
   Avatar,
@@ -18,36 +19,11 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { ModeToggle } from "@/components/layout/mode-toggle";
 
-const pageTitles: Record<string, string> = {
-  "/dashboard": "Panel",
-  "/inbox": "Bandeja de entrada",
-  "/sms": "SMS",
-  "/channels": "Canales",
-  "/notifications": "Notificaciones",
-  "/contacts": "Contactos",
-  "/pipelines": "Pipelines",
-  "/broadcasts": "Campañas",
-  "/automations": "Automatizaciones",
-  "/calendar": "Calendario",
-  "/settings": "Configuración",
-  "/settings?tab=profile": "Perfil",
-  "/settings?tab=members": "Miembros",
-  "/settings?tab=templates": "Plantillas",
-  "/settings?tab=whatsapp": "WhatsApp",
-  "/settings?tab=api-keys": "Claves API",
-  "/settings?tab=ai": "IA",
-  "/settings?tab=integrations": "Integraciones",
-  "/settings?tab=appearance": "Apariencia",
-  "/settings?tab=deals": "Ofertas",
-};
-
-function getPageTitle(pathname: string): string {
-  if (pageTitles[pathname]) return pageTitles[pathname];
-  const match = Object.entries(pageTitles).find(([path]) =>
-    pathname.startsWith(path),
-  );
-  return match ? match[1] : "Panel";
-}
+// El título se deriva de la misma lista que pinta la barra lateral
+// (`@/lib/nav`), así no puede volver a quedarse atrás como cuando
+// `/metrics` no estaba en el mapa propio del encabezado y mostraba
+// "Panel". Antes también había entradas `/settings?tab=…`: eran código
+// muerto, porque `usePathname()` no incluye la query string.
 
 interface HeaderProps {
   /** Wired to the shell's drawer state. Used only on mobile — the
@@ -58,7 +34,7 @@ interface HeaderProps {
 export function Header({ onOpenSidebar }: HeaderProps) {
   const pathname = usePathname();
   const { profile, signOut } = useAuth();
-  const title = getPageTitle(pathname);
+  const title = pageTitleFor(pathname);
 
   const initial =
     profile?.full_name?.charAt(0)?.toUpperCase() ??

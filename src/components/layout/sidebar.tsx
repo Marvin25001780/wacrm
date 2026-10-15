@@ -4,43 +4,20 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect } from "react";
 import { cn } from "@/lib/utils";
+import { navItems, bottomNavItems } from "@/lib/nav";
 import { useAuth } from "@/hooks/use-auth";
 import { useTotalUnread } from "@/hooks/use-total-unread";
 import { useUnreadNotifications } from "@/hooks/use-unread-notifications";
 import {
-  BarChart3,
-  Bell,
-  Building2,
-  CalendarDays,
-  CalendarCheck,
   Crown,
-  Filter,
-  FolderKanban,
-  Gauge,
-  GitBranch,
-  HandCoins,
-  History,
-  LayoutDashboard,
   LogOut,
   MessageSquare,
-  MessagesSquare,
-  Paperclip,
-  Radio,
-  ScrollText,
   Settings,
-  Share2,
   Shield,
-  Smartphone,
-  StickyNote,
-  Target,
-  TrendingUp,
   User,
   UserCog,
-  Users,
   UsersRound,
-  Workflow,
   X,
-  Zap,
 } from "lucide-react";
 import type { AccountRole } from "@/lib/auth/roles";
 
@@ -93,49 +70,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-
-interface NavItem {
-  href: string;
-  label: string;
-  icon: typeof LayoutDashboard;
-  /**
-   * When true, the nav row renders a small "Beta" chip after the label.
-   * Purely informational — doesn't affect routing or access.
-   */
-  beta?: boolean;
-}
-
-const navItems: NavItem[] = [
-  { href: "/dashboard", label: "Panel", icon: LayoutDashboard },
-  { href: "/inbox",     label: "Bandeja de entrada", icon: MessageSquare },
-  { href: "/sms", label: "SMS", icon: Smartphone },
-  { href: "/channels", label: "Canales", icon: Share2 },
-  { href: "/notifications",     label: "Notificaciones", icon: Bell },
-  { href: "/calendar",     label: "Calendario", icon: CalendarDays },
-  { href: "/contacts",     label: "Contactos", icon: Users },
-  { href: "/organizations", label: "Empresas", icon: Building2 },
-  { href: "/leads",         label: "Leads", icon: Target },
-  { href: "/activities",    label: "Actividades", icon: CalendarCheck },
-  { href: "/notes",         label: "Notas internas", icon: StickyNote },
-  { href: "/attachments",   label: "Adjuntos", icon: Paperclip },
-  { href: "/timeline",      label: "Timeline", icon: History },
-  { href: "/spaces",        label: "Espacios", icon: FolderKanban },
-  { href: "/receivables",   label: "Cobranza", icon: HandCoins },
-  { href: "/receivables/reports", label: "Reportes de cartera", icon: BarChart3 },
-  { href: "/chat",          label: "Chat interno", icon: MessagesSquare },
-  { href: "/productivity",  label: "Productividad", icon: Gauge },
-  { href: "/metrics",       label: "Métricas", icon: TrendingUp },
-  { href: "/audit",         label: "Auditoría", icon: ScrollText },
-  { href: "/segments",      label: "Segmentos", icon: Filter },
-  { href: "/pipelines",     label: "Pipelines", icon: GitBranch },
-  { href: "/broadcasts",     label: "Campañas", icon: Radio },
-  { href: "/automations",     label: "Automatizaciones", icon: Zap },
-  { href: "/flows",     label: "Flujos", icon: Workflow, beta: true },
-];
-
-const bottomNavItems = [
-  { href: "/settings", label: "Configuración", icon: Settings },
-];
 
 interface SidebarProps {
   /** Controlled on mobile by the Header's hamburger button. Ignored on lg+. */
