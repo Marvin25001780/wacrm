@@ -40,6 +40,7 @@ import {
   engineSendText,
 } from "./meta-send";
 import { decideFallback, resolveFallbackPolicy } from "./fallback";
+import { resolveAssignmentAgent } from "@/lib/assignments/resolve";
 import {
   type CollectInputNodeConfig,
   type ConditionNodeConfig,
@@ -440,7 +441,24 @@ async function executeHandoff(
     status: "pending",
     updated_at: new Date().toISOString(),
   };
-  if (cfg.assign_to) convUpdate.assigned_agent_id = cfg.assign_to;
+
+  // Agente fijo si el nodo lo trae; si no, se reparte con las reglas
+  // de asignación activas (Configuración → Reglas de asignación). Si
+  // ninguna regla aplica, la conversación queda sin asignar (como antes).
+  let assignee = cfg.assign_to ?? null;
+  if (!assignee && run.conversation_id) {
+    const { data: conv } = await db
+      .from("conversations")
+      .select("channel")
+      .eq("id", run.conversation_id)
+      .maybeSingle();
+    assignee = await resolveAssignmentAgent(db, {
+      accountId: run.account_id,
+      channel: (conv as { channel?: string | null } | null)?.channel ?? null,
+    });
+  }
+  if (assignee) convUpdate.assigned_agent_id = assignee;
+
   if (run.conversation_id) {
     await db
       .from("conversations")
@@ -449,7 +467,7 @@ async function executeHandoff(
   }
   await logEvent(db, run.id, "handoff", node.node_key, {
     note: cfg.note ?? null,
-    assigned_to: cfg.assign_to ?? null,
+    assigned_to: assignee,
   });
   await endRun(db, run.id, "handed_off", "handoff_node");
 }

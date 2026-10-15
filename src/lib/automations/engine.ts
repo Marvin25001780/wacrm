@@ -16,7 +16,7 @@ import type {
 } from '@/types'
 import { supabaseAdmin } from './admin-client'
 import { engineSendText, engineSendTemplate } from './meta-send'
-import { resolveAssignmentAgent } from '@/lib/assignments/resolve'
+import { resolveAssignmentAgent, firstAccountAgent } from '@/lib/assignments/resolve'
 
 // ------------------------------------------------------------
 // Public API
@@ -431,11 +431,13 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
       if (cfg.mode === 'round_robin') {
         // Reparte por turnos: usa la primera regla de asignación activa
         // que coincide por canal (Configuración → Reglas de asignación).
-        // Si no hay reglas, cae al comportamiento anterior (primer agente).
-        const picked = await resolveAssignmentAgent(db, {
-          accountId: args.automation.account_id,
-          channel: args.context.channel ?? null,
-        })
+        // Sin reglas que apliquen, se conserva el comportamiento anterior
+        // (primer agente de la cuenta).
+        const picked =
+          (await resolveAssignmentAgent(db, {
+            accountId: args.automation.account_id,
+            channel: args.context.channel ?? null,
+          })) ?? (await firstAccountAgent(db, args.automation.account_id))
         agentId = picked ?? agentId
       }
       if (!agentId) return 'no agent resolved'

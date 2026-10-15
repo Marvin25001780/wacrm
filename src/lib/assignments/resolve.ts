@@ -2,44 +2,32 @@
 // Resolución de asignación de conversaciones.
 //
 // Dado el catálogo `assignment_rules` de una cuenta (migración 055),
-// decide a qué agente (auth.users.id) asignar una conversación. Lo usa
-// el motor de automatizaciones en el paso «Asignar conversación» cuando
-// el modo es round-robin.
+// decide a qué agente (auth.users.id) asignar una conversación. Lo usan
+// el motor de automatizaciones y el motor de flujos.
 //
-// La parte de decisión (`chooseLeastLoaded`) es pura y testeable; la
-// parte de E/S (`resolveAssignmentAgent`) consulta las reglas y el
-// equipo/grupo destino. Cualquier fallo devuelve `null` y el motor
-// conserva su comportamiento anterior.
+// Reglas de emparejamiento:
+//   - Una regla sin `channel` aplica a cualquier canal.
+//   - Una regla con `channel` solo aplica si el canal de la
+//     conversación es exactamente ese. Si el canal es desconocido
+//     (p. ej. la automatización no lo trae), las reglas específicas
+//     NO aplican — mejor no asignar que asignar a la persona
+//     equivocada.
+//   - Se evalúan por prioridad descendente; gana la primera que
+//     coincide.
+//
+// `resolveAssignmentAgent` devuelve `null` cuando ninguna regla
+// aplica: la decisión de reserva (p. ej. el primer agente) es del
+// llamador, para no cambiar el comportamiento existente.
 // ============================================================
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 export interface LoadedCandidate {
-  /** auth.users.id del candidato. */
-  id: string;
-  /** Conversaciones abiertas asignadas actualmente. */
-  load: number;
+  id: string; // auth user id
+  load: number; // conversaciones abiertas asignadas
 }
 
-/**
- * Elige el candidato con menos carga; empate → id lexicográficamente
- * menor (estable). Devuelve null si no hay candidatos.
- */
-export function chooseLeastLoaded(candidates: LoadedCandidate[]): string | null {
-  let best: LoadedCandidate | null = null;
-  for (const c of candidates) {
-    if (
-      best === null ||
-      c.load < best.load ||
-      (c.load === best.load && c.id < best.id)
-    ) {
-      best = c;
-    }
-  }
-  return best?.id ?? null;
-}
-
-interface RuleRow {
+export interface AssignmentRuleRow {
   id: string;
   channel: string | null;
   team_id: string | null;
@@ -49,9 +37,29 @@ interface RuleRow {
   priority: number;
 }
 
+/** Elige la primera regla que aplica al canal dado (pura, testeable). */
+export function pickRule(
+  rules: AssignmentRuleRow[],
+  channel: string | null,
+): AssignmentRuleRow | null {
+  return rules.find((r) => !r.channel || r.channel === channel) ?? null;
+}
+
+/** Menos cargado gana; empate se resuelve por id ascendente (estable). */
+export function chooseLeastLoaded(candidates: LoadedCandidate[]): string | null {
+  let best: LoadedCandidate | null = null;
+  for (const c of candidates) {
+    if (!best || c.load < best.load || (c.load === best.load && c.id < best.id)) {
+      best = c;
+    }
+  }
+  return best?.id ?? null;
+}
+
 /**
- * Devuelve el `profiles.user_id` (auth.users.id) elegido para la
- * conversación, o `null` para que el llamador use su respaldo.
+ * Resuelve el agente según las reglas activas de la cuenta.
+ * Devuelve `null` si no hay reglas, ninguna aplica, o la regla no
+ * tiene candidatos — el llamador decide el respaldo.
  */
 export async function resolveAssignmentAgent(
   db: SupabaseClient,
@@ -69,12 +77,8 @@ export async function resolveAssignmentAgent(
       .order('priority', { ascending: false })
       .order('created_at', { ascending: true });
 
-    const rules = (ruleData ?? []) as RuleRow[];
-    // Primera regla activa que coincide por canal (sin canal = cualquiera).
-    const rule =
-      rules.find((r) => !r.channel || !channel || r.channel === channel) ?? null;
-
-    if (!rule) return firstAgent(db, accountId);
+    const rule = pickRule((ruleData ?? []) as AssignmentRuleRow[], channel);
+    if (!rule) return null;
 
     if (rule.strategy === 'specific_user' && rule.target_profile_id) {
       const { data } = await db
@@ -110,7 +114,7 @@ export async function resolveAssignmentAgent(
       profileIds = ((data ?? []) as { id: string }[]).map((r) => r.id);
     }
 
-    if (profileIds.length === 0) return firstAgent(db, accountId);
+    if (profileIds.length === 0) return null;
 
     const { data: profiles } = await db
       .from('profiles')
@@ -120,7 +124,7 @@ export async function resolveAssignmentAgent(
       .map((p) => p.user_id)
       .filter((v): v is string => Boolean(v));
 
-    if (userIds.length === 0) return firstAgent(db, accountId);
+    if (userIds.length === 0) return null;
     if (userIds.length === 1) return userIds[0];
 
     const load = new Map<string, number>();
@@ -147,8 +151,8 @@ export async function resolveAssignmentAgent(
   }
 }
 
-/** Comportamiento de reserva: primer agente de la cuenta. */
-async function firstAgent(
+/** Respaldo heredado: primer agente de la cuenta (auth user id). */
+export async function firstAccountAgent(
   db: SupabaseClient,
   accountId: string,
 ): Promise<string | null> {
