@@ -14,6 +14,10 @@
 //     equivocada.
 //   - Se evalúan por prioridad descendente; gana la primera que
 //     coincide.
+//   - La estrategia de esa regla decide el turno entre sus
+//     candidatos: `round_robin` rota (A → B → C → A …) usando el
+//     cursor de la propia regla, `least_busy` elige al que tiene
+//     menos conversaciones abiertas y `specific_user` no elige.
 //
 // `resolveAssignmentAgent` devuelve `null` cuando ninguna regla
 // aplica: la decisión de reserva (p. ej. el primer agente) es del
@@ -54,6 +58,25 @@ export function chooseLeastLoaded(candidates: LoadedCandidate[]): string | null 
     }
   }
   return best?.id ?? null;
+}
+
+/**
+ * Siguiente turno del ciclo round-robin: el candidato que va justo
+ * después de `last` en la lista, dada vuelta al final si hace falta.
+ *
+ * `userIds` llega ordenado de forma estable (id ascendente) para que
+ * el ciclo sea idéntico en todos los llamadores — PostgREST no
+ * promete orden en `IN (…)`. Si `last` no está en la lista (agente
+ * que se fue, o cursor a `null`) se empieza por el primero.
+ */
+export function chooseRoundRobin(
+  userIds: string[],
+  last: string | null,
+): string | null {
+  if (userIds.length === 0) return null;
+  const idx = last ? userIds.indexOf(last) : -1;
+  if (idx === -1) return userIds[0];
+  return userIds[(idx + 1) % userIds.length];
 }
 
 /**
@@ -125,7 +148,26 @@ export async function resolveAssignmentAgent(
       .filter((v): v is string => Boolean(v));
 
     if (userIds.length === 0) return null;
+
+    // Orden estable: tanto el ciclo round-robin como los empates de
+    // least_busy deben dar el mismo resultado en todos los llamadores
+    // (PostgREST no promete orden en `IN (…)`).
+    userIds.sort();
     if (userIds.length === 1) return userIds[0];
+
+    if (rule.strategy === 'round_robin') {
+      try {
+        return await claimRoundRobin(db, rule.id, userIds);
+      } catch (err) {
+        // Migración 056 sin aplicar u otro error de escritura: en vez
+        // de dejar la conversación sin asignar, degradar al reparto de
+        // antes (menos ocupado) y avisar en log.
+        console.error(
+          '[assignments] round-robin failed, falling back to least-busy:',
+          err,
+        );
+      }
+    }
 
     const load = new Map<string, number>();
     for (const u of userIds) load.set(u, 0);
@@ -149,6 +191,72 @@ export async function resolveAssignmentAgent(
     console.error('[assignments] resolveAssignmentAgent failed:', err);
     return null;
   }
+}
+
+/**
+ * Reclama el siguiente turno del ciclo para `ruleId` y devuelve al
+ * elegido.
+ *
+ * El cursor de la regla (`last_assigned_user_id`, migración 056) se
+ * lee aparte de la lista de reglas: así un entorno sin esa columna
+ * solo pierde la rotación —`resolveAssignmentAgent` degrada a
+ * `least_busy`— en vez de dejar de resolver todas las reglas.
+ *
+ * El cursor avanza con un UPDATE condicional (un WHERE sobre el valor
+ * que acabamos de leer): si otra petición lo cambió a la vez no se
+ * actualiza ninguna fila, releemos y reintentamos, de modo que dos
+ * handoffs simultáneos nunca se reparten el mismo turno.
+ *
+ * Lanza si Supabase devuelve error. Si agotados los reintentos la
+ * escritura sigue sin cuajar (p. ej. RLS de un cliente sin permisos)
+ * se devuelve el turno calculado igualmente: asignar a veces en mal
+ * orden importa menos que no asignar.
+ */
+async function claimRoundRobin(
+  db: SupabaseClient,
+  ruleId: string,
+  userIds: string[],
+): Promise<string | null> {
+  const cursorOf = (row: { last_assigned_user_id?: string | null } | null) =>
+    row?.last_assigned_user_id ?? null;
+
+  const { data: ruleRow, error: cursorError } = await db
+    .from('assignment_rules')
+    .select('last_assigned_user_id')
+    .eq('id', ruleId)
+    .maybeSingle();
+  if (cursorError) throw cursorError;
+
+  let cursor = cursorOf(ruleRow as { last_assigned_user_id?: string | null });
+
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const next = chooseRoundRobin(userIds, cursor);
+
+    const claim = db
+      .from('assignment_rules')
+      .update({ last_assigned_user_id: next })
+      .eq('id', ruleId);
+    const guarded =
+      cursor === null
+        ? claim.is('last_assigned_user_id', null)
+        : claim.eq('last_assigned_user_id', cursor);
+
+    const { data: claimed, error } = await guarded.select('id');
+    if (error) throw error;
+    if (claimed && claimed.length > 0) return next;
+
+    // Otro proceso se llevó el turno: releer el cursor y reintentar.
+    const { data: fresh, error: readError } = await db
+      .from('assignment_rules')
+      .select('last_assigned_user_id')
+      .eq('id', ruleId)
+      .maybeSingle();
+    if (readError) throw readError;
+    if (!fresh) return next; // la regla desapareció entre medias
+    cursor = cursorOf(fresh as { last_assigned_user_id?: string | null });
+  }
+
+  return chooseRoundRobin(userIds, cursor);
 }
 
 /** Respaldo heredado: primer agente de la cuenta (auth user id). */

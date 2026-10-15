@@ -1,10 +1,10 @@
 // Tests del resolver de asignación. La parte pura (`pickRule`,
-// `chooseLeastLoaded`) se prueba sin Supabase; el I/O se cubre en
-// integración.
+// `chooseLeastLoaded`, `chooseRoundRobin`) se prueba sin Supabase;
+// el I/O se cubre en integración.
 
 import { describe, expect, it } from 'vitest';
 
-import { chooseLeastLoaded, pickRule, type AssignmentRuleRow } from './resolve';
+import { chooseLeastLoaded, chooseRoundRobin, pickRule, type AssignmentRuleRow } from './resolve';
 
 function rule(partial: Partial<AssignmentRuleRow>): AssignmentRuleRow {
   return {
@@ -77,5 +77,37 @@ describe('chooseLeastLoaded', () => {
         { id: 'b', load: 0 },
       ]),
     ).toBe('a');
+  });
+});
+
+describe('chooseRoundRobin', () => {
+  it('returns null with no candidates', () => {
+    expect(chooseRoundRobin([], null)).toBeNull();
+  });
+
+  it('starts at the first candidate when there is no cursor', () => {
+    expect(chooseRoundRobin(['a', 'b', 'c'], null)).toBe('a');
+  });
+
+  it('gives each candidate a turn and wraps around', () => {
+    const team = ['a', 'b', 'c'];
+    let cursor: string | null = null;
+    const picks: string[] = [];
+    for (let i = 0; i < 7; i++) {
+      const pick = chooseRoundRobin(team, cursor);
+      if (pick) picks.push(pick);
+      cursor = pick;
+    }
+    expect(picks).toEqual(['a', 'b', 'c', 'a', 'b', 'c', 'a']);
+  });
+
+  it('is a no-op in effect for a single candidate', () => {
+    expect(chooseRoundRobin(['only'], 'only')).toBe('only');
+    expect(chooseRoundRobin(['only'], null)).toBe('only');
+  });
+
+  it('restarts from the top when the cursor left the team', () => {
+    // El agente último salió del equipo: vuelve a empezar el ciclo.
+    expect(chooseRoundRobin(['a', 'b', 'c'], 'z')).toBe('a');
   });
 });
