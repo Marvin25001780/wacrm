@@ -228,3 +228,44 @@ html[data-theme="rose"] {
     @apply font-sans;
   }
 }
+
+/* ============================================================
+ * SCROLLBARS — thin, theme-aware, non-intrusive.
+ *
+ * Firefox gets the standard thin width. WebKit browsers get a
+ * custom 6px thumb with rounded corners that matches the muted
+ * surface and becomes slightly more visible on hover.
+ * ============================================================ */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--muted-foreground) / 0.35 transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: oklch(from var(--muted-foreground) l c h / 0.35);
+  border-radius: 9999px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: oklch(from var(--muted-foreground) l c h / 0.55);
+}
+
+/* Hide horizontal scrollbars by default; they usually indicate
+   an overflow bug rather than intentional horizontal scrolling. */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
