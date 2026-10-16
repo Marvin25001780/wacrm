@@ -94,7 +94,6 @@ const flujosNav: NavItem = {
   href: "/flows",
   label: "Flujos",
   icon: Workflow,
-  beta: true,
   children: [
     { href: "/flows/bots", label: "Bots", icon: Bot },
     { href: "/automations", label: "Automatizaciones", icon: Zap },
