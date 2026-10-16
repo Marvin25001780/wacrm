@@ -328,10 +328,10 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
 
   const visibleNavItems = accountRole
     ? navItemsForRole(accountRole)
-    : navItemsForRole("viewer");
+    : [];
   const visibleBottomItems = accountRole
     ? bottomNavItemsForRole(accountRole)
-    : bottomNavItemsForRole("viewer");
+    : [];
   const [collapsed, setCollapsed] = useState(() => {
     if (typeof window === "undefined") return false;
     return window.localStorage.getItem("sidebar-collapsed") === "true";
@@ -456,63 +456,78 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
         <TooltipProvider delay={100}>
           <nav className="flex-1 overflow-y-auto px-3 py-4">
             <ul className="flex flex-col gap-1">
-              {visibleNavItems.map((item) =>
-                item.children && item.children.length > 0 ? (
-                  <NavGroup
-                    key={item.href}
-                    item={item}
-                    pathname={pathname}
-                    collapsed={collapsed}
-                  />
-                ) : (
-                  <NavLeaf
-                    key={item.href}
-                    item={item}
-                    pathname={pathname}
-                    totalUnread={totalUnread}
-                    unreadNotifications={unreadNotifications}
-                    collapsed={collapsed}
-                  />
-                ),
+              {profileLoading ? (
+                // Skeleton rows avoid the "ghost menu" flash during SSR +
+                // hydration while the profile/account_role is still resolving.
+                <>
+                  <li className="h-10 animate-pulse rounded-lg bg-muted" />
+                  <li className="h-10 animate-pulse rounded-lg bg-muted" />
+                  <li className="h-10 animate-pulse rounded-lg bg-muted" />
+                  <li className="h-10 animate-pulse rounded-lg bg-muted" />
+                </>
+              ) : (
+                visibleNavItems.map((item) =>
+                  item.children && item.children.length > 0 ? (
+                    <NavGroup
+                      key={item.href}
+                      item={item}
+                      pathname={pathname}
+                      collapsed={collapsed}
+                    />
+                  ) : (
+                    <NavLeaf
+                      key={item.href}
+                      item={item}
+                      pathname={pathname}
+                      totalUnread={totalUnread}
+                      unreadNotifications={unreadNotifications}
+                      collapsed={collapsed}
+                    />
+                  ),
+                )
               )}
             </ul>
 
             <div className="my-4 border-t border-border" />
 
             <ul className="flex flex-col gap-1">
-              {visibleBottomItems.map((item) => {
-                const isActive = pathname.startsWith(item.href);
-                const linkContent = (
-                  <Link
-                    href={item.href}
-                    className={cn(
-                      "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors lg:py-2",
-                      collapsed && "justify-center px-0",
-                      isActive
-                        ? "bg-primary/10 text-primary"
-                        : "text-muted-foreground hover:bg-muted hover:text-foreground",
-                    )}
-                  >
-                    <item.icon className="h-4 w-4 shrink-0" />
-                    <span className={cn(collapsed && "sr-only")}>
-                      {item.label}
-                    </span>
-                  </Link>
-                );
-
-                return collapsed ? (
-                  <li key={item.href} className="relative">
-                    <Tooltip>
-                      <TooltipTrigger render={linkContent}>{null}</TooltipTrigger>
-                      <TooltipContent side="right">
+              {profileLoading ? (
+                <li className="h-10 animate-pulse rounded-lg bg-muted" />
+              ) : (
+                visibleBottomItems.map((item) => {
+                  const isActive = pathname.startsWith(item.href);
+                  const linkContent = (
+                    <Link
+                      href={item.href}
+                      className={cn(
+                        "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors lg:py-2",
+                        collapsed && "justify-center px-0",
+                        isActive
+                          ? "bg-primary/10 text-primary"
+                          : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                      )}
+                    >
+                      <item.icon className="h-4 w-4 shrink-0" />
+                      <span className={cn(collapsed && "sr-only")}>
                         {item.label}
-                      </TooltipContent>
-                    </Tooltip>
-                  </li>
-                ) : (
-                  <li key={item.href}>{linkContent}</li>
-                );
-              })}
+                      </span>
+                    </Link>
+                  );
+
+                  return collapsed ? (
+                    <li key={item.href} className="relative">
+                      <Tooltip>
+                        <TooltipTrigger render={linkContent}>{null}</TooltipTrigger>
+                        <TooltipContent side="right">
+                          {item.label}
+                        </TooltipContent>
+                      </Tooltip>
+                    </li>
+                  ) : (
+                    <li key={item.href}>{linkContent}</li>
+                  );
+                })
+              )}
             </ul>
           </nav>
         </TooltipProvider>
