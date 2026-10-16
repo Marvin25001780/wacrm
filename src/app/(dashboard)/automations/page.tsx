@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 import {
@@ -16,6 +16,7 @@ import {
   Users,
   PhoneCall,
   Loader2,
+  Search,
 } from "lucide-react"
 
 import { createClient } from "@/lib/supabase/client"
@@ -23,6 +24,7 @@ import { useCan } from "@/hooks/use-can"
 import type { Automation } from "@/types"
 import { Button } from "@/components/ui/button"
 import { GatedButton } from "@/components/ui/gated-button"
+import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import {
   DropdownMenu,
@@ -62,6 +64,7 @@ export default function AutomationsPage() {
   const canCreate = useCan("send-messages")
   const [automations, setAutomations] = useState<Automation[] | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [query, setQuery] = useState("")
   const [pendingDelete, setPendingDelete] = useState<Automation | null>(null)
   const [deleting, setDeleting] = useState(false)
 
@@ -135,6 +138,14 @@ export default function AutomationsPage() {
     router.push(`/automations/new?template=${slug}`)
   }
 
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return automations ?? []
+    return (automations ?? []).filter((a) => a.name.toLowerCase().includes(q))
+  }, [automations, query])
+
+  const showTemplates = (automations ?? []).length < 3 && !query.trim()
+
   if (error) {
     return (
       <div className="flex h-64 flex-col items-center justify-center gap-2">
@@ -154,26 +165,45 @@ export default function AutomationsPage() {
     )
   }
 
-  const showTemplates = automations.length < 3
-
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Automatizaciones</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Cree flujos que reaccionen automáticamente a eventos de WhatsApp®.
-          </p>
+    <div className="space-y-5">
+      <div>
+        <h1 className="text-lg font-semibold">Automatizaciones</h1>
+        <p className="text-sm text-muted-foreground">
+          Cree y gestione sus automatizaciones para reaccionar ante eventos de conversación.
+        </p>
+      </div>
+
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="relative max-w-sm flex-1">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            type="search"
+            placeholder="Búsqueda por nombre"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            className="pl-9"
+          />
         </div>
-        <GatedButton
-          canAct={canCreate}
-          gateReason="create automations"
-          onClick={() => router.push("/automations/new")}
-          className="bg-primary text-primary-foreground hover:bg-primary/90"
-        >
-          <Plus className="h-4 w-4" />
-          Crear automatización
-        </GatedButton>
+        <div className="flex items-center gap-3">
+          <Button
+            variant="outline"
+            onClick={() =>
+              window.open("https://docs.nexusbpo.space/automatizaciones", "_blank", "noopener,noreferrer")
+            }
+          >
+            Lea la documentación
+          </Button>
+          <GatedButton
+            canAct={canCreate}
+            gateReason="create automations"
+            onClick={() => router.push("/automations/new")}
+            className="bg-primary text-primary-foreground hover:bg-primary/90"
+          >
+            <Plus className="mr-2 h-4 w-4" />
+            Nueva automatización
+          </GatedButton>
+        </div>
       </div>
 
       {showTemplates && (
@@ -201,19 +231,24 @@ export default function AutomationsPage() {
         </section>
       )}
 
-      {automations.length === 0 ? (
-        <div className="flex h-48 flex-col items-center justify-center rounded-xl border border-dashed border-border bg-card/40">
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10">
-            <Zap className="h-6 w-6 text-primary" />
+      {filtered.length === 0 ? (
+        <div className="rounded-xl border border-border bg-card py-16 text-center">
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-muted">
+            <Zap className="h-6 w-6 text-muted-foreground" />
           </div>
-          <p className="mt-3 text-sm font-medium text-foreground">Aún no hay automatizaciones</p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Elija una plantilla arriba o cree una desde cero.
+          <p className="mt-4 text-sm font-medium">
+            {query ? "No se encontraron automatizaciones." : "No se han encontrado automatizaciones. 😭"}
           </p>
+          {!query && (
+            <p className="mx-auto mt-1 max-w-sm text-sm text-muted-foreground">
+              Crea una nueva automatización haciendo clic en el botón &quot;Nueva
+              automatización&quot; de la esquina superior derecha.
+            </p>
+          )}
         </div>
       ) : (
         <ul className="space-y-3">
-          {automations.map((a) => (
+          {filtered.map((a) => (
             <AutomationCard
               key={a.id}
               automation={a}
