@@ -65,7 +65,20 @@ export async function POST(request: Request, { params }: RouteParams) {
       );
     }
 
-    const config = await loadAiConfig(supabase, accountId);
+    let config: Awaited<ReturnType<typeof loadAiConfig>>;
+    try {
+      config = await loadAiConfig(supabase, accountId);
+    } catch (configErr) {
+      return NextResponse.json(
+        {
+          error:
+            "No se pudo cargar la configuración de IA. Verifica la clave de cifrado o reconfigura el asistente en Configuración → Asistente de IA.",
+          code: "ai_config_error",
+        },
+        { status: 400 },
+      );
+    }
+
     if (!config) {
       return NextResponse.json(
         {
