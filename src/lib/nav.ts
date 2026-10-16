@@ -6,6 +6,10 @@
 // sola lista evita que ambas superficies se desincronicen: antes el
 // encabezado tenía su propio mapa de títulos y se olvidó de
 // `/metrics`, así que esa sección mostraba "Panel".
+//
+// Estructura agrupada por intención de uso para reducir la carga
+// cognitiva: lo operativo queda visible, lo secundario va dentro de
+// grupos colapsables.
 // ============================================================
 
 import {
@@ -55,41 +59,104 @@ export interface NavItem {
   children?: NavItem[];
 }
 
-export const navItems: NavItem[] = [
+// ------------------------------------------------------------
+// 1. Principal — acceso directo, alto uso diario.
+// ------------------------------------------------------------
+const principalNav: NavItem[] = [
   { href: "/dashboard", label: "Panel", icon: LayoutDashboard },
-  { href: "/inbox",     label: "Bandeja de entrada", icon: MessageSquare },
-  { href: "/sms", label: "SMS", icon: Smartphone },
-  { href: "/channels", label: "Canales", icon: Share2 },
-  { href: "/notifications",     label: "Notificaciones", icon: Bell },
-  { href: "/calendar",     label: "Calendario", icon: CalendarDays },
-  { href: "/contacts",     label: "Contactos", icon: Users },
+  { href: "/inbox", label: "Bandeja de entrada", icon: MessageSquare },
+  { href: "/contacts", label: "Contactos", icon: Users },
   { href: "/organizations", label: "Empresas", icon: Building2 },
-  { href: "/leads",         label: "Leads", icon: Target },
-  { href: "/activities",    label: "Actividades", icon: CalendarCheck },
-  { href: "/notes",         label: "Notas internas", icon: StickyNote },
-  { href: "/attachments",   label: "Adjuntos", icon: Paperclip },
-  { href: "/timeline",      label: "Timeline", icon: History },
-  { href: "/spaces",        label: "Espacios", icon: FolderKanban },
-  { href: "/receivables",   label: "Cobranza", icon: HandCoins },
-  { href: "/receivables/reports", label: "Reportes de cartera", icon: BarChart3 },
-  { href: "/chat",          label: "Chat interno", icon: MessagesSquare },
-  { href: "/productivity",  label: "Productividad", icon: Gauge },
-  { href: "/metrics",       label: "Métricas", icon: TrendingUp },
-  { href: "/audit",         label: "Auditoría", icon: ScrollText },
-  { href: "/segments",      label: "Segmentos", icon: Filter },
-  { href: "/pipelines",     label: "Pipelines", icon: GitBranch },
-  { href: "/broadcasts",     label: "Campañas", icon: Radio },
-  {
-    href: "/flows",
-    label: "Flujos",
-    icon: Workflow,
-    beta: true,
-    children: [
-      { href: "/flows/bots", label: "Bots", icon: Bot },
-      { href: "/automations", label: "Automatizaciones", icon: Zap },
-      { href: "/flows/agentes-ia", label: "Agentes de IA", icon: Brain },
-    ],
-  },
+  { href: "/leads", label: "Leads", icon: Target },
+  { href: "/pipelines", label: "Pipelines", icon: GitBranch },
+];
+
+// ------------------------------------------------------------
+// 2. Comunicaciones — todos los canales de contacto.
+// ------------------------------------------------------------
+const comunicacionesNav: NavItem = {
+  href: "/channels",
+  label: "Comunicaciones",
+  icon: MessagesSquare,
+  children: [
+    { href: "/channels", label: "Canales", icon: Share2 },
+    { href: "/sms", label: "SMS", icon: Smartphone },
+    { href: "/broadcasts", label: "Campañas", icon: Radio },
+    { href: "/chat", label: "Chat interno", icon: MessagesSquare },
+    { href: "/notifications", label: "Notificaciones", icon: Bell },
+  ],
+};
+
+// ------------------------------------------------------------
+// 3. Flujos — automatización e IA.
+// ------------------------------------------------------------
+const flujosNav: NavItem = {
+  href: "/flows",
+  label: "Flujos",
+  icon: Workflow,
+  beta: true,
+  children: [
+    { href: "/flows/bots", label: "Bots", icon: Bot },
+    { href: "/automations", label: "Automatizaciones", icon: Zap },
+    { href: "/flows/agentes-ia", label: "Agentes de IA", icon: Brain },
+  ],
+};
+
+// ------------------------------------------------------------
+// 4. Operaciones — gestión diaria del trabajo.
+// ------------------------------------------------------------
+const operacionesNav: NavItem = {
+  href: "/calendar",
+  label: "Operaciones",
+  icon: CalendarCheck,
+  children: [
+    { href: "/calendar", label: "Calendario", icon: CalendarDays },
+    { href: "/activities", label: "Actividades", icon: CalendarCheck },
+    { href: "/spaces", label: "Espacios", icon: FolderKanban },
+    { href: "/notes", label: "Notas internas", icon: StickyNote },
+    { href: "/attachments", label: "Adjuntos", icon: Paperclip },
+    { href: "/timeline", label: "Timeline", icon: History },
+  ],
+};
+
+// ------------------------------------------------------------
+// 5. Analítica — reportes, métricas y control.
+// ------------------------------------------------------------
+const analiticaNav: NavItem = {
+  href: "/metrics",
+  label: "Analítica",
+  icon: BarChart3,
+  children: [
+    { href: "/metrics", label: "Métricas", icon: TrendingUp },
+    { href: "/productivity", label: "Productividad", icon: Gauge },
+    { href: "/segments", label: "Segmentos", icon: Filter },
+    { href: "/audit", label: "Auditoría", icon: ScrollText },
+  ],
+};
+
+// ------------------------------------------------------------
+// 6. Finanzas — cobranza y reportes financieros.
+// ------------------------------------------------------------
+const finanzasNav: NavItem = {
+  href: "/receivables",
+  label: "Finanzas",
+  icon: HandCoins,
+  children: [
+    { href: "/receivables", label: "Cobranza", icon: HandCoins },
+    { href: "/receivables/reports", label: "Reportes de cartera", icon: BarChart3 },
+  ],
+};
+
+// ------------------------------------------------------------
+// Navegación completa.
+// ------------------------------------------------------------
+export const navItems: NavItem[] = [
+  ...principalNav,
+  comunicacionesNav,
+  flujosNav,
+  operacionesNav,
+  analiticaNav,
+  finanzasNav,
 ];
 
 export const bottomNavItems: NavItem[] = [
