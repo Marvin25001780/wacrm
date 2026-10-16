@@ -47,7 +47,9 @@ const SPEC_DEFAULT_STAGES = [
 export default function PipelinesPage() {
   const supabase = createClient();
   const canEditSettings = useCan("edit-settings");
-  const canCreateDeals = useCan("send-messages");
+  const canCreateDeals = useCan("create-record");
+  const canUpdateDeals = useCan("update-record");
+  const canDeleteDeals = useCan("delete-record");
   const { accountId } = useAuth();
 
   const [pipelines, setPipelines] = useState<Pipeline[]>([]);
@@ -240,10 +242,11 @@ export default function PipelinesPage() {
   );
 
   const handleEditDeal = useCallback((deal: Deal) => {
+    if (!canUpdateDeals) return;
     setEditingDeal(deal);
     setDefaultStageId(deal.stage_id);
     setDealFormOpen(true);
-  }, []);
+  }, [canUpdateDeals]);
 
   async function handleCreatePipeline() {
     const name = newPipelineName.trim();

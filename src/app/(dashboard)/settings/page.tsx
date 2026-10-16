@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, type ReactNode } from 'react';
+import { useEffect, useMemo, type ReactNode } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 
 import { useAuth } from '@/hooks/use-auth';
@@ -26,20 +26,35 @@ import { WebchatPanel } from '@/components/settings/webchat-panel';
 import { IntegrationsPanel } from '@/components/settings/integrations-panel';
 import {
   resolveSection,
+  isSectionAllowed,
+  defaultSectionForRole,
   type SettingsSection,
 } from '@/components/settings/settings-sections';
 
 export default function SettingsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { defaultCurrency } = useAuth();
+  const { defaultCurrency, accountRole } = useAuth();
   const { mode } = useTheme();
 
   // The URL (`?tab=`) is the single source of truth for the active
   // section — deep-linkable, and it keeps the existing links in the
   // app sidebar/header working. Legacy tab values (tags, custom-fields)
   // resolve onto their new home; unknown/empty → the Overview landing.
-  const section = resolveSection(searchParams.get('tab'));
+  const role = accountRole ?? 'viewer';
+  const requestedSection = resolveSection(searchParams.get('tab'));
+
+  // Non-admins can't access admin-only settings sections. Redirect them
+  // to their default section instead of rendering a forbidden panel.
+  const section = isSectionAllowed(requestedSection, role)
+    ? requestedSection
+    : defaultSectionForRole(role);
+
+  useEffect(() => {
+    if (!isSectionAllowed(requestedSection, role)) {
+      router.replace(`/settings?tab=${section}`);
+    }
+  }, [requestedSection, role, section, router]);
 
   const go = (next: SettingsSection) => {
     router.push(`/settings?tab=${next}`);

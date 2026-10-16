@@ -19,6 +19,9 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 
+import type { AccountRole } from '@/lib/auth/roles';
+import { hasMinRole } from '@/lib/auth/roles';
+
 /**
  * Settings information architecture for the redesigned page.
  *
@@ -52,7 +55,7 @@ export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 
 export const DEFAULT_SECTION: SettingsSection = 'overview';
 
-/** Rail grouping. `adminOnly` items are hidden for non-admins. */
+/** Rail grouping. `minRole` restricts the section to a role or higher. */
 export interface SectionMeta {
   id: SettingsSection;
   label: string;
@@ -60,27 +63,29 @@ export interface SectionMeta {
   group: 'top' | 'account' | 'team' | 'workspace';
   /** (Opcional) descripción corta usada por el Overview. */
   description?: string;
+  /** Minimum role required to access this section. */
+  minRole?: AccountRole;
 }
 
 export const SECTION_META: Record<SettingsSection, SectionMeta> = {
-  overview: { id: 'overview', label: 'Resumen', icon: LayoutGrid, group: 'top' },
+  overview: { id: 'overview', label: 'Resumen', icon: LayoutGrid, group: 'top', minRole: 'admin' },
   profile: { id: 'profile', label: 'Tu perfil', icon: User, group: 'account' },
   security: { id: 'security', label: 'Inicio de sesión y seguridad', icon: Shield, group: 'account' },
   appearance: { id: 'appearance', label: 'Apariencia', icon: Palette, group: 'account' },
-  whatsapp: { id: 'whatsapp', label: 'WhatsApp', icon: PlugZap, group: 'workspace' },
-  templates: { id: 'templates', label: 'Plantillas', icon: FileText, group: 'workspace' },
-  fields: { id: 'fields', label: 'Campos y etiquetas', icon: Tags, group: 'workspace' },
-  deals: { id: 'deals', label: 'Ofertas y moneda', icon: Coins, group: 'workspace' },
-  members: { id: 'members', label: 'Equipo y permisos', icon: UsersRound, group: 'team', description: 'Roster de miembros y sus roles.' },
-  teams: { id: 'teams', label: 'Equipos', icon: Network, group: 'team', description: 'Agrupa agentes para los reportes.' },
-  groups: { id: 'groups', label: 'Grupos de usuarios', icon: Users, group: 'team', description: 'Listas guardadas de miembros.' },
-  roles: { id: 'roles', label: 'Roles', icon: ShieldCheck, group: 'team', description: 'Qué puede hacer cada rol.' },
-  assignment: { id: 'assignment', label: 'Reglas de asignación', icon: Shuffle, group: 'team', description: 'Reparte conversaciones automáticamente.' },
-  'close-reasons': { id: 'close-reasons', label: 'Cierre de conversaciones', icon: Flag, group: 'team', description: 'Motivos disponibles al cerrar.' },
-  ai: { id: 'ai', label: 'Asistente IA', icon: Sparkles, group: 'workspace' },
-  webchat: { id: 'webchat', label: 'Widget de webchat', icon: Globe, group: 'workspace' },
-  api: { id: 'api', label: 'Claves API', icon: KeyRound, group: 'workspace' },
-  integrations: { id: 'integrations', label: 'Integraciones', icon: PlugZap, group: 'workspace' },
+  whatsapp: { id: 'whatsapp', label: 'WhatsApp', icon: PlugZap, group: 'workspace', minRole: 'admin' },
+  templates: { id: 'templates', label: 'Plantillas', icon: FileText, group: 'workspace', minRole: 'admin' },
+  fields: { id: 'fields', label: 'Campos y etiquetas', icon: Tags, group: 'workspace', minRole: 'admin' },
+  deals: { id: 'deals', label: 'Ofertas y moneda', icon: Coins, group: 'workspace', minRole: 'admin' },
+  members: { id: 'members', label: 'Equipo y permisos', icon: UsersRound, group: 'team', description: 'Roster de miembros y sus roles.', minRole: 'admin' },
+  teams: { id: 'teams', label: 'Equipos', icon: Network, group: 'team', description: 'Agrupa agentes para los reportes.', minRole: 'admin' },
+  groups: { id: 'groups', label: 'Grupos de usuarios', icon: Users, group: 'team', description: 'Listas guardadas de miembros.', minRole: 'admin' },
+  roles: { id: 'roles', label: 'Roles', icon: ShieldCheck, group: 'team', description: 'Qué puede hacer cada rol.', minRole: 'admin' },
+  assignment: { id: 'assignment', label: 'Reglas de asignación', icon: Shuffle, group: 'team', description: 'Reparte conversaciones automáticamente.', minRole: 'admin' },
+  'close-reasons': { id: 'close-reasons', label: 'Cierre de conversaciones', icon: Flag, group: 'team', description: 'Motivos disponibles al cerrar.', minRole: 'admin' },
+  ai: { id: 'ai', label: 'Asistente IA', icon: Sparkles, group: 'workspace', minRole: 'admin' },
+  webchat: { id: 'webchat', label: 'Widget de webchat', icon: Globe, group: 'workspace', minRole: 'admin' },
+  api: { id: 'api', label: 'Claves API', icon: KeyRound, group: 'workspace', minRole: 'admin' },
+  integrations: { id: 'integrations', label: 'Integraciones', icon: PlugZap, group: 'workspace', minRole: 'admin' },
 };
 
 export const RAIL_GROUPS: {
@@ -109,4 +114,24 @@ export function resolveSection(raw: string | null): SettingsSection {
   if (raw === 'tags' || raw === 'custom-fields') return 'fields';
   if (isSection(raw)) return raw;
   return DEFAULT_SECTION;
+}
+
+/** True if the section is visible to the given role. */
+export function isSectionAllowed(section: SettingsSection, role: AccountRole): boolean {
+  const meta = SECTION_META[section];
+  return !meta.minRole || hasMinRole(role, meta.minRole);
+}
+
+/** All sections visible to the given role. */
+export function allowedSectionsForRole(role: AccountRole): SettingsSection[] {
+  return SETTINGS_SECTIONS.filter((s) => isSectionAllowed(s, role));
+}
+
+/**
+ * Default section to land on for a role. Admins see the Overview;
+ * non-admins fall back to their first allowed section (profile).
+ */
+export function defaultSectionForRole(role: AccountRole): SettingsSection {
+  if (isSectionAllowed(DEFAULT_SECTION, role)) return DEFAULT_SECTION;
+  return allowedSectionsForRole(role)[0] ?? 'profile';
 }

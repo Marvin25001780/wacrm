@@ -16,6 +16,7 @@ import {
   type Profile,
 } from '@/types';
 import { formatCurrency, DEFAULT_CURRENCY } from '@/lib/currency';
+import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -74,7 +75,9 @@ const STATUS_STYLES: Record<LeadStatus, string> = {
 
 export default function LeadsPage() {
   const supabase = createClient();
-  const canEdit = useCan('send-messages');
+  const canCreate = useCan('create-record');
+  const canUpdate = useCan('update-record');
+  const canDelete = useCan('delete-record');
 
   const [leads, setLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
@@ -187,7 +190,7 @@ export default function LeadsPage() {
           </p>
         </div>
         <GatedButton
-          canAct={canEdit}
+          canAct={canCreate}
           gateReason="create leads"
           onClick={openAddForm}
           className="bg-primary hover:bg-primary/90 text-primary-foreground"
@@ -283,7 +286,7 @@ export default function LeadsPage() {
                     </p>
                     {!search.trim() && statusFilter === 'all' && (
                       <GatedButton
-                        canAct={canEdit}
+                        canAct={canCreate}
                         gateReason="create leads"
                         variant="outline"
                         size="sm"
@@ -301,8 +304,11 @@ export default function LeadsPage() {
               leads.map((lead) => (
                 <TableRow
                   key={lead.id}
-                  className="cursor-pointer border-border hover:bg-muted/50"
-                  onClick={() => openEditForm(lead)}
+                  className={cn(
+                    'border-border hover:bg-muted/50',
+                    canUpdate && 'cursor-pointer',
+                  )}
+                  onClick={() => canUpdate && openEditForm(lead)}
                 >
                   <TableCell>
                     <div className="font-medium text-foreground">{lead.name}</div>
@@ -371,16 +377,18 @@ export default function LeadsPage() {
                         align="end"
                         className="bg-popover border-border"
                       >
-                        <DropdownMenuItem
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openEditForm(lead);
-                          }}
-                          className="text-popover-foreground focus:bg-muted focus:text-foreground"
-                        >
-                          <Pencil className="size-4" />
-                          Editar
-                        </DropdownMenuItem>
+                        {canUpdate && (
+                          <DropdownMenuItem
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openEditForm(lead);
+                            }}
+                            className="text-popover-foreground focus:bg-muted focus:text-foreground"
+                          >
+                            <Pencil className="size-4" />
+                            Editar
+                          </DropdownMenuItem>
+                        )}
                         {lead.status !== 'converted' && (
                           <DropdownMenuItem
                             onClick={(e) => {
@@ -393,17 +401,19 @@ export default function LeadsPage() {
                             Convertir
                           </DropdownMenuItem>
                         )}
-                        <DropdownMenuSeparator className="bg-border" />
-                        <DropdownMenuItem
-                          variant="destructive"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            confirmDelete(lead);
-                          }}
-                        >
-                          <Trash2 className="size-4" />
-                          Eliminar
-                        </DropdownMenuItem>
+                        {(canUpdate || canDelete) && <DropdownMenuSeparator className="bg-border" />}
+                        {canDelete && (
+                          <DropdownMenuItem
+                            variant="destructive"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              confirmDelete(lead);
+                            }}
+                          >
+                            <Trash2 className="size-4" />
+                            Eliminar
+                          </DropdownMenuItem>
+                        )}
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </TableCell>

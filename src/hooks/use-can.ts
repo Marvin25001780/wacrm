@@ -2,11 +2,14 @@
 
 import { useAuth } from "@/hooks/use-auth";
 import {
+  canCreateRecord,
   canDeleteAccount,
+  canDeleteRecord,
   canEditSettings,
   canManageMembers,
   canSendMessages,
   canTransferOwnership,
+  canUpdateRecord,
   canViewOnly,
 } from "@/lib/auth/roles";
 
@@ -20,6 +23,9 @@ export type CanAction =
   | "manage-members"
   | "edit-settings"
   | "send-messages"
+  | "create-record"
+  | "update-record"
+  | "delete-record"
   | "view-only"
   | "delete-account"
   | "transfer-ownership";
@@ -48,6 +54,12 @@ export function useCan(action: CanAction): boolean {
       return canEditSettings(accountRole);
     case "send-messages":
       return canSendMessages(accountRole);
+    case "create-record":
+      return canCreateRecord(accountRole);
+    case "update-record":
+      return canUpdateRecord(accountRole);
+    case "delete-record":
+      return canDeleteRecord(accountRole);
     case "view-only":
       return canViewOnly(accountRole);
     case "delete-account":

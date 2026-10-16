@@ -1,19 +1,22 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
 import { PresenceHeartbeat } from "@/components/presence/presence-heartbeat";
+import { minRoleForPath } from "@/lib/nav";
+import { hasMinRole } from "@/lib/auth/roles";
 
 // Auth-gated dashboard shell. Extracted from the layout so the layout
 // itself can stay a server component and export metadata (noindex) —
 // client components can't export Next's metadata object.
 
 function DashboardShellInner({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useAuth();
+  const { user, loading, accountRole } = useAuth();
   const router = useRouter();
+  const pathname = usePathname();
 
   // Sidebar drawer state — only used on mobile. On lg+ the sidebar is
   // always visible and this stays at `false` (ignored by the component).
@@ -23,8 +26,19 @@ function DashboardShellInner({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!loading && !user) {
       router.push("/login");
+      return;
     }
-  }, [user, loading, router]);
+
+    // Role-based route guard: if the current route requires a higher role
+    // than the user has, redirect to the inbox (agents/viewers) or dashboard
+    // (admins/owners). Settings sub-sections are handled inside /settings.
+    if (!loading && user && accountRole && pathname) {
+      const requiredRole = minRoleForPath(pathname);
+      if (requiredRole && !hasMinRole(accountRole, requiredRole)) {
+        router.replace(accountRole === "viewer" ? "/inbox" : "/inbox");
+      }
+    }
+  }, [user, loading, accountRole, pathname, router]);
 
   if (loading) {
     return (

@@ -4,7 +4,11 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
-import { navItems, bottomNavItems, type NavItem } from "@/lib/nav";
+import {
+  navItemsForRole,
+  bottomNavItemsForRole,
+  type NavItem,
+} from "@/lib/nav";
 import { useAuth } from "@/hooks/use-auth";
 import { useTotalUnread } from "@/hooks/use-total-unread";
 import { useUnreadNotifications } from "@/hooks/use-unread-notifications";
@@ -321,6 +325,13 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
   const { profile, profileLoading, account, accountRole, signOut } = useAuth();
   const totalUnread = useTotalUnread();
   const unreadNotifications = useUnreadNotifications();
+
+  const visibleNavItems = accountRole
+    ? navItemsForRole(accountRole)
+    : navItemsForRole("viewer");
+  const visibleBottomItems = accountRole
+    ? bottomNavItemsForRole(accountRole)
+    : bottomNavItemsForRole("viewer");
   const [collapsed, setCollapsed] = useState(() => {
     if (typeof window === "undefined") return false;
     return window.localStorage.getItem("sidebar-collapsed") === "true";
@@ -445,7 +456,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
         <TooltipProvider delay={100}>
           <nav className="flex-1 overflow-y-auto px-3 py-4">
             <ul className="flex flex-col gap-1">
-              {navItems.map((item) =>
+              {visibleNavItems.map((item) =>
                 item.children && item.children.length > 0 ? (
                   <NavGroup
                     key={item.href}
@@ -469,7 +480,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
             <div className="my-4 border-t border-border" />
 
             <ul className="flex flex-col gap-1">
-              {bottomNavItems.map((item) => {
+              {visibleBottomItems.map((item) => {
                 const isActive = pathname.startsWith(item.href);
                 const linkContent = (
                   <Link

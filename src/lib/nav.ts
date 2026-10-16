@@ -43,6 +43,8 @@ import {
   Zap,
 } from "lucide-react";
 
+import type { AccountRole } from "@/lib/auth/roles";
+
 export interface NavItem {
   href: string;
   label: string;
@@ -57,16 +59,22 @@ export interface NavItem {
    * with nested children (indented on desktop).
    */
   children?: NavItem[];
+  /**
+   * Minimum role required to see this item. Uses the same hierarchy as
+   * `hasMinRole`: omitting the field means visible to everyone (including
+   * viewers); "agent" means agent/admin/owner; "admin" means admin/owner.
+   */
+  minRole?: AccountRole;
 }
 
 // ------------------------------------------------------------
 // 1. Principal — acceso directo, alto uso diario.
 // ------------------------------------------------------------
 const principalNav: NavItem[] = [
-  { href: "/dashboard", label: "Panel", icon: LayoutDashboard },
+  { href: "/dashboard", label: "Panel", icon: LayoutDashboard, minRole: "admin" },
   { href: "/inbox", label: "Bandeja de entrada", icon: MessageSquare },
   { href: "/contacts", label: "Contactos", icon: Users },
-  { href: "/organizations", label: "Empresas", icon: Building2 },
+  { href: "/organizations", label: "Empresas", icon: Building2, minRole: "admin" },
   { href: "/leads", label: "Leads", icon: Target },
   { href: "/pipelines", label: "Pipelines", icon: GitBranch },
 ];
@@ -78,12 +86,13 @@ const comunicacionesNav: NavItem = {
   href: "/channels",
   label: "Comunicaciones",
   icon: MessagesSquare,
+  minRole: "admin",
   children: [
-    { href: "/channels", label: "Canales", icon: Share2 },
-    { href: "/sms", label: "SMS", icon: Smartphone },
-    { href: "/broadcasts", label: "Campañas", icon: Radio },
-    { href: "/chat", label: "Chat interno", icon: MessagesSquare },
-    { href: "/notifications", label: "Notificaciones", icon: Bell },
+    { href: "/channels", label: "Canales", icon: Share2, minRole: "admin" },
+    { href: "/sms", label: "SMS", icon: Smartphone, minRole: "admin" },
+    { href: "/broadcasts", label: "Campañas", icon: Radio, minRole: "admin" },
+    { href: "/chat", label: "Chat interno", icon: MessagesSquare, minRole: "admin" },
+    { href: "/notifications", label: "Notificaciones", icon: Bell, minRole: "admin" },
   ],
 };
 
@@ -94,10 +103,11 @@ const flujosNav: NavItem = {
   href: "/flows",
   label: "Flujos",
   icon: Workflow,
+  minRole: "admin",
   children: [
-    { href: "/flows/bots", label: "Bots", icon: Bot },
-    { href: "/automations", label: "Automatizaciones", icon: Zap },
-    { href: "/flows/agentes-ia", label: "Agentes de IA", icon: Brain },
+    { href: "/flows/bots", label: "Bots", icon: Bot, minRole: "admin" },
+    { href: "/automations", label: "Automatizaciones", icon: Zap, minRole: "admin" },
+    { href: "/flows/agentes-ia", label: "Agentes de IA", icon: Brain, minRole: "admin" },
   ],
 };
 
@@ -108,13 +118,14 @@ const operacionesNav: NavItem = {
   href: "/calendar",
   label: "Operaciones",
   icon: CalendarCheck,
+  minRole: "admin",
   children: [
-    { href: "/calendar", label: "Calendario", icon: CalendarDays },
-    { href: "/activities", label: "Actividades", icon: CalendarCheck },
-    { href: "/spaces", label: "Espacios", icon: FolderKanban },
-    { href: "/notes", label: "Notas internas", icon: StickyNote },
-    { href: "/attachments", label: "Adjuntos", icon: Paperclip },
-    { href: "/timeline", label: "Timeline", icon: History },
+    { href: "/calendar", label: "Calendario", icon: CalendarDays, minRole: "admin" },
+    { href: "/activities", label: "Actividades", icon: CalendarCheck, minRole: "admin" },
+    { href: "/spaces", label: "Espacios", icon: FolderKanban, minRole: "admin" },
+    { href: "/notes", label: "Notas internas", icon: StickyNote, minRole: "admin" },
+    { href: "/attachments", label: "Adjuntos", icon: Paperclip, minRole: "admin" },
+    { href: "/timeline", label: "Timeline", icon: History, minRole: "admin" },
   ],
 };
 
@@ -125,11 +136,12 @@ const analiticaNav: NavItem = {
   href: "/metrics",
   label: "Analítica",
   icon: BarChart3,
+  minRole: "admin",
   children: [
-    { href: "/metrics", label: "Métricas", icon: TrendingUp },
-    { href: "/productivity", label: "Productividad", icon: Gauge },
-    { href: "/segments", label: "Segmentos", icon: Filter },
-    { href: "/audit", label: "Auditoría", icon: ScrollText },
+    { href: "/metrics", label: "Métricas", icon: TrendingUp, minRole: "admin" },
+    { href: "/productivity", label: "Productividad", icon: Gauge, minRole: "admin" },
+    { href: "/segments", label: "Segmentos", icon: Filter, minRole: "admin" },
+    { href: "/audit", label: "Auditoría", icon: ScrollText, minRole: "admin" },
   ],
 };
 
@@ -140,9 +152,10 @@ const finanzasNav: NavItem = {
   href: "/receivables",
   label: "Finanzas",
   icon: HandCoins,
+  minRole: "admin",
   children: [
-    { href: "/receivables", label: "Cobranza", icon: HandCoins },
-    { href: "/receivables/reports", label: "Reportes de cartera", icon: BarChart3 },
+    { href: "/receivables", label: "Cobranza", icon: HandCoins, minRole: "admin" },
+    { href: "/receivables/reports", label: "Reportes de cartera", icon: BarChart3, minRole: "admin" },
   ],
 };
 
@@ -161,6 +174,65 @@ export const navItems: NavItem[] = [
 export const bottomNavItems: NavItem[] = [
   { href: "/settings", label: "Configuración", icon: Settings },
 ];
+
+// ------------------------------------------------------------
+// Role-based navigation filtering.
+// ------------------------------------------------------------
+
+import { hasMinRole } from "@/lib/auth/roles";
+
+/**
+ * Returns true if `role` satisfies the item's `minRole` requirement.
+ * Items with no `minRole` are visible to everyone.
+ */
+function isNavItemVisible(item: NavItem, role: AccountRole): boolean {
+  return !item.minRole || hasMinRole(role, item.minRole);
+}
+
+/**
+ * Recursively filter nav items by role. Groups whose `minRole` is not met
+ * are dropped entirely; children are filtered independently so a group
+ * can be visible while some of its children are hidden.
+ */
+function filterNavItems(items: NavItem[], role: AccountRole): NavItem[] {
+  return items
+    .filter((item) => isNavItemVisible(item, role))
+    .map((item) =>
+      item.children
+        ? { ...item, children: filterNavItems(item.children, role) }
+        : item,
+    );
+}
+
+/** Main nav items visible to the given role. */
+export function navItemsForRole(role: AccountRole): NavItem[] {
+  return filterNavItems(navItems, role);
+}
+
+/** Bottom nav items visible to the given role. */
+export function bottomNavItemsForRole(role: AccountRole): NavItem[] {
+  return filterNavItems(bottomNavItems, role);
+}
+
+/**
+ * Find the minimum role required for a path. Checks exact matches first,
+ * then prefix matches (so `/contacts/123` inherits `/contacts`).
+ * Returns `undefined` if the path is not governed by the nav map.
+ */
+export function minRoleForPath(pathname: string): AccountRole | undefined {
+  const flatten = (items: NavItem[]): NavItem[] =>
+    items.flatMap((item) => [
+      item,
+      ...(item.children ? flatten(item.children) : []),
+    ]);
+  const all = [...flatten(navItems), ...bottomNavItems];
+
+  const exact = all.find((item) => item.href === pathname);
+  if (exact?.minRole) return exact.minRole;
+
+  const byPrefix = all.find((item) => pathname.startsWith(`${item.href}/`));
+  return byPrefix?.minRole;
+}
 
 /**
  * Título que muestra el encabezado para una ruta.

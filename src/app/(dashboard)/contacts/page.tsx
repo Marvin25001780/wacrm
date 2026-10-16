@@ -68,7 +68,9 @@ interface ContactWithTags extends Contact {
 
 export default function ContactsPage() {
   const supabase = createClient();
-  const canEdit = useCan('send-messages');
+  const canCreate = useCan('create-record');
+  const canUpdate = useCan('update-record');
+  const canDelete = useCan('delete-record');
   const canEditSettings = useCan('edit-settings');
 
   const [contacts, setContacts] = useState<ContactWithTags[]>([]);
@@ -390,7 +392,7 @@ export default function ContactsPage() {
           )}
           <GatedButton
             variant="outline"
-            canAct={canEdit}
+            canAct={canCreate}
             gateReason="add or import contacts"
             onClick={() => setImportOpen(true)}
             className="border-border text-muted-foreground hover:bg-muted"
@@ -407,7 +409,7 @@ export default function ContactsPage() {
             Exportar
           </Button>
           <GatedButton
-            canAct={canEdit}
+            canAct={canCreate}
             gateReason="add or import contacts"
             onClick={openAddForm}
             className="bg-primary hover:bg-primary/90 text-primary-foreground"
@@ -562,7 +564,7 @@ export default function ContactsPage() {
             <GatedButton
               variant="destructive"
               size="sm"
-              canAct={canEdit}
+              canAct={canDelete}
               gateReason="delete contacts"
               onClick={() => setBulkDeleteOpen(true)}
             >
@@ -618,7 +620,7 @@ export default function ContactsPage() {
                     </p>
                     {!hasActiveFilters && (
                       <GatedButton
-                        canAct={canEdit}
+                        canAct={canCreate}
                         gateReason="add or import contacts"
                         variant="outline"
                         size="sm"
@@ -708,27 +710,31 @@ export default function ContactsPage() {
                         align="end"
                         className="bg-popover border-border"
                       >
-                        <DropdownMenuItem
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openEditForm(contact);
-                          }}
-                          className="text-popover-foreground focus:bg-muted focus:text-foreground"
-                        >
-                          <Pencil className="size-4" />
-                          Editar
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator className="bg-border" />
-                        <DropdownMenuItem
-                          variant="destructive"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            confirmDelete(contact);
-                          }}
-                        >
-                          <Trash2 className="size-4" />
-                          Eliminar
-                        </DropdownMenuItem>
+                        {canUpdate && (
+                          <DropdownMenuItem
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openEditForm(contact);
+                            }}
+                            className="text-popover-foreground focus:bg-muted focus:text-foreground"
+                          >
+                            <Pencil className="size-4" />
+                            Editar
+                          </DropdownMenuItem>
+                        )}
+                        {canUpdate && canDelete && <DropdownMenuSeparator className="bg-border" />}
+                        {canDelete && (
+                          <DropdownMenuItem
+                            variant="destructive"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              confirmDelete(contact);
+                            }}
+                          >
+                            <Trash2 className="size-4" />
+                            Eliminar
+                          </DropdownMenuItem>
+                        )}
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </TableCell>

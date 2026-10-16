@@ -82,7 +82,7 @@ export function canEditSettings(role: AccountRole): boolean {
 
 /**
  * Owner / admin / agent: write operational data — send messages,
- * create contacts, move deals, run broadcasts, edit automations.
+ * reply to conversations, move deals, close/assign conversations.
  * Viewers are read-only.
  */
 export function canSendMessages(role: AccountRole): boolean {
@@ -96,6 +96,32 @@ export function canSendMessages(role: AccountRole): boolean {
  */
 export function canViewOnly(role: AccountRole): boolean {
   return role === "viewer";
+}
+
+// ============================================================
+// Record-level CRUD predicates
+//
+// The CRM distinguishes between *operational* state changes
+// (sending a message, moving a deal, closing a conversation) and
+// *structural* record edits (changing a contact's email, deleting
+// a lead). Agents are allowed to create records and perform
+// operational actions, but they cannot edit or delete existing
+// records. Admins and owners retain full CRUD.
+// ============================================================
+
+/** Agent+ can create new contacts, leads, deals, notes, etc. */
+export function canCreateRecord(role: AccountRole): boolean {
+  return hasMinRole(role, "agent");
+}
+
+/** Only admin/owner can edit existing records. */
+export function canUpdateRecord(role: AccountRole): boolean {
+  return hasMinRole(role, "admin");
+}
+
+/** Only admin/owner can delete existing records. */
+export function canDeleteRecord(role: AccountRole): boolean {
+  return hasMinRole(role, "admin");
 }
 
 /** Owner only: irreversible destructive operations. */

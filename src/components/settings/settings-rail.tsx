@@ -3,10 +3,12 @@
 import { useEffect, useRef, type ReactNode } from 'react';
 
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/hooks/use-auth';
 import {
   RAIL_GROUPS,
   SECTION_META,
   SETTINGS_SECTIONS,
+  isSectionAllowed,
   type SettingsSection,
 } from './settings-sections';
 
@@ -30,7 +32,13 @@ export function SettingsRail({
   onSelect: (section: SettingsSection) => void;
   hints?: Partial<Record<SettingsSection, ReactNode>>;
 }) {
+  const { accountRole } = useAuth();
+  const role = accountRole ?? 'viewer';
   const activeRef = useRef<HTMLButtonElement>(null);
+
+  const visibleSections = SETTINGS_SECTIONS.filter((s) =>
+    isSectionAllowed(s, role),
+  );
 
   // When horizontal (mobile), keep the active chip in view. On desktop
   // the rail is a static column, so skip.
@@ -54,7 +62,7 @@ export function SettingsRail({
       )}
     >
       {RAIL_GROUPS.map(({ label, group, indent }) => {
-        const items = SETTINGS_SECTIONS.filter(
+        const items = visibleSections.filter(
           (s) => SECTION_META[s].group === group,
         );
         return (
