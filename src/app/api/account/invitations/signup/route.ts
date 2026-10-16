@@ -106,28 +106,11 @@ export async function POST(request: Request) {
     );
   }
 
-  // Make sure the email is not already registered. If it is, the
-  // user should log in and accept the invite from /join/<token>.
-  const { data: existingUser, error: userLookupError } = await supabaseAdmin()
-    .auth.admin.getUserByEmail(email);
-
-  if (userLookupError) {
-    console.error("[invite signup] getUserByEmail error:", userLookupError);
-    return NextResponse.json(
-      { error: "Could not verify email availability" },
-      { status: 500 },
-    );
-  }
-
-  if (existingUser?.user) {
-    return NextResponse.json(
-      { error: "This email is already registered. Please sign in to accept the invitation." },
-      { status: 409 },
-    );
-  }
-
   // Create the user. Email is auto-confirmed because the invite
-  // token itself is the authorization mechanism.
+  // token itself is the authorization mechanism. If the email is
+  // already registered, `createUser` will fail with a duplicate
+  // error — we surface that as a 409 so the user can log in and
+  // accept the invite from /join/<token> instead.
   const { data: createData, error: createError } = await supabaseAdmin()
     .auth.admin.createUser({
       email,
@@ -138,8 +121,17 @@ export async function POST(request: Request) {
 
   if (createError || !createData.user) {
     console.error("[invite signup] createUser error:", createError);
+    const msg = createError?.message ?? "";
+    const isDuplicate =
+      /already (exists|registered|taken)|duplicate|user already|email address is already/i.test(msg);
+    if (isDuplicate) {
+      return NextResponse.json(
+        { error: "Este correo ya está registrado. Iniciá sesión para aceptar la invitación." },
+        { status: 409 },
+      );
+    }
     return NextResponse.json(
-      { error: createError?.message || "Could not create account" },
+      { error: msg || "No se pudo crear la cuenta" },
       { status: 500 },
     );
   }
