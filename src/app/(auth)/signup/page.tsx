@@ -60,14 +60,43 @@ function SignupPageInner() {
 
     setLoading(true);
 
-    // If we have an invite token, point Supabase's verification
-    // email back at the join page so the user can accept after
-    // verifying. Without a token, Supabase uses its default
-    // redirect (the app root).
-    const emailRedirectTo = inviteToken
-      ? `${window.location.origin}/join/${encodeURIComponent(inviteToken)}`
-      : undefined;
+    // Invite-only signup bypasses the public Supabase signUp() restriction.
+    // The invite token itself authorizes account creation, so we create the
+    // user server-side and redeem the invite in one shot.
+    if (inviteToken) {
+      try {
+        const res = await fetch("/api/account/invitations/signup", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email,
+            password,
+            fullName,
+            inviteToken,
+          }),
+        });
 
+        const json = await res.json().catch(() => ({ error: "Respuesta inválida del servidor" }));
+
+        if (!res.ok) {
+          setError(json.error || "No se pudo crear la cuenta");
+          setLoading(false);
+          return;
+        }
+
+        // The server signed the user in and wrote the session cookies.
+        // Redirect straight to the dashboard.
+        window.location.href = "/dashboard";
+        return;
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Error de red");
+        setLoading(false);
+        return;
+      }
+    }
+
+    // Public signup path — keeps the original behavior for forks that
+    // enable public registration.
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
@@ -75,7 +104,6 @@ function SignupPageInner() {
         data: {
           full_name: fullName,
         },
-        ...(emailRedirectTo ? { emailRedirectTo } : {}),
       },
     });
 
@@ -86,13 +114,9 @@ function SignupPageInner() {
     }
 
     // If email confirmation is disabled, the user is immediately
-    // authenticated — redirect to the invite or dashboard right away.
+    // authenticated — redirect to the dashboard right away.
     if (data?.session) {
-      if (inviteToken) {
-        window.location.href = `/join/${encodeURIComponent(inviteToken)}`;
-      } else {
-        window.location.href = '/dashboard';
-      }
+      window.location.href = '/dashboard';
       return;
     }
 
@@ -154,7 +178,7 @@ function SignupPageInner() {
           </CardTitle>
           <CardDescription className="text-muted-foreground">
             {inviteToken
-              ? "Verifica tu correo y acepta la invitación para unirte a tu equipo."
+              ? "Crea tu contraseña para unirte a tu equipo."
               : "Comienza con NEXUS CRM."}
           </CardDescription>
         </CardHeader>
