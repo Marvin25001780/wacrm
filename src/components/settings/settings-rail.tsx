@@ -65,6 +65,7 @@ export function SettingsRail({
         const items = visibleSections.filter(
           (s) => SECTION_META[s].group === group,
         );
+        if (items.length === 0) return null;
         return (
           <div
             key={group}
