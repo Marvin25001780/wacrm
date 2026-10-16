@@ -8,7 +8,7 @@ import {
   RAIL_GROUPS,
   SECTION_META,
   SETTINGS_SECTIONS,
-  isSectionAllowed,
+  isSectionVisible,
   type SettingsSection,
 } from './settings-sections';
 
@@ -37,7 +37,7 @@ export function SettingsRail({
   const activeRef = useRef<HTMLButtonElement>(null);
 
   const visibleSections = SETTINGS_SECTIONS.filter((s) =>
-    isSectionAllowed(s, role),
+    isSectionVisible(s, role),
   );
 
   // When horizontal (mobile), keep the active chip in view. On desktop

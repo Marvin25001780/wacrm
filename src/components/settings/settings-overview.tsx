@@ -14,7 +14,7 @@ import { cn } from '@/lib/utils';
 
 import {
   SECTION_META,
-  isSectionAllowed,
+  isSectionVisible,
   type SettingsSection,
 } from './settings-sections';
 import { SettingsChip, StatusDot } from './settings-chip';
@@ -260,7 +260,7 @@ export function SettingsOverview({
       {/* Status tiles */}
       <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {tiles
-          .filter(({ section }) => isSectionAllowed(section, role))
+          .filter(({ section }) => isSectionVisible(section, role))
           .map(({ section, loading, subtitle }) => {
           const meta = SECTION_META[section];
           const Icon = meta.icon;

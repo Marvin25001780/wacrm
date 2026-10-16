@@ -389,7 +389,7 @@ export default function LeadsPage() {
                             Editar
                           </DropdownMenuItem>
                         )}
-                        {lead.status !== 'converted' && (
+                        {lead.status !== 'converted' && canCreate && (
                           <DropdownMenuItem
                             onClick={(e) => {
                               e.stopPropagation();

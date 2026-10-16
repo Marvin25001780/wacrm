@@ -29,13 +29,14 @@ function DashboardShellInner({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    // Role-based route guard: if the current route requires a higher role
-    // than the user has, redirect to the inbox (agents/viewers) or dashboard
-    // (admins/owners). Settings sub-sections are handled inside /settings.
-    if (!loading && user && accountRole && pathname) {
+    // Role-based route guard: agents cannot access admin-only sections.
+    // Viewers browse everywhere in read-only mode; individual pages gate
+    // their own write actions. Settings sub-sections are handled inside
+    // /settings.
+    if (!loading && user && accountRole && pathname && accountRole !== "viewer") {
       const requiredRole = minRoleForPath(pathname);
       if (requiredRole && !hasMinRole(accountRole, requiredRole)) {
-        router.replace(accountRole === "viewer" ? "/inbox" : "/inbox");
+        router.replace("/inbox");
       }
     }
   }, [user, loading, accountRole, pathname, router]);

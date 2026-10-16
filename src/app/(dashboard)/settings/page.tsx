@@ -44,17 +44,22 @@ export default function SettingsPage() {
   const role = accountRole ?? 'viewer';
   const requestedSection = resolveSection(searchParams.get('tab'));
 
-  // Non-admins can't access admin-only settings sections. Redirect them
-  // to their default section instead of rendering a forbidden panel.
-  const section = isSectionAllowed(requestedSection, role)
+  // Non-admins can't edit admin-only settings sections. Viewers are
+  // allowed to browse them in read-only mode (shown a placeholder);
+  // agents are redirected to their first editable section.
+  const isReadOnly = role === 'viewer';
+  const canEditSection = isSectionAllowed(requestedSection, role);
+  const section = canEditSection
     ? requestedSection
-    : defaultSectionForRole(role);
+    : isReadOnly
+      ? requestedSection
+      : defaultSectionForRole(role);
 
   useEffect(() => {
-    if (!isSectionAllowed(requestedSection, role)) {
+    if (!canEditSection && !isReadOnly) {
       router.replace(`/settings?tab=${section}`);
     }
-  }, [requestedSection, role, section, router]);
+  }, [canEditSection, isReadOnly, section, router]);
 
   const go = (next: SettingsSection) => {
     router.push(`/settings?tab=${next}`);
@@ -106,7 +111,19 @@ export default function SettingsPage() {
 
       <div className="mt-6 grid gap-6 lg:grid-cols-[236px_minmax(0,1fr)] lg:items-start">
         <SettingsRail active={section} onSelect={go} hints={hints} />
-        <div className="min-w-0">{panel[section]}</div>
+        <div className="min-w-0">
+          {canEditSection ? (
+            panel[section]
+          ) : (
+            <div className="rounded-xl border border-border bg-card p-8 text-center">
+              <h3 className="text-lg font-semibold text-foreground">Solo lectura</h3>
+              <p className="mt-2 text-sm text-muted-foreground">
+                Tu rol de espectador te permite ver la configuración, pero no
+                modificarla. Contactá a un administrador si necesitás cambios.
+              </p>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

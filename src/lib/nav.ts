@@ -204,13 +204,19 @@ function filterNavItems(items: NavItem[], role: AccountRole): NavItem[] {
     );
 }
 
-/** Main nav items visible to the given role. */
+/** Main nav items visible to the given role.
+ *  Viewers see the full navigation (read-only browsing).
+ */
 export function navItemsForRole(role: AccountRole): NavItem[] {
+  if (role === "viewer") return navItems;
   return filterNavItems(navItems, role);
 }
 
-/** Bottom nav items visible to the given role. */
+/** Bottom nav items visible to the given role.
+ *  Viewers see the full navigation (read-only browsing).
+ */
 export function bottomNavItemsForRole(role: AccountRole): NavItem[] {
+  if (role === "viewer") return bottomNavItems;
   return filterNavItems(bottomNavItems, role);
 }
 

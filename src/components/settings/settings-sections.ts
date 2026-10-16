@@ -116,22 +116,36 @@ export function resolveSection(raw: string | null): SettingsSection {
   return DEFAULT_SECTION;
 }
 
-/** True if the section is visible to the given role. */
+/**
+ * True if the section can be edited by the given role.
+ * This is the strict permission check used to guard forms/actions.
+ */
 export function isSectionAllowed(section: SettingsSection, role: AccountRole): boolean {
   const meta = SECTION_META[section];
   return !meta.minRole || hasMinRole(role, meta.minRole);
 }
 
-/** All sections visible to the given role. */
+/**
+ * True if the section should appear in the settings rail for the role.
+ * Viewers see every section (read-only browsing); everyone else sees
+ * only sections they are allowed to edit.
+ */
+export function isSectionVisible(section: SettingsSection, role: AccountRole): boolean {
+  if (role === 'viewer') return true;
+  return isSectionAllowed(section, role);
+}
+
+/** All sections visible in the rail for the given role. */
 export function allowedSectionsForRole(role: AccountRole): SettingsSection[] {
-  return SETTINGS_SECTIONS.filter((s) => isSectionAllowed(s, role));
+  return SETTINGS_SECTIONS.filter((s) => isSectionVisible(s, role));
 }
 
 /**
  * Default section to land on for a role. Admins see the Overview;
- * non-admins fall back to their first allowed section (profile).
+ * non-admins fall back to profile (a safe, personal section).
  */
 export function defaultSectionForRole(role: AccountRole): SettingsSection {
   if (isSectionAllowed(DEFAULT_SECTION, role)) return DEFAULT_SECTION;
+  if (isSectionAllowed('profile', role)) return 'profile';
   return allowedSectionsForRole(role)[0] ?? 'profile';
 }
