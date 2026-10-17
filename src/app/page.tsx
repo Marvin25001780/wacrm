@@ -395,7 +395,7 @@ export default function LandingPage() {
             <p className="text-xs text-slate-500 mt-1">RIF J408094193</p>
             <p className="text-xs text-slate-500 mt-1">CTRA VIEJA DE LOS TEQUES CASA NRO 4 BARRIO MAMERA CARACAS DISTRITO CAPITAL ZONA POSTAL 1000</p>
             <p className="text-xs text-slate-500 mt-1">Teléfono: 0422 2433946 · contacto@nexusbpo.space</p>
-            <p className="text-xs text-slate-500 mt-2">© 2026 NEXUS Contact Center. Todos los derechos reservados.</p>
+            <p className="text-xs text-slate-500 mt-2">© 2019 NEXUS Contact Center. Todos los derechos reservados.</p>
           </div>
         </div>
       </footer>
