@@ -20,7 +20,7 @@ import { ChannelIcon } from '@/components/channels/channel-icon';
 import { ChannelConnectDialog } from '@/components/channels/channel-connect-dialog';
 import type { SerializedChannel } from '@/lib/channels/config';
 import type { MessageChannel } from '@/types';
-import { Check, Link2, QrCode, ShieldAlert } from 'lucide-react';
+import { Check, Link2, QrCode, ShieldAlert, Trash2, AlertTriangle, Wifi, WifiOff } from 'lucide-react';
 
 type ConnectableChannel = Extract<
   MessageChannel,
@@ -181,6 +181,114 @@ export default function ChannelsPage() {
     return false;
   };
 
+  async function disconnectChannel(key: ConnectableChannel) {
+    if (!confirm('¿Desconectar este canal? Se eliminará la configuración del CRM.')) return;
+    try {
+      let ok = false;
+      if (key === 'whatsapp' && evolutionRow?.is_active) {
+        const res = await fetch('/api/channels/evolution/disconnect', { method: 'POST' });
+        ok = res.ok;
+        if (!ok) {
+          // Si el servidor de Evolution no responde, igual borramos la fila local.
+          await fetch('/api/channels/evolution', { method: 'DELETE' });
+        }
+      } else {
+        const channel = key === 'whatsapp' ? 'evolution' : key;
+        const res = await fetch(`/api/channels/${channel}`, { method: 'DELETE' });
+        ok = res.ok;
+      }
+      await load();
+      toast.success(ok ? 'Canal desconectado' : 'Configuración eliminada del CRM');
+    } catch {
+      toast.error('No se pudo desconectar el canal');
+    }
+  }
+
+  interface ChannelStatus {
+    state: 'connected' | 'warning' | 'disconnected';
+    label: string;
+    details: string[];
+    warnings: string[];
+  }
+
+  function getStatus(key: ConnectableChannel): ChannelStatus {
+    if (key === 'whatsapp') {
+      if (cloudConnected) {
+        return {
+          state: 'connected',
+          label: 'Conectado',
+          details: ['API oficial de Meta'],
+          warnings: [],
+        };
+      }
+      if (evolutionRow?.is_active) {
+        const baseUrl = typeof evolutionRow.config.base_url === 'string' ? evolutionRow.config.base_url : '';
+        const instance = typeof evolutionRow.config.instance === 'string' ? evolutionRow.config.instance : '';
+        const warnings: string[] = [];
+        if (baseUrl.includes('localhost') || baseUrl.includes('127.0.0.1')) {
+          warnings.push('La URL apunta a localhost: no funcionará en producción.');
+        }
+        return {
+          state: warnings.length ? 'warning' : 'connected',
+          label: warnings.length ? 'Conectado con advertencias' : 'Conectado',
+          details: instance ? [`Instancia: ${instance}`, `URL: ${baseUrl || '—'}`] : [`URL: ${baseUrl || '—'}`],
+          warnings,
+        };
+      }
+      return {
+        state: 'disconnected',
+        label: 'Por habilitar',
+        details: [],
+        warnings: [],
+      };
+    }
+
+    if (key === 'instagram' || key === 'facebook') {
+      const row = metaRows[key];
+      if (row?.is_active) {
+        const pageId = typeof row.config.page_id === 'string' ? row.config.page_id : '';
+        const hasAppSecret = row.config.has_app_secret === true;
+        const warnings: string[] = [];
+        if (!hasAppSecret) {
+          warnings.push('Falta app_secret guardado. Los mensajes pueden no entrar.');
+        }
+        return {
+          state: warnings.length ? 'warning' : 'connected',
+          label: warnings.length ? 'Conectado con advertencias' : 'Conectado',
+          details: pageId ? [`Página: ${pageId}`] : [],
+          warnings,
+        };
+      }
+      return {
+        state: 'disconnected',
+        label: 'Por habilitar',
+        details: [],
+        warnings: [],
+      };
+    }
+
+    if (key === 'tiktok') {
+      if (tiktokRow?.is_active) {
+        const username = typeof tiktokRow.config.username === 'string' ? tiktokRow.config.username : '';
+        const displayName = typeof tiktokRow.config.display_name === 'string' ? tiktokRow.config.display_name : '';
+        return {
+          state: 'connected',
+          label: 'Cuenta vinculada',
+          details: [displayName || username || 'Sin nombre'].filter(Boolean),
+          warnings: ['La mensajería real requiere partner aprobado por TikTok.'],
+        };
+      }
+      return {
+        state: 'disconnected',
+        label: 'Por habilitar',
+        details: [],
+        warnings: [],
+      };
+    }
+
+    return { state: 'disconnected', label: 'Por habilitar', details: [], warnings: [] };
+  }
+
   return (
     <div className="space-y-6 p-4 lg:p-6">
       <div className="flex flex-col gap-1">
@@ -211,7 +319,8 @@ export default function ChannelsPage() {
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {CHANNELS.map((c) => {
             const meta = channelMeta(c.key);
-            const connected = isConnected(c.key);
+            const status = getStatus(c.key);
+            const connected = status.state !== 'disconnected';
             return (
               <div
                 key={c.key}
@@ -229,36 +338,76 @@ export default function ChannelsPage() {
                       <p className="text-xs text-muted-foreground">{meta.hint}</p>
                     </div>
                   </div>
-                  {connected ? (
+                  {status.state === 'connected' ? (
                     <Badge className="gap-1 border-emerald-400/30 bg-emerald-400/10 text-emerald-400">
-                      <Check className="h-3 w-3" />
-                      Conectado
+                      <Wifi className="h-3 w-3" />
+                      {status.label}
+                    </Badge>
+                  ) : status.state === 'warning' ? (
+                    <Badge className="gap-1 border-amber-400/30 bg-amber-400/10 text-amber-400">
+                      <AlertTriangle className="h-3 w-3" />
+                      {status.label}
                     </Badge>
                   ) : (
-                    <Badge variant="outline" className="text-muted-foreground">
-                      Por habilitar
+                    <Badge variant="outline" className="gap-1 text-muted-foreground">
+                      <WifiOff className="h-3 w-3" />
+                      {status.label}
                     </Badge>
                   )}
                 </div>
 
-                <p className="flex-1 text-xs text-muted-foreground">{c.description}</p>
-
-                <Button
-                  variant={connected ? 'outline' : 'default'}
-                  onClick={() => openChannel(c.key)}
-                  className={
-                    connected
-                      ? 'border-border text-muted-foreground'
-                      : 'bg-primary text-primary-foreground hover:bg-primary/90'
-                  }
-                >
-                  {c.key === 'whatsapp' ? (
-                    <QrCode className="h-4 w-4" />
-                  ) : (
-                    <Link2 className="h-4 w-4" />
+                <div className="flex-1 space-y-2">
+                  <p className="text-xs text-muted-foreground">{c.description}</p>
+                  {status.details.length > 0 && (
+                    <ul className="space-y-1">
+                      {status.details.map((d, i) => (
+                        <li key={i} className="text-xs text-foreground/80 font-mono truncate" title={d}>
+                          {d}
+                        </li>
+                      ))}
+                    </ul>
                   )}
-                  {connected ? 'Gestionar' : 'Conectar'}
-                </Button>
+                  {status.warnings.length > 0 && (
+                    <div className="space-y-1">
+                      {status.warnings.map((w, i) => (
+                        <p key={i} className="flex items-start gap-1.5 text-xs text-amber-400">
+                          <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+                          <span>{w}</span>
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant={connected ? 'outline' : 'default'}
+                    onClick={() => openChannel(c.key)}
+                    className={
+                      connected
+                        ? 'flex-1 border-border text-muted-foreground'
+                        : 'flex-1 bg-primary text-primary-foreground hover:bg-primary/90'
+                    }
+                  >
+                    {c.key === 'whatsapp' ? (
+                      <QrCode className="h-4 w-4" />
+                    ) : (
+                      <Link2 className="h-4 w-4" />
+                    )}
+                    {connected ? 'Gestionar' : 'Conectar'}
+                  </Button>
+                  {connected && (
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={() => disconnectChannel(c.key)}
+                      className="border-destructive/30 text-destructive hover:bg-destructive/10"
+                      aria-label="Desconectar"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  )}
+                </div>
               </div>
             );
           })}
