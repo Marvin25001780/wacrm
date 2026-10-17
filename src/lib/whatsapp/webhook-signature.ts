@@ -45,3 +45,14 @@ export function verifyMetaWebhookSignature(
   if (a.length !== b.length) return false
   return crypto.timingSafeEqual(a, b)
 }
+
+/**
+ * Constant-time comparison for webhook verification tokens.
+ * Meta sends the token as a query parameter; we compare SHA-256 hashes
+ * of the strings so the comparison length is uniform.
+ */
+export function verifyTokenMatches(stored: string, presented: string): boolean {
+  const a = crypto.createHash('sha256').update(stored).digest()
+  const b = crypto.createHash('sha256').update(presented).digest()
+  return crypto.timingSafeEqual(a, b)
+}

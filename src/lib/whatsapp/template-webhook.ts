@@ -65,6 +65,8 @@ interface TemplateComponentsUpdateValue {
 export interface TemplateWebhookChange {
   field: string
   value: unknown
+  /** WABA id that emitted the event; optional for backward compat. */
+  wabaId?: string
 }
 
 /**
