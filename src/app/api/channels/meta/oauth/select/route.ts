@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { randomUUID } from 'node:crypto'
 import { requireRole, toErrorResponse } from '@/lib/auth/account'
+import { encrypt } from '@/lib/whatsapp/encryption'
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit'
 
 /**
@@ -63,10 +64,12 @@ export async function POST(request: Request) {
       )
     }
 
+    const appSecret = process.env.META_APP_SECRET || ''
     const config: Record<string, unknown> = {
       ...existing,
       page_id: pageId,
       access_token: chosen.access_token,
+      app_secret: appSecret ? encrypt(appSecret) : existing.app_secret,
       verify_token:
         typeof existing.verify_token === 'string' && existing.verify_token
           ? existing.verify_token

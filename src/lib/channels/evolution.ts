@@ -112,7 +112,9 @@ export function extractState(payload: unknown): string {
   return String(state).toLowerCase()
 }
 
-/** Extrae el id de mensaje de la respuesta de sendText de Evolution. */
+
+
+/** Extrae el id de mensaje de la respuesta de sendText/sendMedia de Evolution. */
 export function extractMessageId(payload: unknown): string | null {
   const root = (payload ?? {}) as Record<string, unknown>
   const key = (root.key ?? {}) as Record<string, unknown>
@@ -120,6 +122,38 @@ export function extractMessageId(payload: unknown): string | null {
   if (typeof root.id === 'string' && root.id) return root.id
   if (typeof root.messageId === 'string' && root.messageId) return root.messageId
   return null
+}
+
+/** Extrae una URL pública/directa del mensaje si Evolution la incluye. */
+export function extractDirectMediaUrl(
+  message: Record<string, unknown> | null | undefined,
+): { type: string; url: string | null; caption: string | null; filename: string | null } {
+  if (!message) return { type: 'text', url: null, caption: null, filename: null }
+
+  const pick = (
+    key: string,
+    typeName: string,
+  ): { type: string; url: string | null; caption: string | null; filename: string | null } => {
+    const blob = message[key] as Record<string, unknown> | undefined
+    if (!blob) return { type: 'text', url: null, caption: null, filename: null }
+    const url = typeof blob.url === 'string' && blob.url ? blob.url : null
+    const caption = typeof blob.caption === 'string' && blob.caption ? blob.caption : null
+    const filename =
+      typeof blob.fileName === 'string' && blob.fileName
+        ? blob.fileName
+        : typeof blob.title === 'string' && blob.title
+          ? blob.title
+          : null
+    return { type: typeName, url, caption, filename }
+  }
+
+  return (
+    pick('imageMessage', 'image').url ? pick('imageMessage', 'image') :
+    pick('videoMessage', 'video').url ? pick('videoMessage', 'video') :
+    pick('documentMessage', 'document').url ? pick('documentMessage', 'document') :
+    pick('audioMessage', 'audio').url ? pick('audioMessage', 'audio') :
+    pick('stickerMessage', 'image')
+  )
 }
 
 /** Número para Evolution: solo dígitos, con código de país. */
@@ -286,6 +320,42 @@ export async function evolutionSendText(
   )
   if (!res.ok) {
     return { ok: false, status: res.status, error: res.text || 'Evolution rechazó el envío' }
+  }
+  return { ok: true, status: res.status, data: { messageId: extractMessageId(parseJson(res.text)) } }
+}
+
+export type EvoMediaType = 'image' | 'video' | 'document' | 'audio'
+
+interface EvoMediaInput {
+  type: EvoMediaType
+  /** URL pública del archivo o base64 (data URI). */
+  media: string
+  caption?: string
+  fileName?: string
+}
+
+/** Envía un archivo multimedia por la instancia (imagen, vídeo, documento o audio). */
+export async function evolutionSendMedia(
+  creds: EvolutionCreds,
+  instance: string,
+  number: string,
+  input: EvoMediaInput,
+): Promise<EvoResult<{ messageId: string | null }>> {
+  const body: Record<string, unknown> = {
+    number: evoNumber(number),
+    mediatype: input.type,
+    media: input.media,
+  }
+  if (input.caption) body.caption = input.caption
+  if (input.fileName) body.fileName = input.fileName
+
+  const res = await evoRequest(
+    creds,
+    `/message/sendMedia/${encodeURIComponent(instance)}`,
+    { method: 'POST', body: JSON.stringify(body) },
+  )
+  if (!res.ok) {
+    return { ok: false, status: res.status, error: res.text || 'Evolution rechazó el envío multimedia' }
   }
   return { ok: true, status: res.status, data: { messageId: extractMessageId(parseJson(res.text)) } }
 }

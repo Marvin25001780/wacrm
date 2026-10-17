@@ -60,9 +60,14 @@ export async function GET(request: NextRequest) {
   })
 
   const redirectUri = `${request.nextUrl.origin}/api/channels/meta/oauth/callback`
+  // Instagram puede usar un Configuration ID de Facebook Login for
+  // Business; Facebook Messenger usa el flujo clásico de scopes porque
+  // un único config_id de Instagram no sirve para Messenger.
+  const configId =
+    channel === 'instagram' ? process.env.NEXT_PUBLIC_META_IG_CONFIG_ID : undefined
   const authUrl = buildMetaOAuthUrl({
     appId,
-    configId: process.env.NEXT_PUBLIC_META_IG_CONFIG_ID,
+    configId,
     redirectUri,
     state,
   })

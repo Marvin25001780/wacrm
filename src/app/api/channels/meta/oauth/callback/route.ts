@@ -125,6 +125,7 @@ export async function GET(request: NextRequest) {
       ...existingConfig,
       page_id: only.id,
       access_token: encrypt(only.accessToken),
+      app_secret: encrypt(appSecret),
       verify_token: existingVerify ?? `nexus_${randomUUID().replace(/-/g, '')}`,
       pending_accounts: [],
     }

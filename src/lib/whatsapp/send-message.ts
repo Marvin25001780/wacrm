@@ -37,7 +37,7 @@ import {
 } from '@/lib/whatsapp/phone-utils';
 import type { MessageTemplate } from '@/types';
 import { isMessageTemplate } from '@/lib/whatsapp/template-row-guard';
-import { evolutionSendText } from '@/lib/channels/evolution';
+import { evolutionSendText, evolutionSendMedia, type EvoMediaType } from '@/lib/channels/evolution';
 import {
   sendMetaText,
   sendMetaAttachment,
@@ -387,6 +387,8 @@ export async function sendMessageToConversation(
       contact,
       messageType,
       contentText,
+      mediaUrl,
+      filename,
       senderId,
       replyToMessageId,
     });
@@ -621,6 +623,8 @@ async function sendEvolutionMessage(
     contact: { id: string; phone: string | null } | null;
     messageType: string;
     contentText?: string | null;
+    mediaUrl?: string | null;
+    filename?: string | null;
     senderId?: string | null;
     replyToMessageId?: string | null;
   }
@@ -630,6 +634,8 @@ async function sendEvolutionMessage(
     contact,
     messageType,
     contentText,
+    mediaUrl,
+    filename,
     senderId,
     replyToMessageId,
   } = params;
@@ -654,10 +660,10 @@ async function sendEvolutionMessage(
     );
   }
 
-  if (messageType !== 'text') {
+  if (messageType !== 'text' && !MEDIA_KINDS.includes(messageType as typeof MEDIA_KINDS[number])) {
     throw new SendMessageError(
       'bad_request',
-      'Por WhatsApp (Evolution) solo se envían mensajes de texto por ahora.',
+      `Por WhatsApp (Evolution) no se soporta el tipo de mensaje "${messageType}".`,
       400
     );
   }
@@ -674,12 +680,27 @@ async function sendEvolutionMessage(
     throw new SendMessageError('whatsapp_not_configured', 'Credenciales de WhatsApp inválidas.', 400);
   }
 
-  const result = await evolutionSendText(
-    { baseUrl, apiKey },
-    instance,
-    contact.phone,
-    contentText || ''
-  );
+  const evoCreds = { baseUrl, apiKey };
+  const isMediaKind = (MEDIA_KINDS as readonly string[]).includes(messageType);
+  let result:
+    | Awaited<ReturnType<typeof evolutionSendText>>
+    | Awaited<ReturnType<typeof evolutionSendMedia>>;
+
+  if (isMediaKind) {
+    if (!mediaUrl) {
+      throw new SendMessageError('bad_request', 'Falta la URL del archivo multimedia', 400);
+    }
+    const kind: EvoMediaType = messageType === 'document' ? 'document' : (messageType as EvoMediaType);
+    result = await evolutionSendMedia(evoCreds, instance, contact.phone, {
+      type: kind,
+      media: mediaUrl,
+      caption: contentText || undefined,
+      fileName: filename || undefined,
+    });
+  } else {
+    result = await evolutionSendText(evoCreds, instance, contact.phone, contentText || '');
+  }
+
   if (!result.ok) {
     console.error('[send-message] Evolution send failed:', result.error);
     throw new SendMessageError('meta_error', `Evolution API error: ${result.error}`, 502);
@@ -693,9 +714,9 @@ async function sendEvolutionMessage(
       conversation_id: conversationId,
       sender_type: 'agent',
       sender_id: senderId ?? null,
-      content_type: 'text',
+      content_type: messageType,
       content_text: contentText || null,
-      media_url: null,
+      media_url: mediaUrl || null,
       template_name: null,
       message_id: waMessageId,
       status: 'sent',

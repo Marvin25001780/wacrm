@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { channelsAdmin } from '@/lib/channels/admin-client'
 import { decrypt } from '@/lib/whatsapp/encryption'
+import { extractDirectMediaUrl } from '@/lib/channels/evolution'
 import { findExistingContact, isUniqueViolation } from '@/lib/contacts/dedupe'
 import { dispatchWebhookEvent } from '@/lib/webhooks/deliver'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -38,28 +39,50 @@ interface EvolutionMessage {
 function extractContent(message: Record<string, unknown>): {
   type: string
   text: string | null
+  mediaUrl: string | null
+  filename: string | null
 } {
   const str = (v: unknown): string | null =>
     typeof v === 'string' && v.trim() ? v : null
 
+  // Si Evolution incluye una URL directa en el mensaje multimedia, la
+  // guardamos para mostrar/descargar el archivo sin tener que pedírsela
+  // de nuevo a la instancia.
+  const direct = extractDirectMediaUrl(message)
+  if (direct.url) {
+    return {
+      type: direct.type,
+      text: direct.caption,
+      mediaUrl: direct.url,
+      filename: direct.filename,
+    }
+  }
+
   if (typeof message.conversation === 'string') {
-    return { type: 'text', text: message.conversation }
+    return { type: 'text', text: message.conversation, mediaUrl: null, filename: null }
   }
   const ext = message.extendedTextMessage as Record<string, unknown> | undefined
-  if (ext && typeof ext.text === 'string') return { type: 'text', text: ext.text }
+  if (ext && typeof ext.text === 'string')
+    return { type: 'text', text: ext.text, mediaUrl: null, filename: null }
 
   const img = message.imageMessage as Record<string, unknown> | undefined
-  if (img) return { type: 'image', text: str(img.caption) }
+  if (img) return { type: 'image', text: str(img.caption), mediaUrl: null, filename: str(img.fileName) }
   const vid = message.videoMessage as Record<string, unknown> | undefined
-  if (vid) return { type: 'video', text: str(vid.caption) }
+  if (vid) return { type: 'video', text: str(vid.caption), mediaUrl: null, filename: str(vid.fileName) }
   const doc = message.documentMessage as Record<string, unknown> | undefined
-  if (doc) return { type: 'document', text: str(doc.caption) ?? str(doc.fileName) }
+  if (doc)
+    return {
+      type: 'document',
+      text: str(doc.caption) ?? str(doc.fileName),
+      mediaUrl: null,
+      filename: str(doc.fileName) ?? str(doc.title),
+    }
   const aud = message.audioMessage as Record<string, unknown> | undefined
-  if (aud) return { type: 'audio', text: null }
+  if (aud) return { type: 'audio', text: null, mediaUrl: null, filename: null }
   const sticker = message.stickerMessage as Record<string, unknown> | undefined
-  if (sticker) return { type: 'image', text: null }
+  if (sticker) return { type: 'image', text: null, mediaUrl: null, filename: null }
 
-  return { type: 'text', text: null }
+  return { type: 'text', text: null, mediaUrl: null, filename: null }
 }
 
 async function resolveOwnerUserId(
@@ -112,7 +135,8 @@ export async function POST(
   const config = (cfg.config ?? {}) as Record<string, unknown>
   const expectedKey =
     typeof config.api_key === 'string' ? decrypt(config.api_key) : ''
-  const suppliedKey = request.headers.get('apikey') ?? ''
+  // Evolution v1/v2 usa `apikey`; algunos proxies/versiones envían `api_key`.
+  const suppliedKey = request.headers.get('apikey') ?? request.headers.get('api_key') ?? ''
   if (expectedKey && suppliedKey !== expectedKey) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
@@ -263,7 +287,7 @@ export async function POST(
     sender_type: 'customer',
     content_type: contentType,
     content_text: raw.text,
-    media_url: null,
+    media_url: raw.mediaUrl,
     message_id: waMessageId,
     status: 'delivered',
     created_at: createdAt,
