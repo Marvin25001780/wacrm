@@ -298,7 +298,7 @@ export default function LandingPage() {
                     </li>
                   ))}
                 </ul>
-                <a href="https://wa.me/5842422433946" target="_blank" rel="noopener" className="block w-full py-4 rounded-xl border border-white/20 hover:bg-white/5 font-semibold transition-all text-center text-on-surface">Consultar</a>
+                <a href="https://wa.me/584222433946" target="_blank" rel="noopener" className="block w-full py-4 rounded-xl border border-white/20 hover:bg-white/5 font-semibold transition-all text-center text-on-surface">Consultar</a>
               </div>
             </div>
           </div>
@@ -370,7 +370,7 @@ export default function LandingPage() {
               <button onClick={openModal} className="action-gradient text-white px-10 py-5 rounded-full font-bold text-lg glow-shadow hover:scale-105 transition-transform flex items-center justify-center gap-2">
                 <i className="fas fa-calendar-check"></i> Agendar Demo Gratis
               </button>
-              <a href="https://wa.me/5842422433946" target="_blank" rel="noopener" className="glass-card text-on-surface px-10 py-5 rounded-full font-bold text-lg hover:bg-white/5 transition-all flex items-center justify-center gap-2">
+              <a href="https://wa.me/584222433946" target="_blank" rel="noopener" className="glass-card text-on-surface px-10 py-5 rounded-full font-bold text-lg hover:bg-white/5 transition-all flex items-center justify-center gap-2">
                 <i className="fab fa-whatsapp"></i> Hablar por WhatsApp
               </a>
             </div>
@@ -393,7 +393,8 @@ export default function LandingPage() {
           <div className="text-on-surface-variant text-sm text-center">
             <p className="font-bold text-white/80">NEXUS CRM</p>
             <p className="text-xs text-slate-500 mt-1">RIF J-410713348</p>
-            <p className="text-xs text-slate-500 mt-1">Av. Libertador, Edif. Centro Parima, Piso 9, Of. 3, Urb. Chacao, Caracas, Miranda, ZP 1060</p>
+            <p className="text-xs text-slate-500 mt-1">CTRA VIEJA DE LOS TEQUES CASA NRO 4 BARRIO MAMERA CARACAS DISTRITO CAPITAL ZONA POSTAL 1000</p>
+            <p className="text-xs text-slate-500 mt-1">Teléfono: 0422 2433946 · contacto@nexusbpo.space</p>
             <p className="text-xs text-slate-500 mt-2">© 2026 NEXUS Contact Center. Todos los derechos reservados.</p>
           </div>
         </div>
