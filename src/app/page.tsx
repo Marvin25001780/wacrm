@@ -119,7 +119,7 @@ export default function LandingPage() {
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
                   <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
                 </span>
-                <span className="text-primary text-xs tracking-widest font-semibold">NEXUS CRM</span>
+                <span className="text-primary text-xs tracking-widest font-semibold">NEXUS BPO</span>
               </div>
               <h1 className="font-display text-[56px] lg:text-[72px] leading-[1.1] font-extrabold tracking-tight">
                 Conectamos tu marca<br />
@@ -391,8 +391,8 @@ export default function LandingPage() {
             ))}
           </div>
           <div className="text-on-surface-variant text-sm text-center">
-            <p className="font-bold text-white/80">NEXUS CRM</p>
-            <p className="text-xs text-slate-500 mt-1">RIF J-410713348</p>
+            <p className="font-bold text-white/80">REPRESENTACIONES J.J.D.C, CA</p>
+            <p className="text-xs text-slate-500 mt-1">RIF J408094193</p>
             <p className="text-xs text-slate-500 mt-1">CTRA VIEJA DE LOS TEQUES CASA NRO 4 BARRIO MAMERA CARACAS DISTRITO CAPITAL ZONA POSTAL 1000</p>
             <p className="text-xs text-slate-500 mt-1">Teléfono: 0422 2433946 · contacto@nexusbpo.space</p>
             <p className="text-xs text-slate-500 mt-2">© 2026 NEXUS Contact Center. Todos los derechos reservados.</p>
