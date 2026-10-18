@@ -140,12 +140,12 @@ export function ChannelSwitcher({
   return (
     <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
       <DropdownMenuTrigger
-        className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        className="inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
         title="Cambiar de canal"
         aria-label="Cambiar de canal"
       >
         <ChannelIcon channel={activeKey} className="h-3.5 w-3.5" imgClassName="h-3.5 w-3.5" />
-        <span className="hidden min-w-0 max-w-[80px] truncate sm:inline">
+        <span className="hidden min-w-0 max-w-[80px] truncate @[660px]:inline">
           {channelName(activeKey)}
         </span>
         <ChevronDown className="h-3 w-3" />

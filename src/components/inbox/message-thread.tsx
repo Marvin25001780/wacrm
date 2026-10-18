@@ -316,7 +316,7 @@ export function MessageThread({
       .reverse()
       .find((m) => m.sender_type === "customer");
 
-    if (!lastCustomerMsg) return { expired: true, remaining: "Sin mensajes del cliente" };
+    if (!lastCustomerMsg) return { expired: true, remaining: "Sin mensajes" };
 
     const hoursSince = differenceInHours(new Date(), new Date(lastCustomerMsg.created_at));
     const expired = hoursSince >= 24;
@@ -326,10 +326,14 @@ export function MessageThread({
     }
 
     const hoursLeft = 24 - hoursSince;
+    // Etiqueta corta ("24h" / "45m") a propósito: la cabecera del hilo
+    // comparte fila con el nombre y los controles, y en vista dividida
+    // (paneles de ~600 px) "24h restante" se comía el nombre. El badge
+    // lleva `title` con la explicación completa.
     const remaining =
       hoursLeft >= 1
-        ? `${Math.floor(hoursLeft)}h restante`
-        : `${Math.floor(hoursLeft * 60)}m restante`;
+        ? `${Math.floor(hoursLeft)}h`
+        : `${Math.floor(hoursLeft * 60)}m`;
 
     return { expired, remaining };
   }, [messages]);
@@ -1030,8 +1034,14 @@ export function MessageThread({
     <div className={cn("flex min-w-0 flex-1 flex-col", DOODLE_BG_CLASSES)}>
       {/* Header — solid card surface sits on top of the doodle so the
           name/avatar/dropdowns stay legible. */}
-      <div className="flex items-center justify-between gap-2 border-b border-border bg-card px-3 py-3 sm:px-4">
-        <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+      {/* `@container` — los controles de la cabecera se adaptan al ancho
+          del PROPIO panel, no al de la ventana. En vista dividida cada
+          hilo ocupa media pantalla: con variantes `sm:`/`lg:` (que miran
+          el viewport) todos los controles se creían en escritorio ancho y
+          se solapaban; con container queries se degradan a iconos y nunca
+          se pisan. `flex-wrap` es la red de seguridad final. */}
+      <div className="@container flex flex-wrap items-center justify-between gap-x-2 gap-y-2 border-b border-border bg-card px-3 py-3 @[420px]:px-4">
+        <div className="flex min-w-[12rem] flex-1 items-center gap-2 @[420px]:gap-3">
           {/* Back-to-list button — mobile only. Hidden on lg+ where the
               conversation list is always visible next to the thread. */}
           {onBack && (
@@ -1061,12 +1071,20 @@ export function MessageThread({
             <h2 className="truncate text-sm font-semibold text-foreground">{displayName}</h2>
             <p className="truncate text-xs text-muted-foreground">{contact.phone}</p>
           </div>
-          {/* Session timer badge — hidden on the narrowest phones so
-              the name + back arrow keep their room. */}
+          {/* Session timer badge — oculto en los paneles más estrechos
+              para que el nombre conserve su sitio. Además va tapado con
+              `max-w-[7rem]`: si algún día el texto crece (p. ej. "Sin
+              mensajes"), el `overflow-hidden` que ya trae Badge lo
+              recorta en lugar de empujar/solapar los controles. */}
           <Badge
             variant="outline"
+            title={
+              sessionInfo.expired
+                ? "Ventana de 24 h cerrada — usa una plantilla para reconectar"
+                : `Ventana de 24 h abierta — quedan ${sessionInfo.remaining} para responder`
+            }
             className={cn(
-              "ml-1 hidden gap-1 border-border text-[10px] sm:inline-flex sm:ml-2",
+              "ml-1 hidden max-w-[7rem] shrink-0 gap-1 border-border text-[10px] @[540px]:inline-flex @[420px]:ml-2",
               sessionInfo.expired ? "text-red-400" : "text-primary"
             )}
           >
@@ -1088,7 +1106,7 @@ export function MessageThread({
           )}
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-1.5">
           {/* Contact-panel toggle — desktop only. The contact sidebar
               eats a chunk of horizontal width that crowds the thread on
               smaller laptops; this lets agents reclaim it when they just
@@ -1104,7 +1122,7 @@ export function MessageThread({
               aria-pressed={contactPanelOpen}
               title={contactPanelOpen ? "Ocultar contacto" : "Mostrar contacto"}
               className={cn(
-                "hidden h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-muted hover:text-foreground lg:inline-flex",
+                "hidden h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-muted hover:text-foreground @[860px]:inline-flex",
                 contactPanelOpen ? "text-primary" : "text-muted-foreground",
               )}
             >
@@ -1170,7 +1188,7 @@ export function MessageThread({
               title="Etiquetas de la conversación"
             >
               <TagIcon className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Etiquetas</span>
+              <span className="hidden @[760px]:inline">Etiquetas</span>
               {conversationTagIds.length > 0 && (
                 <Badge
                   variant="outline"
@@ -1254,9 +1272,10 @@ export function MessageThread({
                 "inline-flex items-center justify-center h-7 gap-1 px-2 text-xs rounded-md hover:bg-muted",
                 assignedAgentId ? "text-primary" : "text-muted-foreground"
               )}
+              title="Asignar conversación"
             >
               <UserPlus className="h-3 w-3" />
-              <span className="hidden sm:inline">{assignLabel}</span>
+              <span className="hidden @[760px]:inline">{assignLabel}</span>
               <ChevronDown className="h-3 w-3" />
             </DropdownMenuTrigger>
             <DropdownMenuContent

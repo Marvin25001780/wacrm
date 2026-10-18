@@ -599,10 +599,10 @@ export function MessageComposer({
             onKeyDown={handleKeyDown}
             placeholder={
               readOnly
-                ? "Solo lectura — los visores pueden navegar pero no responder"
+                ? "Solo lectura — no puedes responder"
                 : sessionExpired
                   ? "Sesión expirada — usa una plantilla"
-                  : "Escribe un mensaje... (Shift+Enter para nueva línea)"
+                  : "Escribe un mensaje..."
             }
             disabled={sessionExpired || readOnly}
             rows={1}
@@ -634,7 +634,7 @@ export function MessageComposer({
           under the textarea left edge. */}
       {!draft && !recording && (
         <p className="mt-1 pl-[5.5rem] text-[10px] text-muted-foreground">
-          Toca ✨ para redactar una respuesta con IA — puedes editarla antes de enviar
+          Toca ✨ para una respuesta con IA · Shift+Enter = nueva línea
         </p>
       )}
     </div>
