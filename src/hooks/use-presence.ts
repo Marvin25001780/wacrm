@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 
 import { createClient } from "@/lib/supabase/client";
@@ -45,6 +45,19 @@ interface UsePresenceResult {
 export function usePresence(enabled = true): UsePresenceResult {
   const { accountId } = useAuth();
 
+  // Supabase's browser client de-dupes channels by topic: `channel(topic)`
+  // returns the *existing* channel when one with the same topic is still
+  // alive, and adding a `postgres_changes` binding to an already-subscribed
+  // channel throws ("cannot add `postgres_changes` callbacks … after
+  // `subscribe()`"). That throw happens inside this effect, so it tears the
+  // React tree down and the app dies with "This page couldn't load".
+  //
+  // The inbox split view mounts two MessageThreads (two usePresence calls)
+  // at once, so the topic must be scoped per hook instance. `useId` is
+  // stable for the lifetime of the component, so the channel is created
+  // once and reused across re-renders.
+  const instanceId = useId().replace(/[^a-zA-Z0-9]/g, "");
+
   // Presence rows keyed by user_id, held in immutable state — each
   // update replaces the Map so React renders and the derived getters
   // recompute. No ref/version dance needed.
@@ -81,7 +94,7 @@ export function usePresence(enabled = true): UsePresenceResult {
     // rather than replacing the map — so an event that lands while the
     // fetch is in flight isn't clobbered by a staler snapshot row.
     const channel: RealtimeChannel = supabase
-      .channel(`presence:${accountId}`)
+      .channel(`presence:${accountId}:${instanceId}`)
       .on(
         "postgres_changes",
         {
@@ -152,7 +165,7 @@ export function usePresence(enabled = true): UsePresenceResult {
       clearInterval(tick);
       supabase.removeChannel(channel);
     };
-  }, [active, accountId]);
+  }, [active, accountId, instanceId]);
 
   const getRow = useCallback(
     (userId: string): PresenceRow | undefined => rows.get(userId),

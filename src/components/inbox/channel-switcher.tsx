@@ -78,6 +78,11 @@ export function ChannelSwitcher({
   const [conversations, setConversations] = useState<
     { id: string; channel: string; last_message_at: string | null; unread_count: number }[]
   >([]);
+  // Menú controlado: el icono "abrir al lado" corta la propagación para
+  // no redirigir el hilo principal, pero Base UI cierra el menú en el
+  // `onClick` del propio item — así que al detener el evento el menú se
+  // quedaría abierto. Cerrándolo aquí queda como un clic normal.
+  const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
     if (!contactId) return;
@@ -133,7 +138,7 @@ export function ChannelSwitcher({
   const activeKey = (activeChannel ?? "whatsapp") as MessageChannel;
 
   return (
-    <DropdownMenu>
+    <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
       <DropdownMenuTrigger
         className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
         title="Cambiar de canal"
@@ -206,6 +211,7 @@ export function ChannelSwitcher({
                         // item y además redirigiría el hilo principal.
                         event.preventDefault();
                         event.stopPropagation();
+                        setMenuOpen(false);
                         onOpenChannelInSplit?.(entry.channel, entry.conversationId);
                       }}
                       className="-mr-0.5 ml-0.5 rounded-sm p-0.5 text-muted-foreground/70 transition-colors hover:text-foreground"
