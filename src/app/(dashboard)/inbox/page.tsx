@@ -640,6 +640,58 @@ export default function InboxPage() {
     ]
   );
 
+  /**
+   * Icono "Abrir al lado" del selector de canales: abre la conversación
+   * elegida en la vista dividida (segunda columna, solo escritorio) o
+   * conmuta el hilo activo en celular, donde la columna no cabe.
+   */
+  const handleOpenChannelInSplit = useCallback(
+    (channel: MessageChannel, conversationId: string | null) => {
+      if (!conversationId) return;
+
+      const target =
+        conversations.find((c) => c.id === conversationId) ??
+        (activeConversation?.id === conversationId ? activeConversation : null) ??
+        (secondaryConversation?.id === conversationId
+          ? secondaryConversation
+          : null);
+
+      if (!target) return;
+
+      const isDesktop =
+        typeof window !== "undefined" &&
+        window.matchMedia("(min-width: 1024px)").matches;
+
+      if (!isDesktop) {
+        // Celular: la vista dividida no cabe; conmutamos el hilo.
+        setSecondaryConversation(null);
+        setSecondaryMessages([]);
+        handleSelectConversation(target);
+        return;
+      }
+
+      // Nunca mostramos el mismo hilo dos veces.
+      if (target.id === activeConversation?.id) return;
+
+      // Toggle: volver a pulsar el canal que ya está a la par lo cierra.
+      if (target.id === secondaryConversation?.id) {
+        setSecondaryConversation(null);
+        setSecondaryMessages([]);
+        return;
+      }
+
+      setSecondaryConversation(target);
+      setSecondaryMessages([]);
+      void channel;
+    },
+    [
+      conversations,
+      activeConversation,
+      secondaryConversation,
+      handleSelectConversation,
+    ]
+  );
+
   /** Refresca el avatar del contacto en todos los estados de la página. */
   const handleContactAvatarChange = useCallback(
     (url: string | null) => {
@@ -754,6 +806,7 @@ export default function InboxPage() {
             contactPanelOpen={contactPanelOpen}
             onToggleContactPanel={handleToggleContactPanel}
             onOpenChannel={handleOpenChannel}
+            onOpenChannelInSplit={handleOpenChannelInSplit}
             secondaryChannel={secondaryConversation?.channel ?? null}
             onContactAvatarChange={handleContactAvatarChange}
           />
@@ -784,6 +837,7 @@ export default function InboxPage() {
               resyncToken={resyncToken}
               onRefresh={handleManualRefresh}
               onOpenChannel={handleOpenChannel}
+              onOpenChannelInSplit={handleOpenChannelInSplit}
               secondaryChannel={activeConversation?.channel ?? null}
               onContactAvatarChange={handleContactAvatarChange}
             />

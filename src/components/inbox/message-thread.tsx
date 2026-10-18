@@ -123,6 +123,14 @@ interface MessageThreadProps {
     channel: MessageChannel,
     conversationId: string | null,
   ) => void;
+  /**
+   * Abre la conversación de ese canal en la vista dividida (icono
+   * "Abrir al lado" del selector de canales). Opcional.
+   */
+  onOpenChannelInSplit?: (
+    channel: MessageChannel,
+    conversationId: string | null,
+  ) => void;
   /** Canal abierto en la vista dividida secundaria (para marcarlo). */
   secondaryChannel?: MessageChannel | string | null;
   /**
@@ -190,6 +198,7 @@ export function MessageThread({
   contactPanelOpen,
   onToggleContactPanel,
   onOpenChannel,
+  onOpenChannelInSplit,
   secondaryChannel,
   onContactAvatarChange,
 }: MessageThreadProps) {
@@ -1073,6 +1082,7 @@ export function MessageThread({
               activeChannel={(conversation.channel ?? "whatsapp") as MessageChannel}
               secondaryChannel={secondaryChannel}
               onOpenChannel={onOpenChannel}
+              onOpenChannelInSplit={onOpenChannelInSplit}
               resyncToken={resyncToken}
             />
           )}

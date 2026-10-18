@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Check, ChevronDown } from "lucide-react";
+import { Check, ChevronDown, Columns2 } from "lucide-react";
 import { format } from "date-fns";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -39,8 +39,20 @@ export interface ChannelSwitcherProps {
   activeChannel?: MessageChannel | string | null;
   /** Canal abierto en la vista dividida secundaria (si hay). */
   secondaryChannel?: MessageChannel | string | null;
-  /** Parent: desktop abre split / mobile conmuta el hilo activo. */
+  /**
+   * Clic normal en un canal: el padre redirige el hilo principal a esa
+   * conversación (`handleOpenChannel`).
+   */
   onOpenChannel: (
+    channel: MessageChannel,
+    conversationId: string | null,
+  ) => void;
+  /**
+   * Acción del icono "Abrir al lado" de cada canal: el padre abre esa
+   * conversación en la vista dividida (escritorio) o conmuta el hilo
+   * activo (celular). Opcional — sin él, el icono no se muestra.
+   */
+  onOpenChannelInSplit?: (
     channel: MessageChannel,
     conversationId: string | null,
   ) => void;
@@ -60,6 +72,7 @@ export function ChannelSwitcher({
   activeChannel,
   secondaryChannel,
   onOpenChannel,
+  onOpenChannelInSplit,
   resyncToken = 0,
 }: ChannelSwitcherProps) {
   const [conversations, setConversations] = useState<
@@ -143,6 +156,11 @@ export function ChannelSwitcher({
             const isActive = entry.channel === activeKey;
             const isSecondary = entry.channel === secondaryChannel;
             const disabled = !entry.conversationId;
+            // El icono "Abrir al lado" solo tiene sentido para un canal
+            // que no esté ya abierto (ni como hilo principal ni en la
+            // vista dividida).
+            const canSplit =
+              !!onOpenChannelInSplit && !disabled && !isActive && !isSecondary;
             return (
               <DropdownMenuItem
                 key={entry.channel}
@@ -168,6 +186,23 @@ export function ChannelSwitcher({
                     ? format(new Date(entry.lastMessageAt), "dd/MM/yyyy")
                     : "Sin comunicación"}
                   {isActive && <Check className="h-3.5 w-3.5 text-primary" />}
+                  {canSplit && (
+                    <button
+                      type="button"
+                      title="Abrir al lado (vista dividida)"
+                      aria-label={`Abrir ${channelName(entry.channel)} al lado`}
+                      onClick={(event) => {
+                        // Sin stopPropagation el clic burbujearía hasta el
+                        // item y además redirigiría el hilo principal.
+                        event.preventDefault();
+                        event.stopPropagation();
+                        onOpenChannelInSplit?.(entry.channel, entry.conversationId);
+                      }}
+                      className="-mr-0.5 ml-0.5 rounded-sm p-0.5 text-muted-foreground/70 transition-colors hover:text-foreground"
+                    >
+                      <Columns2 className="h-3.5 w-3.5" />
+                    </button>
+                  )}
                 </span>
               </DropdownMenuItem>
             );
