@@ -147,7 +147,9 @@ export function ChannelSwitcher({
               <DropdownMenuItem
                 key={entry.channel}
                 disabled={disabled}
-                onSelect={() => onOpenChannel(entry.channel, entry.conversationId)}
+                // Base UI usa onClick (no onSelect, que es de Radix): con
+                // onSelect el clic nunca llegaba a disparar la acción.
+                onClick={() => onOpenChannel(entry.channel, entry.conversationId)}
                 className="flex items-center justify-between gap-2 text-sm"
               >
                 <span className="flex min-w-0 items-center gap-2">
