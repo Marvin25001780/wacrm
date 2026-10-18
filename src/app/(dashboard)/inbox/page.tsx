@@ -815,9 +815,17 @@ export default function InboxPage() {
 
         {/* Second pane (split view): otro canal del mismo contacto, a la
             par. Solo en escritorio (lg+); en celular el switcher conmuta
-            el hilo activo en vez de abrir esta columna. */}
+            el hilo activo en vez de abrir esta columna.
+
+            Sin `flex-col`: al ser columna, el hilo (`flex-1`) se estiraba
+            con su contenido — el área de mensajes medía su alto completo
+            (~3500 px en un historial largo) en vez de ceñirse al panel, y
+            al recortarlo la fila el panel quedaba SIN barra de scroll: no
+            se podían leer los mensajes antiguos del otro canal. Como
+            fila, el hijo se estira al alto del panel, igual que el hilo
+            principal. */}
         {secondaryConversation && (
-          <div className="hidden h-full min-w-0 flex-1 flex-col border-l border-border lg:flex">
+          <div className="hidden h-full min-w-0 flex-1 border-l border-border lg:flex">
             <MessageThread
               conversation={secondaryConversation}
               contact={secondaryConversation.contact ?? activeContact}

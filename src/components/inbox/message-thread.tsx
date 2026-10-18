@@ -1031,7 +1031,14 @@ export function MessageThread({
     // clipped and the hover toolbar overlaps the Tags panel. Letting the
     // root shrink lets the bubbles' break-words / max-w caps apply.
     // Issue #257.
-    <div className={cn("flex min-w-0 flex-1 flex-col", DOODLE_BG_CLASSES)}>
+    //
+    // `min-h-0` es igual de cargado en el eje vertical: sin él, dentro de
+    // un contenedor en columna este hijo se niega a encogerse por debajo
+    // de su contenido, así que el área de mensajes crecía con todo el
+    // historial y `overflow-y-auto` nunca llegaba a activarse (el padre la
+    // recortaba): el hilo se quedaba sin barra de scroll. Es lo que pasaba
+    // en el panel secundario de la vista dividida.
+    <div className={cn("flex min-h-0 min-w-0 flex-1 flex-col", DOODLE_BG_CLASSES)}>
       {/* Header — solid card surface sits on top of the doodle so the
           name/avatar/dropdowns stay legible. */}
       {/* `@container` — los controles de la cabecera se adaptan al ancho
