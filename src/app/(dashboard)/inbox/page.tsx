@@ -670,11 +670,12 @@ export default function InboxPage() {
         return;
       }
 
-      // Nunca mostramos el mismo hilo dos veces.
-      if (target.id === activeConversation?.id) return;
-
-      // Toggle: volver a pulsar el canal que ya está a la par lo cierra.
-      if (target.id === secondaryConversation?.id) {
+      // El icono actúa como toggle: si el canal ya está abierto (como
+      // hilo principal o a la par) cierra la vista dividida.
+      if (
+        target.id === activeConversation?.id ||
+        target.id === secondaryConversation?.id
+      ) {
         setSecondaryConversation(null);
         setSecondaryMessages([]);
         return;

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Check, ChevronDown, Columns2 } from "lucide-react";
+import { Check, ChevronDown, Columns2, X } from "lucide-react";
 import { format } from "date-fns";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -156,11 +156,13 @@ export function ChannelSwitcher({
             const isActive = entry.channel === activeKey;
             const isSecondary = entry.channel === secondaryChannel;
             const disabled = !entry.conversationId;
-            // El icono "Abrir al lado" solo tiene sentido para un canal
-            // que no esté ya abierto (ni como hilo principal ni en la
-            // vista dividida).
-            const canSplit =
+            // Icono por fila: "abrir al lado" para un canal que aún no
+            // está abierto, o "cerrar" para el que ya vive en la
+            // columna secundaria.
+            const canOpenSplit =
               !!onOpenChannelInSplit && !disabled && !isActive && !isSecondary;
+            const canCloseSplit =
+              !!onOpenChannelInSplit && !disabled && isSecondary && !isActive;
             return (
               <DropdownMenuItem
                 key={entry.channel}
@@ -186,11 +188,19 @@ export function ChannelSwitcher({
                     ? format(new Date(entry.lastMessageAt), "dd/MM/yyyy")
                     : "Sin comunicación"}
                   {isActive && <Check className="h-3.5 w-3.5 text-primary" />}
-                  {canSplit && (
+                  {(canOpenSplit || canCloseSplit) && (
                     <button
                       type="button"
-                      title="Abrir al lado (vista dividida)"
-                      aria-label={`Abrir ${channelName(entry.channel)} al lado`}
+                      title={
+                        canCloseSplit
+                          ? "Cerrar vista dividida"
+                          : "Abrir al lado (vista dividida)"
+                      }
+                      aria-label={
+                        canCloseSplit
+                          ? `Cerrar la vista dividida de ${channelName(entry.channel)}`
+                          : `Abrir ${channelName(entry.channel)} al lado`
+                      }
                       onClick={(event) => {
                         // Sin stopPropagation el clic burbujearía hasta el
                         // item y además redirigiría el hilo principal.
@@ -200,7 +210,11 @@ export function ChannelSwitcher({
                       }}
                       className="-mr-0.5 ml-0.5 rounded-sm p-0.5 text-muted-foreground/70 transition-colors hover:text-foreground"
                     >
-                      <Columns2 className="h-3.5 w-3.5" />
+                      {canCloseSplit ? (
+                        <X className="h-3.5 w-3.5" />
+                      ) : (
+                        <Columns2 className="h-3.5 w-3.5" />
+                      )}
                     </button>
                   )}
                 </span>
