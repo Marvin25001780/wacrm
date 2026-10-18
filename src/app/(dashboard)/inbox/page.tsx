@@ -583,21 +583,18 @@ export default function InboxPage() {
   // Vista dividida por canal (04_mejoras_inbox)
   // ============================================================
   /**
-   * El switcher de canal del encabezado llama aquí al elegir un medio.
-   * En escritorio (lg+) abre/cierra la segunda conversación a la par;
-   * en celular cambia el hilo activo (la vista dividida no cabe).
+   * El switcher de canal del encabezado llama aquí al elegir un medio
+   * (WhatsApp, SMS, Correo…). Redirige al hilo principal a la
+   * conversación de ese canal, reemplazando la que estuviera abierta.
+   *
+   * Antes, en escritorio, esto abría una *vista dividida* (una segunda
+   * columna "a la par") en vez de cambiar de hilo; el usuario pidió que
+   * el clic redirija directamente a la conversación. Se hizo uniforme
+   * para escritorio y celular.
    */
   const handleOpenChannel = useCallback(
     (channel: MessageChannel, conversationId: string | null) => {
-      if (!conversationId) {
-        setSecondaryConversation(null);
-        setSecondaryMessages([]);
-        return;
-      }
-
-      const isDesktop =
-        typeof window !== "undefined" &&
-        window.matchMedia("(min-width: 1024px)").matches;
+      if (!conversationId) return;
 
       const target =
         conversations.find((c) => c.id === conversationId) ??
@@ -606,28 +603,33 @@ export default function InboxPage() {
           ? secondaryConversation
           : null);
 
-      if (!target) return;
-
-      if (!isDesktop) {
-        // Celular: conmutar el hilo principal.
-        setSecondaryConversation(null);
-        setSecondaryMessages([]);
-        handleSelectConversation(target);
-        return;
-      }
-
-      // Escritorio: toggle del panel secundario.
-      if (
-        target.id === activeConversation?.id ||
-        target.id === secondaryConversation?.id
-      ) {
-        setSecondaryConversation(null);
-        setSecondaryMessages([]);
-        return;
-      }
-
-      setSecondaryConversation(target);
+      // Cierra la vista dividida si quedara abierta y abre la
+      // conversación elegida como hilo principal (deep-link incluido).
+      setSecondaryConversation(null);
       setSecondaryMessages([]);
+
+      if (target) {
+        handleSelectConversation(target);
+        void channel;
+        return;
+      }
+
+      // La conversación todavía no está en la lista cargada (p. ej. un
+      // hilo antiguo de otro canal). La traemos puntualmente y la
+      // abrimos para que el clic nunca quede "sin hacer nada".
+      void (async () => {
+        const supabase = createClient();
+        const { data, error } = await supabase
+          .from("conversations")
+          .select(CONVERSATION_SELECT)
+          .eq("id", conversationId)
+          .maybeSingle();
+        if (error || !data) {
+          toast.error("No se pudo abrir esa conversación");
+          return;
+        }
+        handleSelectConversation(normalizeConversation(data));
+      })();
       void channel;
     },
     [
