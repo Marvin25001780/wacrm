@@ -1,6 +1,6 @@
 # Auditoría de seguridad y funcionamiento — 2026-10-18
 
-**Modo:** solo lectura en la revisión original. **Estado (2026-10-18):** S1, S2 y S13 ya están remediados en la rama local `fix/auditoria-tanda-1` (sin fusionar ni desplegar); el resto sigue pendiente.
+**Modo:** solo lectura en la revisión original. **Estado (2026-10-18):** S1, S2 y S13 remediados en la rama local `fix/auditoria-tanda-1` (**sin fusionar ni desplegar**) y **validados en dev**; S17 y S18 se descubrieron durante esa validación. El resto sigue pendiente.
 **Método:** revisión del esquema/migraciones, rutas de `/api`, middleware, políticas RLS, almacenamiento, dependencias (`npm audit`) e historial de git.
 **Alcance:** todo el CRM. No es una auditoría exhaustiva línea a línea; es una revisión dirigida a los puntos donde este tipo de app suele fallar (multi-tenant, webhooks, secretos, almacenamiento, abuso de recursos).
 
@@ -26,10 +26,12 @@
 | S14 | 🟢 Bajo | CSP en modo `Report-Only` (no bloquea) | Bajo |
 | S15 | 🟢 Bajo | `whatsapp_config.user_id` con `ON DELETE CASCADE` | Bajo |
 | S16 | 🟢 Bajo | Plantillas únicas por `user_id` en vez de por cuenta/WABA | Bajo |
+| S17 | 🟡 Medio | Borrar una cuenta falla si tiene filas auditadas (el trigger de auditoría rompe el `ON DELETE CASCADE`) | Bajo |
+| S18 | 🟢 Bajo | `accounts.owner_user_id` es `ON DELETE RESTRICT` → borrar al propietario devuelve un 500 opaco | Bajo |
 
 S1, S2 y S3 son los que yo arreglaría **antes** de abrir el CRM a clientes externos.
 
-**Remediado en esta tanda:** S1 (Next 16.4.2; `npm audit --omit=dev` → 0 vulnerabilidades), S2 (bucket privado + URLs firmadas; falta aplicar la migración) y S13 (`shadcn` a `devDependencies`). S3 queda para la fase 1 de multipertenencia porque comparte migración con las RPC de cuentas.
+**Remediado en esta tanda:** S1 (Next 16.4.2; `npm audit --omit=dev` → 0 vulnerabilidades), S2 (bucket privado + URLs firmadas; **migración 065 aplicada y validado en dev**) y S13 (`shadcn` a `devDependencies`). La validación en dev además destapó S17 y S18 (borrado de cuentas/usuarios). S3 queda para la fase 1 de multipertenencia porque comparte migración con las RPC de cuentas.
 
 ---
 
@@ -62,7 +64,7 @@ Comparación: el bucket `attachments` ya hace lo correcto (`035_attachments.sql:
 
 **Recomendación:** pasar `chat-media` a privado, servir con `createSignedUrl` (p. ej. 60 s, como ya hacen `attachments` y `timeline`) y decidir qué hacer con las URLs ya guardadas en `messages.media_url`. `profile-avatars`, `contact-avatars` y `flow-media` pueden seguir públicos: no contienen conversaciones.
 
-**Estado:** ✅ **remediado en código** (falta aplicar la migración).
+**Estado:** ✅ **remediado y validado en dev.**
 
 - `supabase/migrations/065_chat_media_private.sql`: `public = false` + política SELECT limitada a la carpeta `account-<id>` del usuario.
 - `src/lib/storage/chat-media.ts`: extrae la ruta de la URL guardada y firma (1 h) con el cliente que corresponda.
@@ -71,6 +73,20 @@ Comparación: el bucket `attachments` ya hace lo correcto (`035_attachments.sql:
 - API pública (`GET /api/v1/conversations/{id}/messages`): devuelve URLs firmadas de 24 h en lote.
 - Imágenes de muestra de plantillas: pasan a `flow-media` (público), porque Meta las descarga durante la revisión.
 - **Orden de despliegue:** primero el código (funciona también con el bucket aún público), después la migración. Al revés, los adjuntos dan 400 hasta que la app nueva esté arriba.
+- **Validación en dev (migración 065 ya aplicada):**
+
+| Prueba | Resultado |
+|---|---|
+| `storage.buckets.public` para `chat-media` | `false` ✅ |
+| URL pública sin sesión | **400** bloqueada ✅ |
+| Firmar como anónimo | **400** denegada ✅ |
+| Firmar como usuario de la cuenta (RLS) | **200** permitida ✅ |
+| Abrir la URL firmada sin sesión | **200** ✅ |
+| Inbox: adjunto entrante y saliente se ven | ✅ (captura revisada) |
+| Panel Red del inbox | `POST /storage/v1/object/sign/chat-media` + `GET` del objeto firmado ✅ |
+| API pública `GET /api/v1/conversations/{id}/messages` | `media_url` **firmada**, y la URL entregada abre con 200 ✅ |
+
+  El usuario, la conversación y el objeto de prueba se crearon solo para esto y se borraron al terminar (verificado: 0 filas y 0 usuarios restantes).
 
 ---
 
@@ -231,6 +247,51 @@ Ya descrito en S4b. Sin acción urgente.
 ### S16 — Plantillas únicas por usuario
 
 `014_message_templates_meta_integration.sql:190` → `UNIQUE(user_id, name, language)`. En una cuenta compartida, dos personas pueden crear la misma plantilla duplicada, y el índice no protege el caso real (por cuenta/WABA). Ya está en el diseño (§3.2, fase 3).
+
+### S17 — Borrar una cuenta con datos auditados falla
+
+**Evidencia (reproducido en dev durante la validación de la tanda 1):** el trigger genérico de `041_audit_log.sql:117-138` está enganchado a `contacts`, `tags`, `custom_fields`, `pipelines`, `message_templates`, `api_keys`, `whatsapp_config`, etc., como `AFTER INSERT OR UPDATE OR DELETE FOR EACH ROW`, e inserta en `audit_logs` con `account_id = OLD.account_id`. Como `audit_logs.account_id` referencia `accounts(id) ON DELETE CASCADE` (`041:28`), al borrar la cuenta los borrados en cascada de las tablas hijas disparan el trigger **cuando la fila de `accounts` ya no existe** → violación de FK `23503` y **toda la operación aborta**:
+
+```
+DELETE /rest/v1/accounts?id=eq.<account> → HTTP 409
+{"code":"23503","message":"insert or update on table \"audit_logs\" violates foreign key constraint \"audit_logs_account_id_fkey\""}
+```
+
+En el mismo caso, borrar primero las filas hijas a mano y después la cuenta sí funciona.
+
+**Impacto:** en el modelo multi-negocio de la fase 1, **no se puede dar de baja a un cliente** (eliminar su espacio de trabajo) si tiene contactos u otra fila auditada. Tampoco se puede cumplir una petición de borrado de datos de forma limpia. Es un bloqueo funcional directo sobre el objetivo que perseguimos.
+
+**Recomendación (1 línea, sin tocar nada más):** en `audit_row()`, saltar la inserción si la cuenta ya no existe:
+
+```sql
+IF NOT EXISTS (SELECT 1 FROM accounts WHERE id = acct) THEN
+  RETURN COALESCE(NEW, OLD);
+END IF;
+```
+
+Así los borrados en cascada no intentan auditar contra una cuenta extinta, y el `ON DELETE CASCADE` de `audit_logs` limpia el historial.
+
+**Estado:** pendiente. Encaja en la fase 1 (migración de cuentas): conviene arreglarlo antes de probar el alta/baja de espacios de trabajo.
+
+### S18 — `accounts.owner_user_id` bloquea borrar al propietario
+
+**Evidencia (reproducido en dev):** `017_account_sharing.sql:66` →
+
+```sql
+owner_user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE RESTRICT,
+```
+
+`DELETE /auth/v1/admin/users/{id}` sobre el propietario devuelve **HTTP 500** con `23503`:
+
+```
+{"code":"23503","message":"update or delete on table \"users\" violates foreign key constraint \"accounts_owner_user_id_fkey\""}
+```
+
+**Impacto:** borrar un usuario dueño de un espacio de trabajo no es posible (ni desde el panel ni con la service role) salvo transfiriendo la propiedad antes. El `RESTRICT` es una decisión defendible, pero (a) el flujo de "transferir propiedad + borrar usuario" no está documentado ni automatizado, y (b) el error que ve quien lo intenta es un 500 opaco, no un mensaje claro.
+
+**Recomendación:** decidir la política en la fase 1: si el borrado de usuarios debe funcionar, añadir el flujo explícito (transferir propiedad → borrar) y devolver un error legible; si no, documentarlo. No hace falta cambiar la FK.
+
+**Estado:** pendiente (decisión de producto).
 
 ---
 
