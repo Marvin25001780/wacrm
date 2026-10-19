@@ -68,6 +68,23 @@ export interface AccountMember {
 }
 
 /**
+ * One row of the workspace switcher (066_account_members.sql).
+ * A user can belong to several accounts at once; this is the pairing
+ * of the account they belong to and the role they hold *in it* —
+ * which may differ from their role in the active account.
+ *
+ * `role` is the role in THIS account; `is_active` marks the one
+ * `profiles.account_id` currently points at, i.e. the account every
+ * RLS-scoped query in the app is scoped to right now.
+ */
+export interface WorkspaceMembership {
+  account_id: string;
+  name: string;
+  role: AccountRole;
+  is_active: boolean;
+}
+
+/**
  * Outstanding invite link row. `token_hash` is intentionally
  * absent — it lives only in the DB and on the server. The
  * plaintext token is returned once at creation time and surfaced
