@@ -14,6 +14,10 @@ import {
   buildPage,
 } from '@/lib/api/v1/pagination';
 import { serializeMessage } from '@/lib/api/v1/conversations';
+import {
+  chatMediaPathFromUrl,
+  signChatMediaPaths,
+} from '@/lib/storage/chat-media';
 import type { Message } from '@/types';
 
 export async function GET(
@@ -55,10 +59,28 @@ export async function GET(
       (data ?? []) as Array<{ created_at: string; id: string }>,
       limit
     );
-    return okList(
-      items.map((m) => serializeMessage(m as unknown as Message)),
-      nextCursor
+    const serialized = items.map((m) =>
+      serializeMessage(m as unknown as Message)
     );
+
+    // `chat-media` es privado (migración 065): la API entrega URLs
+    // firmadas (24 h) en vez de la URL lógica guardada en la fila.
+    const paths = serialized
+      .map((m) => chatMediaPathFromUrl(m.media_url))
+      .filter((p): p is string => p !== null);
+    if (paths.length > 0) {
+      const signed = await signChatMediaPaths(
+        ctx.supabase,
+        paths,
+        24 * 60 * 60
+      );
+      for (const m of serialized) {
+        const path = chatMediaPathFromUrl(m.media_url);
+        if (path) m.media_url = signed.get(path) ?? null;
+      }
+    }
+
+    return okList(serialized, nextCursor);
   } catch (err) {
     return toApiErrorResponse(err);
   }

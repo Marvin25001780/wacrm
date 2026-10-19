@@ -37,6 +37,7 @@ import {
   MEDIA_MAX_BYTES_BY_KIND,
 } from "@/lib/storage/upload-media";
 import { ReplyQuote } from "./reply-quote";
+import { useChatMediaUrl } from "@/lib/storage/use-chat-media-url";
 
 /** Media content types an agent can send from the composer. */
 export type ComposerMediaKind = "image" | "video" | "document" | "audio";
@@ -53,7 +54,7 @@ const MAX_RECORDING_SECONDS = 5 * 60;
 
 export interface SendMediaPayload {
   kind: ComposerMediaKind;
-  /** Public chat-media URL Meta fetches at send time. */
+  /** URL lógica del objeto en `chat-media`; el servidor la firma al enviar. */
   mediaUrl: string;
   /** Storage object path — lets the caller GC the object if the send fails. */
   path: string;
@@ -662,6 +663,10 @@ function MediaDraftPreview({
   onDiscard: () => void;
   onSend: () => void;
 }) {
+  // El bucket es privado: se firma para la vista previa (el envío firma
+  // aparte, en el servidor).
+  const media = useChatMediaUrl(draft.mediaUrl);
+
   return (
     <div className="rounded-xl border border-border bg-muted/40 p-3">
       <div className="flex items-start gap-3">
@@ -669,16 +674,16 @@ function MediaDraftPreview({
           {draft.kind === "image" && (
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              src={draft.mediaUrl}
+              src={media.url ?? ""}
               alt={draft.filename}
               className="max-h-40 rounded-lg object-cover"
             />
           )}
           {draft.kind === "video" && (
-            <video src={draft.mediaUrl} controls className="max-h-40 rounded-lg" />
+            <video src={media.url ?? ""} controls className="max-h-40 rounded-lg" />
           )}
           {draft.kind === "audio" && (
-            <audio src={draft.mediaUrl} controls className="w-full" />
+            <audio src={media.url ?? ""} controls className="w-full" />
           )}
           {draft.kind === "document" && (
             <div className="flex items-center gap-2 text-sm text-foreground">

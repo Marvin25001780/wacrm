@@ -43,6 +43,7 @@ import {
   isValidE164,
 } from '@/lib/whatsapp/phone-utils';
 import { resolveContactSendTarget } from '@/lib/whatsapp/wa-identity';
+import { signChatMediaUrl } from '@/lib/storage/chat-media';
 import { applyPendingMessageStatuses } from '@/lib/whatsapp/message-status-sync';
 import type { MessageTemplate } from '@/types';
 import {
@@ -239,6 +240,21 @@ export async function sendMessageToConversation(
 
   const isMediaKind = (MEDIA_KINDS as readonly string[]).includes(messageType);
 
+  // El bucket `chat-media` es privado (migración 065): Meta y Evolution
+  // necesitan una URL firmada que puedan descargar sin cookies. La fila
+  // que persistimos más abajo conserva la URL lógica original (sin
+  // token) para que el inbox la vuelva a firmar al mostrarla.
+  const outboundMediaUrl = isMediaKind
+    ? await signChatMediaUrl(db, mediaUrl)
+    : mediaUrl;
+  if (isMediaKind && !outboundMediaUrl) {
+    throw new SendMessageError(
+      'media_unavailable',
+      'El adjunto ya no está disponible. Vuelve a subirlo.',
+      400
+    );
+  }
+
   // Conversation + contact, account-scoped.
   const { data: conversation, error: convError } = await db
     .from('conversations')
@@ -269,7 +285,8 @@ export async function sendMessageToConversation(
           : null,
       messageType,
       contentText,
-      mediaUrl,
+      mediaUrl: outboundMediaUrl,
+      storedMediaUrl: mediaUrl,
       senderId,
       replyToMessageId,
     });
@@ -316,7 +333,8 @@ export async function sendMessageToConversation(
       contact,
       messageType,
       contentText,
-      mediaUrl,
+      mediaUrl: outboundMediaUrl,
+      storedMediaUrl: mediaUrl,
       filename,
       senderId,
       replyToMessageId,
@@ -428,7 +446,7 @@ export async function sendMessageToConversation(
         accessToken,
         to: phone,
         kind: messageType as MediaKind,
-        link: mediaUrl!,
+        link: outboundMediaUrl!,
         caption: contentText || undefined,
         filename: filename || undefined,
         contextMessageId,
@@ -631,7 +649,10 @@ async function sendEvolutionMessage(
     contact: { id: string; phone: string | null } | null;
     messageType: string;
     contentText?: string | null;
+    /** URL firmada que se entrega a Evolution. */
     mediaUrl?: string | null;
+    /** URL lógica (sin token) que se guarda en `messages.media_url`. */
+    storedMediaUrl?: string | null;
     filename?: string | null;
     senderId?: string | null;
     replyToMessageId?: string | null;
@@ -643,6 +664,7 @@ async function sendEvolutionMessage(
     messageType,
     contentText,
     mediaUrl,
+    storedMediaUrl,
     filename,
     senderId,
     replyToMessageId,
@@ -752,7 +774,7 @@ async function sendEvolutionMessage(
       sender_id: senderId ?? null,
       content_type: messageType,
       content_text: contentText || null,
-      media_url: mediaUrl || null,
+      media_url: storedMediaUrl ?? mediaUrl ?? null,
       template_name: null,
       message_id: waMessageId,
       status: 'sent',
@@ -820,7 +842,10 @@ async function sendMetaChannelMessage(
     externalContactId: string | null;
     messageType: string;
     contentText?: string | null;
+    /** URL firmada que se entrega a la Send API de Meta. */
     mediaUrl?: string | null;
+    /** URL lógica (sin token) que se guarda en `messages.media_url`. */
+    storedMediaUrl?: string | null;
     senderId?: string | null;
     replyToMessageId?: string | null;
   }
@@ -833,6 +858,7 @@ async function sendMetaChannelMessage(
     messageType,
     contentText,
     mediaUrl,
+    storedMediaUrl,
     senderId,
     replyToMessageId,
   } = params;
@@ -940,7 +966,7 @@ async function sendMetaChannelMessage(
       sender_id: senderId ?? null,
       content_type: messageType,
       content_text: contentText || null,
-      media_url: mediaUrl || null,
+      media_url: storedMediaUrl ?? mediaUrl ?? null,
       template_name: null,
       message_id: sentMessageId,
       status: 'sent',

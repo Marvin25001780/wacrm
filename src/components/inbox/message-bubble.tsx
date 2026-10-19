@@ -17,6 +17,7 @@ import {
 import { format } from "date-fns";
 import { ReplyQuote } from "./reply-quote";
 import { MessageReactions } from "./message-reactions";
+import { useChatMediaUrl } from "@/lib/storage/use-chat-media-url";
 
 interface MessageBubbleProps {
   message: Message;
@@ -50,6 +51,18 @@ function MediaUnavailable({ label }: { label: string }) {
       <ImageOff className="h-4 w-4 shrink-0 text-muted-foreground" />
       <span>{label} no disponible</span>
     </div>
+  );
+}
+
+/** Hueco mientras se firma la URL del bucket privado (≈ decenas de ms). */
+function MediaLoading({ compact = false }: { compact?: boolean }) {
+  return (
+    <div
+      className={cn(
+        "animate-pulse rounded-lg bg-muted/60",
+        compact ? "h-10 w-48" : "h-40 w-60",
+      )}
+    />
   );
 }
 
@@ -117,6 +130,10 @@ function MediaImage({ url, alt }: { url: string; alt: string }) {
 }
 
 function MessageContent({ message }: { message: Message }) {
+  // `chat-media` es privado (migración 065): la URL guardada se firma al
+  // mostrarla. Para enlaces externos el hook devuelve la misma URL.
+  const media = useChatMediaUrl(message.media_url);
+
   switch (message.content_type) {
     case "text":
       return (
@@ -128,8 +145,10 @@ function MessageContent({ message }: { message: Message }) {
     case "image":
       return (
         <div>
-          {message.media_url ? (
-            <MediaImage url={message.media_url} alt="Imagen compartida" />
+          {media.url ? (
+            <MediaImage url={media.url} alt="Imagen compartida" />
+          ) : media.loading ? (
+            <MediaLoading />
           ) : (
             <MediaUnavailable label="Imagen" />
           )}
@@ -144,12 +163,14 @@ function MessageContent({ message }: { message: Message }) {
     case "video":
       return (
         <div>
-          {message.media_url ? (
+          {media.url ? (
             <video
-              src={message.media_url}
+              src={media.url}
               controls
               className="max-h-64 max-w-60 rounded-lg"
             />
+          ) : media.loading ? (
+            <MediaLoading />
           ) : (
             <MediaUnavailable label="Video" />
           )}
@@ -164,8 +185,10 @@ function MessageContent({ message }: { message: Message }) {
     case "audio":
       return (
         <div>
-          {message.media_url ? (
-            <audio src={message.media_url} controls className="max-w-60" />
+          {media.url ? (
+            <audio src={media.url} controls className="max-w-60" />
+          ) : media.loading ? (
+            <MediaLoading compact />
           ) : (
             <MediaUnavailable label="Audio" />
           )}
@@ -173,12 +196,16 @@ function MessageContent({ message }: { message: Message }) {
       );
 
     case "document":
-      if (!message.media_url) {
-        return <MediaUnavailable label={message.content_text || "Documento"} />;
+      if (!media.url) {
+        return media.loading ? (
+          <MediaLoading compact />
+        ) : (
+          <MediaUnavailable label={message.content_text || "Documento"} />
+        );
       }
       return (
         <a
-          href={message.media_url}
+          href={media.url}
           target="_blank"
           rel="noopener noreferrer"
           className="flex items-center gap-2 rounded-lg bg-muted/50 px-3 py-2 text-sm hover:bg-muted"

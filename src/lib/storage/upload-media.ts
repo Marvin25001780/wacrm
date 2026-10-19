@@ -67,16 +67,17 @@ export function buildMediaPath(
 }
 
 export interface UploadAccountMediaResult {
-  /** Public URL Meta can fetch at send time. */
+  /** URL lógica del objeto (sin credenciales). Si el bucket es privado
+   *  (`chat-media`), hay que firmarla antes de mostrarla o enviarla. */
   publicUrl: string;
   /** Storage object path (account-scoped). */
   path: string;
 }
 
 /**
- * Upload a file to an account-scoped Storage bucket and return its public
- * URL. Throws with a user-facing message on auth / account-resolution /
- * upload failure — callers surface it via a toast.
+ * Upload a file to an account-scoped Storage bucket and return its
+ * logical URL. Throws with a user-facing message on auth /
+ * account-resolution / upload failure — callers surface it via a toast.
  *
  * Size validation is the caller's responsibility (limits can differ per
  * feature); `MEDIA_MAX_BYTES` is exported for the common case.
@@ -125,7 +126,7 @@ export async function uploadAccountMedia(
 /**
  * Delete a previously-uploaded object. Used to GC media that was staged
  * (uploaded) but never sent — a cancelled draft or a failed Meta send —
- * so abandoned attachments don't accumulate in the public bucket. The
+ * so abandoned attachments don't accumulate in the bucket. The
  * DELETE is gated by the same account-scoped RLS policy as the upload,
  * so a caller can only remove objects under their own account folder.
  *

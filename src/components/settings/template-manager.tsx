@@ -18,6 +18,7 @@ import {
   uploadAccountMedia,
   MEDIA_MAX_BYTES_BY_KIND,
 } from '@/lib/storage/upload-media';
+import { useChatMediaUrl } from '@/lib/storage/use-chat-media-url';
 import { useAuth } from '@/hooks/use-auth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -148,11 +149,16 @@ export function TemplateManager() {
   // doesn't take the template off Meta as well as locally.
   const [templateToDelete, setTemplateToDelete] =
     useState<MessageTemplate | null>(null);
-  // Header-image upload (issue #230). Uploads to the account-scoped
-  // chat-media bucket and stores the public URL in header_media_url; the
-  // submit route turns that into a Meta Resumable-Upload handle.
+  // Header-image upload (issue #230). Uploads to `flow-media` (público:
+  // Meta descarga la muestra durante la revisión) y guarda la URL en
+  // header_media_url; el envío la convierte en un handle de Meta.
   const [uploadingHeader, setUploadingHeader] = useState(false);
   const headerFileRef = useRef<HTMLInputElement>(null);
+
+  // Vista previa del encabezado: las plantillas antiguas apuntan al bucket
+  // ya privado `chat-media`, así que se firman; `flow-media` y los enlaces
+  // externos pasan tal cual.
+  const headerPreview = useChatMediaUrl(form.header_media_url);
 
   // Body variable indices — `[1, 2, 3]` for "{{1}} {{2}} {{3}}". We
   // re-run the extractor on every render to keep the sample-value rows
@@ -474,7 +480,7 @@ export function TemplateManager() {
     }
     setUploadingHeader(true);
     try {
-      const { publicUrl } = await uploadAccountMedia('chat-media', file);
+      const { publicUrl } = await uploadAccountMedia('flow-media', file);
       setForm((f) => ({ ...f, header_media_url: publicUrl }));
       toast.success('Imagen subida.');
     } catch (err) {
@@ -857,7 +863,7 @@ export function TemplateManager() {
                   {form.header_format === 'image' && form.header_media_url && (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
-                      src={form.header_media_url}
+                      src={headerPreview.url ?? form.header_media_url}
                       alt="Ejemplo del encabezado"
                       className="max-h-28 rounded-md border border-border object-contain"
                     />

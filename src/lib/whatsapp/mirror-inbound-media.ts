@@ -11,8 +11,10 @@ import { buildMediaPath, MEDIA_MAX_BYTES } from "@/lib/storage/upload-media";
  * the proxy route behind it re-fetched from Meta on every single view,
  * so an attachment quietly became unviewable a month after it arrived.
  * Outbound media never had the problem: the composer uploads to
- * `chat-media` (migration 023) and stores a durable public URL. This
- * puts inbound on the same footing.
+ * `chat-media` (migration 023) and stores a durable URL. This puts
+ * inbound on the same footing. Since migration 065 the bucket is
+ * private, so the stored URL is the object's logical URL and the app
+ * signs it when rendering / sending.
  *
  * Everything here is BEST EFFORT and returns `null` rather than
  * throwing. The caller is the Meta webhook, and a webhook that starts
