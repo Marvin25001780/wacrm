@@ -35,6 +35,16 @@ export interface Profile {
    * `@/lib/auth/roles` rather than comparing this string directly.
    */
   account_role?: AccountRole;
+  /** 068 — Industry chosen in the welcome wizard (user-level). */
+  industry?: string | null;
+  /** 068 — Job title chosen in the welcome wizard (user-level). */
+  role_title?: string | null;
+  /**
+   * 068 — When the welcome wizard was completed OR skipped. NULL
+   * keeps the wizard popping up on every dashboard entry: savers and
+   * skippers both stamp it, so a one-time visit is guaranteed.
+   */
+  onboarding_completed_at?: string | null;
   created_at: string;
 }
 
@@ -47,6 +57,14 @@ export interface Account {
   name: string;
   /** auth.users.id of the immutable owner. */
   owner_user_id: string;
+  /** 068 — Lead sources declared in the welcome wizard. */
+  lead_sources?: string[];
+  /** 068 — Up to 2 goals chosen in the welcome wizard. */
+  goals?: string[];
+  /** 068 — Declared team size (e.g. '6_10'). */
+  team_size?: string | null;
+  /** 068 — Optional website / social profile. */
+  website?: string | null;
   created_at: string;
   updated_at: string;
 }

@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
+import { OnboardingWizard, isOnboardingPending } from "@/components/onboarding/onboarding-wizard";
 import { PresenceHeartbeat } from "@/components/presence/presence-heartbeat";
 import { minRoleForPath } from "@/lib/nav";
 import { hasMinRole } from "@/lib/auth/roles";
@@ -14,7 +15,7 @@ import { hasMinRole } from "@/lib/auth/roles";
 // client components can't export Next's metadata object.
 
 function DashboardShellInner({ children }: { children: React.ReactNode }) {
-  const { user, loading, accountRole } = useAuth();
+  const { user, loading, accountRole, profile } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
 
@@ -54,8 +55,18 @@ function DashboardShellInner({ children }: { children: React.ReactNode }) {
 
   if (!user) return null;
 
+  // Wizard de bienvenida (068): se monta mientras el perfil no tenga el
+  // sello de onboarding (`onboarding_completed_at` = NULL). Lo completan
+  // y lo saltan por la misma puerta — ambos sellan, así que aparece una
+  // única vez por usuario.
+  const onboardingPending =
+    !!profile && isOnboardingPending(profile.onboarding_completed_at);
+
   return (
     <div className="flex h-screen overflow-hidden bg-background">
+      {/* Wizard de bienvenida (068) mientras el perfil esté sin sello.
+          Se pinta sobre la pantalla en la que estés — igual que Kommo. */}
+      {onboardingPending ? <OnboardingWizard /> : null}
       {/* Reports this tab's online/away presence once we know a user is
           signed in. Headless — renders nothing. */}
       <PresenceHeartbeat />

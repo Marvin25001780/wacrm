@@ -35,6 +35,10 @@ interface Profile {
   beta_features: string[];
   account_id: string | null;
   account_role: AccountRole | null;
+  /** Wizard de bienvenida (068): la shell abre el wizard mientras sea NULL. */
+  industry: string | null;
+  role_title: string | null;
+  onboarding_completed_at: string | null;
 }
 
 interface AccountSummary {
@@ -138,7 +142,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const { data, error } = await supabase
         .from("profiles")
         .select(
-          "id, full_name, email, avatar_url, role, beta_features, account_id, account_role",
+          "id, full_name, email, avatar_url, role, beta_features, account_id, account_role, industry, role_title, onboarding_completed_at",
         )
         .eq("user_id", userId)
         .maybeSingle();
@@ -212,6 +216,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           beta_features: data.beta_features ?? [],
           account_id: data.account_id ?? null,
           account_role: accountRole,
+          // Wizard de bienvenida (068). Llegan del select; si la base
+          // aún no aplicara 068, el select entero falla antes de aquí.
+          industry: data.industry ?? null,
+          role_title: data.role_title ?? null,
+          onboarding_completed_at: data.onboarding_completed_at ?? null,
         });
         setAccount(accountRow);
       } else {
