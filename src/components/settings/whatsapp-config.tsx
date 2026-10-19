@@ -13,6 +13,11 @@ import {
   Zap,
   AlertTriangle,
   RotateCcw,
+  Plus,
+  Star,
+  Trash2,
+  Pencil,
+  Phone,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
@@ -32,8 +37,30 @@ import type { WhatsAppConfig as WhatsAppConfigType } from '@/types';
 
 const MASKED_TOKEN = '••••••••••••••••';
 
+// Sentinel for "the form is adding a new line" (no row selected yet).
+const NEW_LINE = 'new';
+
 type ConnectionStatus = 'connected' | 'disconnected' | 'unknown';
 type ResetReason = 'token_corrupted' | 'meta_api_error' | null;
+
+/** One row of `GET /api/whatsapp/config?list=1` (never carries tokens). */
+interface WhatsappLine {
+  id: string;
+  label: string | null;
+  phone_number_id: string;
+  waba_id: string | null;
+  status: string;
+  is_default: boolean;
+  registered_at: string | null;
+  last_registration_error: string | null;
+}
+
+/** Which line `fetchConfig` should open after (re)loading the list. */
+interface LineTarget {
+  id?: string | null;
+  phone?: string | null;
+  isNew?: boolean;
+}
 
 export function WhatsAppConfig() {
   const supabase = createClient();
@@ -60,6 +87,14 @@ export function WhatsAppConfig() {
   // tab regains focus. Without this, that churn calls fetchConfig()
   // again and overwrites whatever the user typed but hadn't saved yet.
   const loadedAccountIdRef = useRef<string | null>(null);
+
+  // Several lines per business (067). The form below edits ONE of
+  // them: `selectedId` (a row id) or NEW_LINE while adding a number.
+  const [lines, setLines] = useState<WhatsappLine[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [lineAction, setLineAction] = useState<string | null>(null);
+  const [label, setLabel] = useState('');
+  const isNewLine = selectedId === NEW_LINE;
 
   const [phoneNumberId, setPhoneNumberId] = useState('');
   const [wabaId, setWabaId] = useState('');
@@ -92,29 +127,49 @@ export function WhatsAppConfig() {
       ? `${window.location.origin}/api/whatsapp/webhook`
       : '';
 
-  const fetchConfig = useCallback(async (acctId: string) => {
+  const fetchConfig = useCallback(async (acctId: string, want: LineTarget = {}) => {
     setLoading(true);
     try {
-      // Load form values from Supabase (shows what's in DB), keyed on
-      // `account_id` so every member sees the same configuration. With
-      // several lines per business (067) this form edits the DEFAULT
-      // one — the same row `POST /api/whatsapp/config` targets when no
-      // `config_id` is sent.
-      const { data, error } = await supabase
-        .from('whatsapp_config')
-        .select('*')
-        .eq('account_id', acctId)
-        .order('is_default', { ascending: false })
-        .order('created_at', { ascending: true })
-        .limit(1)
-        .maybeSingle();
+      // 1) Every line of the business (no tokens), default first.
+      let list: WhatsappLine[] = [];
+      try {
+        const res = await fetch('/api/whatsapp/config?list=1', { cache: 'no-store' });
+        if (res.ok) {
+          const payload = (await res.json()) as { lines?: WhatsappLine[] };
+          list = payload.lines ?? [];
+        }
+      } catch (err) {
+        console.error('Failed to list WhatsApp lines:', err);
+      }
+      setLines(list);
 
-      if (error) {
-        console.error('Failed to load config row:', error);
+      // 2) Which one the form edits. No lines at all = adding the first.
+      const target = want.isNew
+        ? null
+        : (want.id ? list.find((l) => l.id === want.id) : undefined) ??
+          (want.phone ? list.find((l) => l.phone_number_id === want.phone) : undefined) ??
+          list.find((l) => l.is_default) ??
+          list[0] ??
+          null;
+      setSelectedId(target ? target.id : NEW_LINE);
+
+      // 3) Full row for the form (registration timestamps etc.), keyed on
+      // id AND account so a stale id can't load another business's row.
+      let data: WhatsAppConfigType | null = null;
+      if (target) {
+        const { data: row, error } = await supabase
+          .from('whatsapp_config')
+          .select('*')
+          .eq('id', target.id)
+          .eq('account_id', acctId)
+          .maybeSingle();
+        if (error) console.error('Failed to load config row:', error);
+        data = (row as WhatsAppConfigType | null) ?? null;
       }
 
       if (data) {
         setConfig(data);
+        setLabel(target?.label ?? '');
         setPhoneNumberId(data.phone_number_id || '');
         setWabaId(data.waba_id || '');
         setAccessToken(MASKED_TOKEN);
@@ -123,6 +178,7 @@ export function WhatsAppConfig() {
         setTokenEdited(false);
       } else {
         setConfig(null);
+        setLabel('');
         setPhoneNumberId('');
         setWabaId('');
         setAccessToken('');
@@ -136,7 +192,10 @@ export function WhatsAppConfig() {
       // Then verify health via the API (decrypts token + pings Meta)
       if (data) {
         try {
-          const res = await fetch('/api/whatsapp/config', { method: 'GET' });
+          const res = await fetch(
+            `/api/whatsapp/config?config_id=${encodeURIComponent(data.id)}`,
+            { method: 'GET' },
+          );
           const payload = await res.json();
 
           if (payload.connected) {
@@ -207,11 +266,40 @@ export function WhatsAppConfig() {
         // requires it on first save or when changing numbers; for a
         // simple token rotation, leaving it blank skips re-register.
         pin: pin.trim() || null,
+        label: label.trim() || null,
       };
+      // 067: say which line this is. Without either field the server
+      // would fall back to "the default line" (legacy single-line form).
+      if (isNewLine || !config) payload.mode = 'add';
+      else payload.config_id = config.id;
 
       if (tokenEdited && accessToken !== MASKED_TOKEN && accessToken.trim()) {
         payload.access_token = accessToken.trim();
       } else if (config) {
+        // Renaming alone doesn't touch Meta, so it doesn't need the
+        // token: save just the label (PATCH) and stop there.
+        const onlyLabelChanged =
+          phoneNumberId.trim() === config.phone_number_id &&
+          (wabaId.trim() || null) === (config.waba_id || null) &&
+          !pin.trim() &&
+          !verifyToken.trim() &&
+          label.trim() !== (config.label ?? '');
+        if (onlyLabelChanged) {
+          const res = await fetch('/api/whatsapp/config', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ config_id: config.id, label: label.trim() }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            toast.error(data.error || 'No se pudo renombrar el número');
+          } else {
+            toast.success('Nombre del número actualizado');
+            if (accountId) await fetchConfig(accountId, { id: config.id });
+          }
+          setSaving(false);
+          return;
+        }
         // Existing config — reuse stored encrypted token by decrypting on the
         // server. But our POST handler requires an access_token to verify
         // with Meta. If the user didn't change the token, we need to signal
@@ -268,7 +356,13 @@ export function WhatsAppConfig() {
         setPin('');
       }
 
-      if (accountId) await fetchConfig(accountId);
+      // Reopen the line just saved (a new one is found by its number).
+      if (accountId) {
+        await fetchConfig(accountId, {
+          id: config?.id ?? null,
+          phone: phoneNumberId.trim(),
+        });
+      }
     } catch (err) {
       console.error('Save error:', err);
       toast.error('Error al guardar la configuración');
@@ -280,7 +374,12 @@ export function WhatsAppConfig() {
   async function handleTestConnection() {
     try {
       setTesting(true);
-      const res = await fetch('/api/whatsapp/config', { method: 'GET' });
+      const res = await fetch(
+        config
+          ? `/api/whatsapp/config?config_id=${encodeURIComponent(config.id)}`
+          : '/api/whatsapp/config',
+        { method: 'GET' },
+      );
       const payload = await res.json();
 
       if (payload.connected) {
@@ -311,11 +410,13 @@ export function WhatsAppConfig() {
     setVerifyingRegistration(true);
     setRegistrationProbe(null);
     try {
-      const res = await fetch('/api/whatsapp/config/verify-registration', {
-        method: 'GET',
-      });
+      const res = await fetch(
+        config
+          ? `/api/whatsapp/config/verify-registration?config_id=${encodeURIComponent(config.id)}`
+          : '/api/whatsapp/config/verify-registration',
+        { method: 'GET' },
+      );
       const data = (await res.json()) as RegistrationProbe;
-      setRegistrationProbe(data);
       if (data.live) {
         toast.success('Number is fully wired — Meta is delivering events.');
       } else {
@@ -324,7 +425,10 @@ export function WhatsAppConfig() {
           { duration: 8000 },
         );
       }
-      if (accountId) await fetchConfig(accountId);
+      // Reload keeps the same line open; the probe is set AFTER the
+      // reload because fetchConfig clears it.
+      if (accountId) await fetchConfig(accountId, { id: config?.id ?? null });
+      setRegistrationProbe(data);
     } catch (err) {
       console.error('verify-registration failed:', err);
       toast.error('No se pudo alcanzar el endpoint de verificación.');
@@ -333,14 +437,22 @@ export function WhatsAppConfig() {
     }
   }
 
+  function lineName(line: Pick<WhatsappLine, 'label' | 'phone_number_id'>) {
+    return line.label?.trim() || `Número ${line.phone_number_id}`;
+  }
+
   async function handleReset() {
-    if (!confirm('Esto eliminar\u00e1 la configuración actual de WhatsApp para que puedas volver a ingresarla. \u00bfContinuar?')) {
+    if (!config) return;
+    if (!confirm('Esto eliminar\u00e1 la configuración de este número para que puedas volver a ingresarla. \u00bfContinuar?')) {
       return;
     }
 
     try {
       setResetting(true);
-      const res = await fetch('/api/whatsapp/config', { method: 'DELETE' });
+      const res = await fetch(
+        `/api/whatsapp/config?config_id=${encodeURIComponent(config.id)}`,
+        { method: 'DELETE' },
+      );
       const data = await res.json();
 
       if (!res.ok) {
@@ -349,20 +461,84 @@ export function WhatsAppConfig() {
       }
 
       toast.success('Configuración eliminada. Ahora puedes volver a ingresar tus credenciales.');
-      setConfig(null);
-      setPhoneNumberId('');
-      setWabaId('');
-      setAccessToken('');
-      setVerifyToken('');
-      setTokenEdited(false);
       setConnectionStatus('disconnected');
       setResetReason(null);
       setStatusMessage('');
+      // Reopen the same number empty so the credentials can be re-entered.
+      if (accountId) await fetchConfig(accountId, { isNew: true });
+      setPhoneNumberId(config.phone_number_id);
+      setWabaId(config.waba_id ?? '');
+      setLabel(config.label ?? '');
     } catch (err) {
       console.error('Reset error:', err);
       toast.error('Error al reiniciar la configuración');
     } finally {
       setResetting(false);
+    }
+  }
+
+  function handleSelectLine(id: string) {
+    if (!accountId || id === selectedId) return;
+    void fetchConfig(accountId, { id });
+  }
+
+  function handleAddLine() {
+    if (!accountId) return;
+    void fetchConfig(accountId, { isNew: true });
+  }
+
+  async function handleMakeDefault(line: WhatsappLine) {
+    setLineAction(line.id);
+    try {
+      const res = await fetch('/api/whatsapp/config', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ config_id: line.id, is_default: true }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(data.error || 'No se pudo marcar como número por defecto');
+        return;
+      }
+      toast.success(`${lineName(line)} es ahora el número por defecto`);
+      if (accountId) await fetchConfig(accountId, { id: selectedId === NEW_LINE ? null : selectedId });
+    } catch (err) {
+      console.error('make-default error:', err);
+      toast.error('No se pudo conectar con el servidor');
+    } finally {
+      setLineAction(null);
+    }
+  }
+
+  async function handleRemoveLine(line: WhatsappLine) {
+    const warning = line.is_default && lines.length > 1
+      ? ' Es el número por defecto: otro pasará a serlo.'
+      : '';
+    if (!confirm(`¿Desconectar ${lineName(line)}? Las conversaciones que entraron por él se responderán desde el número por defecto.${warning}`)) {
+      return;
+    }
+    setLineAction(line.id);
+    try {
+      const res = await fetch(
+        `/api/whatsapp/config?config_id=${encodeURIComponent(line.id)}`,
+        { method: 'DELETE' },
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(data.error || 'No se pudo desconectar el número');
+        return;
+      }
+      toast.success(`${lineName(line)} desconectado`);
+      if (accountId) {
+        await fetchConfig(accountId, {
+          id: line.id === selectedId ? null : selectedId,
+        });
+      }
+    } catch (err) {
+      console.error('remove-line error:', err);
+      toast.error('No se pudo conectar con el servidor');
+    } finally {
+      setLineAction(null);
     }
   }
 
@@ -396,6 +572,135 @@ export function WhatsAppConfig() {
       <div className="grid gap-6 lg:grid-cols-[1fr_380px]">
       {/* Main config form */}
       <div className="space-y-6">
+        {/* Lines of this business (067). The form below edits the one
+            selected here, or a new one after "Añadir número". */}
+        <Card>
+          <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
+            <div className="space-y-1.5">
+              <CardTitle className="text-foreground">Números de WhatsApp</CardTitle>
+              <CardDescription className="text-muted-foreground">
+                Cada conversación se responde desde el número por el que
+                escribió el cliente. El número por defecto se usa para
+                difusiones, la API y los chats que inicias tú.
+              </CardDescription>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleAddLine}
+              disabled={isNewLine}
+              className="shrink-0 border-border"
+            >
+              <Plus className="size-4" />
+              Añadir número
+            </Button>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {lines.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                Aún no hay números conectados. Completa el formulario de abajo
+                para conectar el primero.
+              </p>
+            ) : (
+              <ul className="space-y-2">
+                {lines.map((line) => {
+                  const selected = line.id === selectedId;
+                  const busy = lineAction === line.id;
+                  const live = line.status === 'connected';
+                  return (
+                    <li
+                      key={line.id}
+                      className={
+                        'flex flex-wrap items-center gap-3 rounded-lg border px-3 py-2 ' +
+                        (selected ? 'border-primary/60 bg-primary/5' : 'border-border')
+                      }
+                    >
+                      <Phone className="size-4 shrink-0 text-muted-foreground" />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="truncate font-medium text-foreground" title={lineName(line)}>
+                            {lineName(line)}
+                          </span>
+                          {line.is_default && (
+                            <span className="rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
+                              Por defecto
+                            </span>
+                          )}
+                          <span
+                            className={
+                              'inline-flex items-center gap-1 text-xs ' +
+                              (live ? 'text-emerald-400' : 'text-red-400')
+                            }
+                          >
+                            {live ? <CheckCircle2 className="size-3" /> : <XCircle className="size-3" />}
+                            {live ? 'Conectado' : 'Desconectado'}
+                          </span>
+                        </div>
+                        <p className="truncate text-xs text-muted-foreground">
+                          ID {line.phone_number_id}
+                          {line.waba_id ? ` · WABA ${line.waba_id}` : ''}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        {busy ? (
+                          <Loader2 className="size-4 animate-spin text-muted-foreground" />
+                        ) : (
+                          <>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => handleSelectLine(line.id)}
+                              disabled={selected}
+                              title="Editar este número"
+                            >
+                              <Pencil className="size-3.5" />
+                              {selected ? 'Editando' : 'Editar'}
+                            </Button>
+                            {!line.is_default && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => void handleMakeDefault(line)}
+                                title="Usar como número por defecto"
+                              >
+                                <Star className="size-3.5" />
+                                Por defecto
+                              </Button>
+                            )}
+                            <Button
+                              size="icon-sm"
+                              variant="ghost"
+                              onClick={() => void handleRemoveLine(line)}
+                              title="Desconectar este número"
+                              aria-label={`Desconectar ${lineName(line)}`}
+                              className="text-red-400 hover:bg-red-950/40 hover:text-red-300"
+                            >
+                              <Trash2 className="size-3.5" />
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+            {isNewLine && lines.length > 0 && (
+              <p className="text-xs text-primary">
+                Añadiendo un número nuevo: completa las credenciales de abajo y
+                pulsa Guardar.{' '}
+                <button
+                  type="button"
+                  className="underline"
+                  onClick={() => accountId && void fetchConfig(accountId)}
+                >
+                  Cancelar
+                </button>
+              </p>
+            )}
+          </CardContent>
+        </Card>
+
         {/* Corrupted-token reset banner */}
         {showResetBanner && (
           <Alert className="bg-amber-950/40 border-amber-600/40">
@@ -562,12 +867,35 @@ export function WhatsAppConfig() {
         {/* API Credentials */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-foreground">Credenciales de API</CardTitle>
+            <CardTitle className="text-foreground">
+              {isNewLine || !config
+                ? 'Conectar un número nuevo'
+                : `Credenciales de ${lineName({ label: config.label ?? null, phone_number_id: config.phone_number_id })}`}
+            </CardTitle>
             <CardDescription className="text-muted-foreground">
               Ingresa tus credenciales de la API de Meta WhatsApp Business.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label className="text-muted-foreground" htmlFor="wa-line-label">
+                Nombre del número
+                <span className="ml-1 text-muted-foreground">(opcional)</span>
+              </Label>
+              <Input
+                id="wa-line-label"
+                placeholder="ej. Ventas, Soporte, Sucursal Centro"
+                value={label}
+                maxLength={60}
+                onChange={(e) => setLabel(e.target.value)}
+                className="bg-muted border-border text-foreground placeholder:text-muted-foreground"
+              />
+              <p className="text-xs text-muted-foreground">
+                Así lo verá tu equipo en la bandeja para saber por qué número
+                escribió cada cliente.
+              </p>
+            </div>
+
             <div className="space-y-2">
               <Label className="text-muted-foreground">ID del Número de Teléfono</Label>
               <Input

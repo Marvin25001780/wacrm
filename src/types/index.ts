@@ -674,6 +674,10 @@ export interface Conversation {
   /** ID del usuario en el canal externo (teléfono E.164, IG/FB scoped
    *  ID, jid de TikTok...) — la clave para reencontrar el hilo. */
   external_contact_id?: string | null;
+  /** 067 — la línea de WhatsApp por la que entró el hilo (y por la que
+   *  se responde). NULL en hilos de otros canales o si la línea se
+   *  desconectó (entonces se responde por la de por defecto). */
+  whatsapp_config_id?: string | null;
   last_message_text?: string;
   last_message_at?: string;
   unread_count: number;
@@ -770,7 +774,14 @@ export interface MessageReaction {
 
 export interface WhatsAppConfig {
   id: string;
-  user_id: string;
+  /** NULL since 067 if the user who connected the line was deleted. */
+  user_id: string | null;
+  /** 067 — the business can have several lines. */
+  account_id?: string;
+  /** Visible name of the line ("Ventas", "Soporte"…). */
+  label?: string | null;
+  /** The line used when a thread doesn't name one. One per business. */
+  is_default?: boolean;
   phone_number_id: string;
   waba_id?: string;
   access_token: string;

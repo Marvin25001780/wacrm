@@ -44,6 +44,26 @@ const STATUS_COLORS: Record<ConversationStatus, string> = {
 
 type InboxFilter = ConversationStatus | "all" | "unread";
 
+/** A WhatsApp line of the business (067), as the inbox needs it. */
+interface InboxLine {
+  id: string;
+  name: string;
+  is_default: boolean;
+}
+
+/**
+ * The line a thread belongs to. A WhatsApp thread with no line (its
+ * number was disconnected, FK SET NULL) is answered from the default
+ * line, so that's where it's listed too. Non-WhatsApp threads: none.
+ */
+function lineOf(
+  conversation: Conversation,
+  defaultLineId: string | null,
+): string | null {
+  if ((conversation.channel ?? "whatsapp") !== "whatsapp") return null;
+  return conversation.whatsapp_config_id ?? defaultLineId;
+}
+
 const FILTER_OPTIONS: { label: string; value: InboxFilter }[] = [
   { label: "Todos", value: "all" },
   { label: "No leídos", value: "unread" },
@@ -68,6 +88,9 @@ export function ConversationList({
   const [tags, setTags] = useState<Tag[]>([]);
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const [selectedCompany, setSelectedCompany] = useState<string | null>(null);
+  // Several WhatsApp numbers per business (067): filter by number.
+  const [lines, setLines] = useState<InboxLine[]>([]);
+  const [selectedLineId, setSelectedLineId] = useState<string | null>(null);
 
   // Keep the latest callback in a ref so the fetch effect below can
   // have a stable, empty-dep identity. Previously the fetch useCallback
@@ -136,6 +159,53 @@ export function ConversationList({
     };
   }, []);
 
+  // WhatsApp lines of the business — once, like tags. Only names and the
+  // default flag; the filter chips appear only with 2+ numbers.
+  useEffect(() => {
+    const supabase = createClient();
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase
+        .from("whatsapp_config")
+        .select("id, label, is_default, created_at")
+        .order("is_default", { ascending: false })
+        .order("created_at", { ascending: true });
+      if (cancelled) return;
+      if (error) {
+        console.warn("[conversation-list] lines fetch failed:", error.message);
+        return;
+      }
+      setLines(
+        ((data ?? []) as { id: string; label: string | null; is_default: boolean }[]).map(
+          (row, i) => ({
+            id: row.id,
+            name: row.label?.trim() || `Número ${i + 1}`,
+            is_default: row.is_default,
+          }),
+        ),
+      );
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const defaultLineId = useMemo(
+    () => lines.find((l) => l.is_default)?.id ?? lines[0]?.id ?? null,
+    [lines],
+  );
+  const showLines = lines.length > 1;
+  const lineNames = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const l of lines) m.set(l.id, l.name);
+    return m;
+  }, [lines]);
+  // A selection that no longer exists (number disconnected) reads as "all".
+  const activeLineId =
+    showLines && selectedLineId && lineNames.has(selectedLineId)
+      ? selectedLineId
+      : null;
+
   // Company options are derived from the loaded conversations — there's no
   // separate companies table, and only companies with a live conversation
   // are worth offering as an inbox filter.
@@ -163,6 +233,12 @@ export function ConversationList({
       result = result.filter((c) => c.status === filter);
     }
 
+    // By WhatsApp number (067). Other channels' threads have no number,
+    // so they drop out while a number is selected.
+    if (activeLineId) {
+      result = result.filter((c) => lineOf(c, defaultLineId) === activeLineId);
+    }
+
     // Contact-based filters (tags via OR logic, exact company match).
     if (selectedTagIds.length > 0 || selectedCompany !== null) {
       result = result.filter((c) =>
@@ -184,7 +260,15 @@ export function ConversationList({
     }
 
     return result;
-  }, [conversations, filter, search, selectedTagIds, selectedCompany]);
+  }, [
+    conversations,
+    filter,
+    search,
+    selectedTagIds,
+    selectedCompany,
+    activeLineId,
+    defaultLineId,
+  ]);
 
   const toggleTag = useCallback((id: string) => {
     setSelectedTagIds((prev) =>
@@ -346,7 +430,77 @@ export function ConversationList({
               </DropdownMenuContent>
             </DropdownMenu>
           )}
+
+          {showLines && (
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                className={cn(
+                  "inline-flex max-w-40 items-center justify-center h-7 gap-1 px-2 text-xs rounded-md hover:bg-muted",
+                  activeLineId
+                    ? "text-primary"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                <span className="truncate">
+                  {activeLineId ? (lineNames.get(activeLineId) ?? "Número") : "Números"}
+                </span>
+                <ChevronDown className="h-3 w-3 shrink-0" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="start"
+                className="max-h-64 w-56 border-border bg-popover"
+              >
+                <DropdownMenuItem
+                  onClick={() => setSelectedLineId(null)}
+                  className={cn(
+                    "text-sm",
+                    activeLineId === null
+                      ? "text-primary"
+                      : "text-popover-foreground"
+                  )}
+                >
+                  Todos los números
+                </DropdownMenuItem>
+                {lines.map((line) => (
+                  <DropdownMenuItem
+                    key={line.id}
+                    onClick={() => setSelectedLineId(line.id)}
+                    className={cn(
+                      "text-sm",
+                      activeLineId === line.id
+                        ? "text-primary"
+                        : "text-popover-foreground"
+                    )}
+                  >
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span className="truncate">{line.name}</span>
+                      {line.is_default && (
+                        <span className="shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground">
+                          por defecto
+                        </span>
+                      )}
+                    </span>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
         </div>
+
+        {/* Active number chip (067) — same pattern as the tag chips. */}
+        {activeLineId && (
+          <div className="flex flex-wrap items-center gap-1">
+            <button
+              onClick={() => setSelectedLineId(null)}
+              className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] text-foreground hover:bg-muted/70"
+            >
+              <span className="max-w-32 truncate">
+                {lineNames.get(activeLineId) ?? "Número"}
+              </span>
+              <X className="h-3 w-3" />
+            </button>
+          </div>
+        )}
 
         {hasContactFilters && (
           <div className="flex flex-wrap items-center gap-1">
@@ -409,6 +563,11 @@ export function ConversationList({
                 conversation={conv}
                 isActive={conv.id === activeConversationId}
                 onSelect={handleSelect}
+                lineName={
+                  showLines && (conv.channel ?? "whatsapp") === "whatsapp"
+                    ? lineNames.get(lineOf(conv, defaultLineId) ?? "") ?? null
+                    : null
+                }
               />
             ))}
           </div>
@@ -422,12 +581,16 @@ interface ConversationItemProps {
   conversation: Conversation;
   isActive: boolean;
   onSelect: (conversation: Conversation) => void;
+  /** Nombre de la línea por la que entró el hilo (067). Solo se pinta
+   *  cuando el negocio tiene 2+ números. */
+  lineName?: string | null;
 }
 
 function ConversationItem({
   conversation,
   isActive,
   onSelect,
+  lineName,
 }: ConversationItemProps) {
   const contact = conversation.contact;
   const displayName = contact?.name || contact?.phone || "Unknown";
@@ -479,6 +642,11 @@ function ConversationItem({
           </span>
           <span className="shrink-0 text-[10px] text-muted-foreground">{timeAgo}</span>
         </div>
+        {lineName && (
+          <p className="mt-0.5 truncate text-[10px] text-muted-foreground/80">
+            vía {lineName}
+          </p>
+        )}
         <div className="mt-0.5 flex items-center justify-between gap-2">
           <p className="truncate text-xs text-muted-foreground">
             {conversation.last_message_text || "Sin mensajes aún"}
