@@ -65,11 +65,14 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-// User-facing name for the account concept. Kept in one constant so
-// a product-level rename is a one-line diff here (plus the copy in
-// the dialog that uses it).
-const WORKSPACE_LABEL = "espacio de trabajo";
-const WORKSPACE_LABEL_TITLE = "Espacio de trabajo";
+// User-facing name for the account concept. The DB, the RPCs and
+// this file keep calling it "workspace" (that's the technical name
+// in 066 and the API routes); the UI says "negocio" because the app
+// already has an unrelated "Espacios" section under Operaciones and
+// two different things called "espacio" is a support ticket waiting
+// to happen. Renaming the product term is a one-line diff here.
+const WORKSPACE_LABEL = "negocio";
+const WORKSPACE_LABEL_TITLE = "Negocio";
 
 // Matches the server's cap in /api/account/workspaces and the
 // account-rename route — three places, one number.
@@ -155,7 +158,7 @@ export function WorkspaceSwitcher() {
         });
         if (!res.ok) {
           const payload = await res.json().catch(() => ({}));
-          toast.error(payload.error || "No se pudo cambiar de espacio");
+          toast.error(payload.error || "No se pudo cambiar de negocio");
           setSwitchingTo(null);
           return;
         }
@@ -192,8 +195,8 @@ export function WorkspaceSwitcher() {
         toast.error(
           payload.error ||
             (isCreate
-              ? "Error al crear el espacio de trabajo"
-              : "Error al renombrar el espacio de trabajo"),
+              ? "Error al crear el negocio"
+              : "Error al renombrar el negocio"),
         );
         return;
       }
@@ -211,7 +214,7 @@ export function WorkspaceSwitcher() {
 
       // Rename needs no reload: it changes one string, and nothing
       // cached is keyed on it.
-      toast.success("Espacio de trabajo renombrado");
+      toast.success("Negocio renombrado");
       setDialogMode(null);
       await Promise.all([refreshProfile(), load(user.id)]);
     } catch (err) {
@@ -260,7 +263,7 @@ export function WorkspaceSwitcher() {
           {/* Label + radio group must live inside a <Group>: Base UI's
               GroupLabel reads its context and throws otherwise. */}
           <DropdownMenuGroup>
-            <DropdownMenuLabel>Cambiar de espacio</DropdownMenuLabel>
+            <DropdownMenuLabel>Cambiar de negocio</DropdownMenuLabel>
             <DropdownMenuRadioGroup
               value={activeId ?? undefined}
               onValueChange={(value) => {
@@ -308,7 +311,7 @@ export function WorkspaceSwitcher() {
                 }}
               >
                 <Pencil />
-                Renombrar este espacio
+                Renombrar este negocio
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={() => {
@@ -317,7 +320,7 @@ export function WorkspaceSwitcher() {
                 }}
               >
                 <Plus />
-                Crear espacio de trabajo
+                Crear negocio
               </DropdownMenuItem>
             </>
           ) : null}
@@ -334,12 +337,12 @@ export function WorkspaceSwitcher() {
           <DialogHeader>
             <DialogTitle>
               {dialogMode === "create"
-                ? "Crear espacio de trabajo"
-                : "Renombrar espacio de trabajo"}
+                ? "Crear negocio"
+                : "Renombrar negocio"}
             </DialogTitle>
             <DialogDescription>
               {dialogMode === "create"
-                ? "Tendrás el rol de Dueño en el espacio nuevo y pasarás a trabajar en él. Podrás invitar a tu equipo y conectar sus propios canales."
+                ? "Tendrás el rol de Dueño en el negocio nuevo y pasarás a trabajar en él. Podrás invitar a tu equipo y conectar sus propios canales."
                 : `El nombre es visible para todo el equipo de este ${WORKSPACE_LABEL}.`}
             </DialogDescription>
           </DialogHeader>
