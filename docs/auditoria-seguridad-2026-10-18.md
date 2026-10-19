@@ -1,6 +1,6 @@
 # Auditoría de seguridad y funcionamiento — 2026-10-18
 
-**Modo:** solo lectura en la revisión original. **Estado (2026-10-18):** S1, S2 y S13 remediados en la rama local `fix/auditoria-tanda-1` (**sin fusionar ni desplegar**) y **validados en dev**; S17 y S18 se descubrieron durante esa validación. El resto sigue pendiente.
+**Modo:** solo lectura en la revisión original. **Estado (2026-10-18):** S1, S2, S3, S13 y S17 remediados en la rama local `fix/auditoria-tanda-1` (**sin fusionar ni desplegar**) y **validados en dev**; S17 y S18 se descubrieron durante la validación de la tanda 1. S18 queda como decisión de producto. El resto sigue pendiente.
 **Método:** revisión del esquema/migraciones, rutas de `/api`, middleware, políticas RLS, almacenamiento, dependencias (`npm audit`) e historial de git.
 **Alcance:** todo el CRM. No es una auditoría exhaustiva línea a línea; es una revisión dirigida a los puntos donde este tipo de app suele fallar (multi-tenant, webhooks, secretos, almacenamiento, abuso de recursos).
 
@@ -12,7 +12,7 @@
 |---|---|---|---|
 | S1 | 🔴 **Crítico** | Next.js 16.2.6 con CVEs críticos (hay fix en 16.4.2) | Bajo (1-2 h) |
 | S2 | 🔴 **Crítico** | `chat-media` es un bucket **público**: fotos/documentos/audios de clientes sin autenticación | Medio |
-| S3 | 🟠 **Alto** | `profiles_update` permite autoascenso de rol y cambio de espacio | Bajo |
+| S3 | 🟠 **Alto** | `profiles_update` permite autoascenso de rol y cambio de espacio — ✅ **remediado** (066) | Bajo |
 | S4 | 🟠 **Alto (a verificar)** | `Cache-Control` público en páginas autenticadas (posible caché compartida en CDN) | Bajo (verificar) |
 | S5 | 🟡 Medio | SSRF en "Probar conexión" de canales (URL del admin sin allowlist) | Bajo |
 | S6 | 🟡 Medio | Automatizaciones filtradas por `user_id` (no por cuenta) → invisibles para compañeros | Bajo |
@@ -26,12 +26,14 @@
 | S14 | 🟢 Bajo | CSP en modo `Report-Only` (no bloquea) | Bajo |
 | S15 | 🟢 Bajo | `whatsapp_config.user_id` con `ON DELETE CASCADE` | Bajo |
 | S16 | 🟢 Bajo | Plantillas únicas por `user_id` en vez de por cuenta/WABA | Bajo |
-| S17 | 🟡 Medio | Borrar una cuenta falla si tiene filas auditadas (el trigger de auditoría rompe el `ON DELETE CASCADE`) | Bajo |
+| S17 | 🟡 Medio | Borrar una cuenta falla si tiene filas auditadas (el trigger de auditoría rompe el `ON DELETE CASCADE`) — ✅ **remediado** (066) | Bajo |
 | S18 | 🟢 Bajo | `accounts.owner_user_id` es `ON DELETE RESTRICT` → borrar al propietario devuelve un 500 opaco | Bajo |
 
 S1, S2 y S3 son los que yo arreglaría **antes** de abrir el CRM a clientes externos.
 
-**Remediado en esta tanda:** S1 (Next 16.4.2; `npm audit --omit=dev` → 0 vulnerabilidades), S2 (bucket privado + URLs firmadas; **migración 065 aplicada y validado en dev**) y S13 (`shadcn` a `devDependencies`). La validación en dev además destapó S17 y S18 (borrado de cuentas/usuarios). S3 queda para la fase 1 de multipertenencia porque comparte migración con las RPC de cuentas.
+**Remediado en esta tanda:** S1 (Next 16.4.2; `npm audit --omit=dev` → 0 vulnerabilidades), S2 (bucket privado + URLs firmadas; **migración 065 aplicada y validada en dev**) y S13 (`shadcn` a `devDependencies`). La validación en dev además destapó S17 y S18 (borrado de cuentas/usuarios).
+
+**Remediado en la fase 1 de multipertenencia (migración 066, aplicada y validada en dev):** S3 (trigger `protect_profile_tenancy`) y S17 (`audit_row()` ya no falla al borrar en cascada).
 
 ---
 
@@ -90,6 +92,27 @@ Comparación: el bucket `attachments` ya hace lo correcto (`035_attachments.sql:
 
 ---
 
+### Fase 1 — multipertenencia (migración 066)
+
+`supabase/migrations/066_account_members.sql`: `account_members(user_id, account_id, role)` pasa a ser la fuente de verdad de la pertenencia; `profiles.account_id` / `profiles.account_role` quedan como **cuenta activa**; `is_account_member` mantiene firma y semántica leyendo la tabla nueva (ninguna política de dominio cambia). Añade `switch_active_account` y `create_workspace` (solo admin+), cierra S3 con `protect_profile_tenancy` y arregla S17 en `audit_row()`. Diseño completo en `docs/diseno-multiespacio-y-varios-numeros.md`.
+
+| Prueba | Resultado |
+|---|---|
+| Aplicada en dev (SQL Editor) | `Success. No rows returned` ✅ |
+| Arnés PGlite (Postgres real, migraciones 001/017/018/019/041 + 066) | **60/60 PASS**, idempotencia OK, rollback **7/7 PASS** ✅ |
+| Service role en dev: tabla, backfill, 1 owner por cuenta, 7 funciones nuevas, trigger | **13/13 PASS** ✅ |
+| 2 sesiones reales: canje de invitación → **2 membresías** (no se muda de cuenta), la cuenta propia sigue existiendo | ✅ |
+| RLS con sesión real: se ve lo de la cuenta **activa**, no lo de la otra | ✅ |
+| `switch_active_account` cambia lo visible; una cuenta ajena → `42501` | ✅ |
+| S3 desde el navegador (sesión de `agent`): autoascenso a `owner` y cambio de `account_id` | **403 / `42501`** ✅ |
+| `create_workspace` con rol `agent` | **42501** ✅ |
+| UI: al cambiar de espacio, la barra lateral y la lista de contactos cambian | ✅ (captura revisada) |
+| S17: borrar una cuenta con contactos auditados | **200** (antes 409 / `23503`) ✅ |
+
+  Los 2 usuarios, sus cuentas, contactos, invitación y registros de auditoría de la prueba se borraron al terminar (verificado: 0 filas).
+
+---
+
 ### S3 — `profiles_update` permite autoascenso
 
 **Evidencia:** `supabase/migrations/017_account_sharing.sql:614-616`:
@@ -105,6 +128,12 @@ No restringe columnas. Un usuario autenticado puede hacer `PATCH /profiles` (cli
 **Impacto práctico:** hoy, un `agent` puede convertirse en `owner`. Con el diseño de multipertenencia (que usa `account_id` como conmutador de espacio) sería además un salto entre negocios.
 
 **Recomendación:** el trigger + `set_config('app.tenancy_write')` que ya está en `docs/diseno-multiespacio-y-varios-numeros.md` §2.4. Alternativa: `REVOKE UPDATE` + `GRANT UPDATE (columnas de autoedición)`. Conviene hacerlo **antes** de la fase de multipertenencia.
+
+**Estado:** ✅ **remediado y validado en dev** (migración 066, `protect_profile_tenancy`).
+
+- Cualquier `UPDATE` a `profiles.account_id` o `profiles.account_role` aborta con `42501` salvo que la transacción active `set_config('app.tenancy_write','on',true)`. Las RPC de pertenencia (`set_member_role`, `remove_account_member`, `transfer_account_ownership`, `redeem_invitation`, `switch_active_account`, `create_workspace`) lo activan dentro de su propia transacción.
+- Se comprobó desde el **cliente de navegador** (sesión real de un `agent`): `PATCH /profiles` con `account_role: 'owner'` → **403 / `42501`**; con `account_id` de otra cuenta → **403**.
+- Efecto secundario a tener en cuenta: el trigger también bloquea el cambio a mano **desde el SQL Editor**; para una corrección manual hay que ejecutar `select set_config('app.tenancy_write','on',true);` en la misma transacción.
 
 ---
 
@@ -271,7 +300,9 @@ END IF;
 
 Así los borrados en cascada no intentan auditar contra una cuenta extinta, y el `ON DELETE CASCADE` de `audit_logs` limpia el historial.
 
-**Estado:** pendiente. Encaja en la fase 1 (migración de cuentas): conviene arreglarlo antes de probar el alta/baja de espacios de trabajo.
+**Estado:** ✅ **remediado y validado en dev** (migración 066): `audit_row()` captura `foreign_key_violation` y descarta la entrada de auditoría en vez de abortar la operación.
+
+- Verificado en dev: `DELETE /rest/v1/accounts?id=eq.<cuenta>` con contactos auditados dentro → **200** (antes `409 / 23503`). Habilita dar de baja un espacio de trabajo completo.
 
 ### S18 — `accounts.owner_user_id` bloquea borrar al propietario
 
@@ -315,11 +346,11 @@ Para que la lista anterior no dé una impresión equivocada:
 
 ## 3. Plan sugerido (por tandas)
 
-**Tanda 1 — antes de abrir a clientes (medio día)**
-1. S1: `next@16.4.2` + `eslint-config-next`; build + pruebas.
-2. S2: `chat-media` privado + `createSignedUrl` + migrar `media_url`.
-3. S3: trigger `protect_profile_tenancy` (encaja con la fase 1 del diseño).
-4. S4a: verificar `Cache-Control` con DevTools; corregir si sale `HIT`.
+**Tanda 1 — antes de abrir a clientes (medio día)** — ✅ **hecha** (S1, S2, S13) y S3/S17 resueltos en la fase 1 (066).
+1. S1: `next@16.4.2` + `eslint-config-next`; build + pruebas. ✅
+2. S2: `chat-media` privado + `createSignedUrl` + migrar `media_url`. ✅ (065)
+3. S3: trigger `protect_profile_tenancy` (encaja con la fase 1 del diseño). ✅ (066)
+4. S4a: verificar `Cache-Control` con DevTools; corregir si sale `HIT`. ⏳ pendiente de verificación en el navegador
 
 **Tanda 2 — calidad multi-tenant (1 día)**
 5. S6 (automatizaciones por cuenta), S7 (dedupe Evolution), S10 (timeouts).
