@@ -12,6 +12,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { findExistingContact, isUniqueViolation } from '@/lib/contacts/dedupe';
 import { resolveImportTagIds } from '@/lib/contacts/resolve-import-tags';
 import { sanitizePhoneForMeta, isValidE164 } from '@/lib/whatsapp/phone-utils';
+import { resolveWhatsappConfig } from '@/lib/whatsapp/config';
 
 /** Row select that embeds the contact's tags for serialization. */
 export const CONTACT_SELECT = '*, contact_tags(tags(*))';
@@ -73,12 +74,11 @@ export async function resolveAuditUserId(
   db: SupabaseClient,
   accountId: string
 ): Promise<string> {
-  const { data: config } = await db
-    .from('whatsapp_config')
-    .select('user_id')
-    .eq('account_id', accountId)
-    .maybeSingle();
-  const configOwner = config?.user_id as string | undefined;
+  // Con varias líneas (067) se usa la por defecto; su `user_id` puede
+  // ser NULL (el usuario que la conectó ya no existe) y entonces se cae
+  // al dueño de la cuenta, igual que si no hubiera línea.
+  const { data: config } = await resolveWhatsappConfig(db, accountId);
+  const configOwner = config?.user_id ?? undefined;
   if (configOwner) return configOwner;
 
   const { data: account } = await db

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { decrypt } from '@/lib/whatsapp/encryption'
+import { listAccountWabas } from '@/lib/whatsapp/config'
 import { normalizeStatus } from '@/lib/whatsapp/template-status-normalize'
 import type { TemplateButton, TemplateSampleValues } from '@/types'
 
@@ -150,71 +151,71 @@ export async function POST() {
       )
     }
 
-    const { data: config, error: configError } = await supabase
-      .from('whatsapp_config')
-      .select('*')
-      .eq('account_id', accountId)
-      .single()
+    // Una cuenta puede tener líneas en varias WABA (067). Las plantillas
+    // son de la WABA, así que se sincroniza cada una con el token de una
+    // de sus líneas y cada fila queda sellada con su `waba_id`.
+    const { data: wabaLines, error: configError } = await listAccountWabas(
+      supabase,
+      accountId,
+    )
 
-    if (configError || !config) {
+    if (configError) {
+      return NextResponse.json({ error: configError }, { status: 500 })
+    }
+
+    if (wabaLines.length === 0) {
       return NextResponse.json(
         {
           error:
-            'WhatsApp not configured. Connect your WhatsApp Business account in Settings first.',
+            'WhatsApp not configured (or WABA ID missing). Connect your WhatsApp Business account in Settings first.',
         },
         { status: 400 },
       )
     }
 
-    if (!config.waba_id) {
-      return NextResponse.json(
-        {
-          error:
-            'WABA (WhatsApp Business Account) ID missing. Re-connect your account in Settings.',
-        },
-        { status: 400 },
-      )
-    }
-
-    const accessToken = decrypt(config.access_token)
-
-    const metaTemplates: MetaTemplate[] = []
-    let nextUrl:
-      | string
-      | null = `${META_API_BASE}/${config.waba_id}/message_templates?limit=100&fields=id,name,language,status,category,components,quality_score`
+    const metaTemplates: { t: MetaTemplate; wabaId: string }[] = []
     const PAGE_CAP = 20
-    let pageCount = 0
+    let truncated = false
 
-    while (nextUrl && pageCount < PAGE_CAP) {
-      pageCount++
-      const metaRes: Response = await fetch(nextUrl, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      })
+    for (const line of wabaLines) {
+      const wabaId = line.waba_id as string
+      const accessToken = decrypt(line.access_token)
+      let nextUrl: string | null =
+        `${META_API_BASE}/${wabaId}/message_templates?limit=100&fields=id,name,language,status,category,components,quality_score`
+      let pageCount = 0
 
-      if (!metaRes.ok) {
-        let metaErr = `Meta API error: ${metaRes.status}`
-        try {
-          const body = await metaRes.json()
-          if (body?.error?.message) metaErr = body.error.message
-        } catch {
-          // response wasn't JSON — keep the fallback
+      while (nextUrl && pageCount < PAGE_CAP) {
+        pageCount++
+        const metaRes: Response = await fetch(nextUrl, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        })
+
+        if (!metaRes.ok) {
+          let metaErr = `Meta API error: ${metaRes.status}`
+          try {
+            const body = await metaRes.json()
+            if (body?.error?.message) metaErr = body.error.message
+          } catch {
+            // response wasn't JSON — keep the fallback
+          }
+          return NextResponse.json({ error: metaErr }, { status: 502 })
         }
-        return NextResponse.json({ error: metaErr }, { status: 502 })
-      }
 
-      const metaBody: {
-        data?: MetaTemplate[]
-        paging?: { next?: string }
-      } = await metaRes.json()
-      if (metaBody.data) metaTemplates.push(...metaBody.data)
-      nextUrl = metaBody.paging?.next ?? null
+        const metaBody: {
+          data?: MetaTemplate[]
+          paging?: { next?: string }
+        } = await metaRes.json()
+        for (const t of metaBody.data ?? []) metaTemplates.push({ t, wabaId })
+        nextUrl = metaBody.paging?.next ?? null
+      }
+      if (pageCount >= PAGE_CAP && nextUrl !== null) truncated = true
     }
 
     let inserted = 0
     let updated = 0
     const errors: { name: string; language: string; message: string }[] = []
 
-    for (const t of metaTemplates) {
+    for (const { t, wabaId } of metaTemplates) {
       const body = (t.components ?? []).find((c) => c.type === 'BODY')
       const header = (t.components ?? []).find((c) => c.type === 'HEADER')
       const footer = (t.components ?? []).find((c) => c.type === 'FOOTER')
@@ -237,6 +238,7 @@ export async function POST() {
         // route. account_id is NOT NULL on message_templates
         // post-017, so an INSERT without it errors.
         account_id: accountId,
+        waba_id: wabaId,
         user_id: user.id,
         name: t.name,
         category: normalizeCategory(t.category),
@@ -258,6 +260,7 @@ export async function POST() {
         .from('message_templates')
         .select('id')
         .eq('account_id', accountId)
+        .eq('waba_id', wabaId)
         .eq('name', t.name)
         .eq('language', t.language)
         .maybeSingle()
@@ -307,7 +310,7 @@ export async function POST() {
       inserted,
       updated,
       errors,
-      truncated: pageCount >= PAGE_CAP && nextUrl !== null,
+      truncated,
     })
   } catch (error) {
     console.error('Error syncing WhatsApp templates:', error)

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { decrypt } from '@/lib/whatsapp/encryption'
+import { resolveWhatsappConfig } from '@/lib/whatsapp/config'
 import {
   getSubscribedApps,
   verifyPhoneNumber,
@@ -28,7 +29,7 @@ import {
  * rather than a generic error toast. The combined `live` flag is
  * what the UI badges on.
  */
-export async function GET() {
+export async function GET(request: Request) {
   const supabase = await createClient()
   const {
     data: { user },
@@ -55,11 +56,15 @@ export async function GET() {
     })
   }
 
-  const { data: config } = await supabase
-    .from('whatsapp_config')
-    .select('*')
-    .eq('account_id', accountId)
-    .maybeSingle()
+  // `?config_id=` verifica una línea concreta (067: varias por cuenta);
+  // sin él, la por defecto. Un id de otra cuenta no se encuentra porque
+  // el helper filtra por `account_id`, así que cae a la por defecto.
+  const configId = new URL(request.url).searchParams.get('config_id')
+  const { data: config } = await resolveWhatsappConfig(
+    supabase,
+    accountId,
+    configId,
+  )
 
   if (!config) {
     return NextResponse.json({

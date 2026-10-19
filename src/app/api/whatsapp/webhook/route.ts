@@ -387,6 +387,23 @@ async function processWebhook(body: { entry?: WhatsAppWebhookEntry[] }) {
 
       const decryptedAccessToken = decrypt(config.access_token)
 
+      // `whatsapp_config.user_id` puede ser NULL desde 067 (la FK es
+      // ON DELETE SET NULL: borrar al usuario que conectó la línea no
+      // se lleva el número). Las filas que insertamos aguas abajo
+      // necesitan un `user_id` NOT NULL, así que en ese caso se usa el
+      // dueño de la cuenta.
+      const configOwnerUserId = await resolveConfigOwnerUserId(
+        config.user_id as string | null,
+        config.account_id as string
+      )
+      if (!configOwnerUserId) {
+        console.error(
+          '[webhook] la línea no tiene usuario y la cuenta no tiene dueño; se descarta el mensaje:',
+          config.id
+        )
+        continue
+      }
+
       for (let i = 0; i < value.messages.length; i++) {
         const message = value.messages[i]
         const contact = value.contacts[i] || value.contacts[0]
@@ -398,14 +415,16 @@ async function processWebhook(body: { entry?: WhatsAppWebhookEntry[] }) {
           // and the engines' active-row dispatch.
           config.account_id,
           // Audit / sender-of-record — used as the user_id on row
-          // inserts that need it for NOT NULL FK compliance. Always
-          // the admin who saved the WhatsApp config.
-          config.user_id,
+          // inserts that need it for NOT NULL FK compliance.
+          configOwnerUserId,
           decryptedAccessToken,
           // Default ON: the column is NOT NULL DEFAULT TRUE, but a row
           // read before migration 039 lands would have it undefined,
           // and losing attachments is the failure mode worth avoiding.
-          config.mirror_inbound_media !== false
+          config.mirror_inbound_media !== false,
+          // Qué número recibió el mensaje: decide en qué hilo entra y
+          // desde qué línea se responde (067).
+          config.id as string
         )
       }
     }
@@ -586,13 +605,16 @@ async function processMessage(
   // stamped with this so any member of the account can see it.
   accountId: string,
   // Sender-of-record for inserts that need a NOT NULL user_id FK
-  // (contacts, conversations). Always the admin who saved the
-  // WhatsApp config; the choice is arbitrary post-017 but stable.
+  // (contacts, conversations). The admin who saved the WhatsApp row,
+  // or the account owner when that user is gone (067).
   configOwnerUserId: string,
   accessToken: string,
   // Per-account opt-out for the inbound-media mirror (migration 039).
   // See parseMessageContent for what it turns off.
-  mirrorMedia: boolean
+  mirrorMedia: boolean,
+  // La línea que recibió el mensaje (067): el hilo queda atado a ella
+  // y al responder se usa ese número, no "el que hubiera".
+  whatsappConfigId: string
 ) {
   // Phone number OR business-scoped user ID — Meta sends only the
   // latter for a sender who has adopted a WhatsApp username (#519).
@@ -622,7 +644,8 @@ async function processMessage(
     accountId,
     configOwnerUserId,
     contactRecord.id,
-    message.from || message.from_user_id || ''
+    message.from || message.from_user_id || '',
+    whatsappConfigId
   )
   if (!convResult) return
   const conversation = convResult.conversation
@@ -1314,16 +1337,20 @@ async function findOrCreateConversation(
   configOwnerUserId: string,
   contactId: string,
   externalContactId: string,
+  whatsappConfigId: string,
 ) {
-  // Look for an existing WhatsApp thread in this account, oldest-first.
-  // We keep the WhatsApp thread separate from SMS/Instagram/Facebook
-  // threads for the same contact via the `channel` column.
+  // Look for an existing WhatsApp thread in this account for THIS
+  // number, oldest-first. `channel` keeps WhatsApp apart from
+  // SMS/Instagram/Facebook threads; `whatsapp_config_id` keeps the
+  // threads of two different WhatsApp numbers apart (067), which is
+  // what lets the reply go out from the number the customer wrote to.
   const { data: existingRows, error: findError } = await supabaseAdmin()
     .from('conversations')
     .select('*')
     .eq('account_id', accountId)
     .eq('contact_id', contactId)
     .eq('channel', 'whatsapp')
+    .eq('whatsapp_config_id', whatsappConfigId)
     .order('created_at', { ascending: true })
     .limit(1)
 
@@ -1345,6 +1372,7 @@ async function findOrCreateConversation(
       contact_id: contactId,
       channel: 'whatsapp',
       external_contact_id: externalContactId,
+      whatsapp_config_id: whatsappConfigId,
     })
     .select()
     .single()
@@ -1359,6 +1387,7 @@ async function findOrCreateConversation(
         .eq('account_id', accountId)
         .eq('contact_id', contactId)
         .eq('channel', 'whatsapp')
+        .eq('whatsapp_config_id', whatsappConfigId)
         .order('created_at', { ascending: true })
         .limit(1)
       if (raced && raced.length > 0) {
@@ -1370,4 +1399,37 @@ async function findOrCreateConversation(
   }
 
   return { conversation: newConv, created: true }
+}
+
+/**
+ * Quién firma las filas que inserta el webhook.
+ *
+ * Lo normal es el `user_id` de la línea (el admin que la conectó). Tras
+ * 067 ese campo puede ser NULL — la FK pasa a ON DELETE SET NULL para
+ * que borrar un usuario no se lleve por delante el número — y en ese
+ * caso se usa el dueño de la cuenta. Devuelve null solo si tampoco hay
+ * dueño: sin `user_id` las inserciones violarían el NOT NULL, así que
+ * es mejor descartar el mensaje con un log que reventar la ingesta.
+ */
+async function resolveConfigOwnerUserId(
+  configUserId: string | null,
+  accountId: string
+): Promise<string | null> {
+  if (configUserId) return configUserId
+
+  const { data: account, error } = await supabaseAdmin()
+    .from('accounts')
+    .select('owner_user_id')
+    .eq('id', accountId)
+    .maybeSingle()
+
+  if (error) {
+    console.error(
+      '[webhook] no se pudo resolver el dueño de la cuenta:',
+      accountId,
+      error.message
+    )
+    return null
+  }
+  return (account?.owner_user_id as string | undefined) ?? null
 }

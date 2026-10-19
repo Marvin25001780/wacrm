@@ -1,5 +1,6 @@
 import { sendTextMessage, sendTemplateMessage } from '@/lib/whatsapp/meta-api'
 import { decrypt } from '@/lib/whatsapp/encryption'
+import { resolveWhatsappConfigForConversation } from '@/lib/whatsapp/config'
 import {
   sanitizePhoneForMeta,
   isValidE164,
@@ -83,11 +84,14 @@ async function sendViaMeta(input: SendInput): Promise<{ whatsapp_message_id: str
     throw new Error(`contact phone invalid: ${contact.phone}`)
   }
 
-  const { data: config, error: configErr } = await db
-    .from('whatsapp_config')
-    .select('*')
-    .eq('account_id', input.accountId)
-    .single()
+  // La automatización responde por el número del hilo (067), igual que
+  // un agente desde la bandeja; si el hilo no lo dice, la por defecto.
+  const { data: config, error: configErr } =
+    await resolveWhatsappConfigForConversation(
+      db,
+      input.accountId,
+      input.conversationId,
+    )
   if (configErr || !config) {
     throw new Error('WhatsApp not configured for this account')
   }

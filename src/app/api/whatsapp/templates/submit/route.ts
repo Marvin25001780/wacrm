@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/server'
 import { decrypt } from '@/lib/whatsapp/encryption'
+import { resolveWhatsappConfig } from '@/lib/whatsapp/config'
 import { submitMessageTemplate } from '@/lib/whatsapp/meta-api'
 import {
   validateTemplatePayload,
@@ -19,6 +20,7 @@ import { normalizeStatus } from '@/lib/whatsapp/template-status-normalize'
 function buildUpsertRow(
   accountId: string,
   userId: string,
+  wabaId: string | null,
   payload: TemplatePayload,
   extras: {
     status: 'DRAFT' | string
@@ -31,9 +33,10 @@ function buildUpsertRow(
     // of migration 017. Without this an INSERT throws on the
     // not-null constraint.
     account_id: accountId,
-    // Original author — kept as audit only. The unique index is
-    // still on (user_id, name, language) — see the upsert helper
-    // for the cross-teammate dedup follow-up.
+    // Las plantillas son de la WABA (067): forma parte de la clave
+    // única junto con cuenta, nombre e idioma.
+    waba_id: wabaId,
+    // Original author — kept as audit only.
     user_id: userId,
     name: payload.name,
     category: payload.category,
@@ -60,14 +63,11 @@ async function upsertTemplateRow(
   supabase: SupabaseClient,
   row: ReturnType<typeof buildUpsertRow>,
 ) {
-  // TODO(account-sharing): conflict target is still scoped to
-  // user_id. Once a follow-up migration drops the legacy unique
-  // index on (user_id, name, language) and adds (account_id,
-  // name, language), switch `onConflict` here so two teammates
-  // can't shadow each other's same-named template.
+  // Clave única desde 067: (account_id, waba_id, name, language). Dos
+  // compañeros ya no pueden tener plantillas homónimas que se pisen.
   return supabase
     .from('message_templates')
-    .upsert(row, { onConflict: 'user_id,name,language' })
+    .upsert(row, { onConflict: 'account_id,waba_id,name,language' })
     .select()
     .single()
 }
@@ -145,15 +145,19 @@ export async function POST(request: Request) {
     let metaTemplateId: string
     let metaStatus: string
 
+    // Las plantillas nuevas se crean en la WABA de la línea por defecto
+    // (067). Se resuelve también en dry-run para sellar `waba_id` igual
+    // que en un envío real.
+    const { data: config, error: configError } = await resolveWhatsappConfig(
+      supabase,
+      accountId,
+    )
+    const wabaId = config?.waba_id ?? null
+
     if (dryRun) {
       metaTemplateId = `dry-run-${crypto.randomUUID()}`
       metaStatus = 'PENDING'
     } else {
-      const { data: config, error: configError } = await supabase
-        .from('whatsapp_config')
-        .select('*')
-        .eq('account_id', accountId)
-        .single()
       if (configError || !config) {
         return NextResponse.json(
           {
@@ -203,7 +207,7 @@ export async function POST(request: Request) {
         // until they fix and re-submit.
         await upsertTemplateRow(
           supabase,
-          buildUpsertRow(accountId, user.id, payload, {
+          buildUpsertRow(accountId, user.id, wabaId, payload, {
             status: 'DRAFT',
             metaTemplateId: null,
             submissionError: message,
@@ -223,7 +227,7 @@ export async function POST(request: Request) {
 
     const { data: row, error: upsertErr } = await upsertTemplateRow(
       supabase,
-      buildUpsertRow(accountId, user.id, payload, {
+      buildUpsertRow(accountId, user.id, wabaId, payload, {
         status: normalizeStatus(metaStatus),
         metaTemplateId,
         submissionError: null,

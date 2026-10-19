@@ -65,6 +65,7 @@ import {
 import { loadSmsConfig } from '@/lib/sms/config';
 import { textbeeSendSms } from '@/lib/sms/textbee';
 import { extractGatewayMessageId } from '@/lib/sms/persist';
+import { resolveWhatsappConfig } from '@/lib/whatsapp/config';
 
 export const MEDIA_KINDS = ['image', 'video', 'document', 'audio'] as const;
 export const VALID_MESSAGE_TYPES = [
@@ -319,15 +320,21 @@ export async function sendMessageToConversation(
   // reached through Meta's `recipient` field instead of `to` (issue
   // #519). Phone stays preferred when we have one: only it supports the
   // trunk-prefix variant retry below.
-  // WhatsApp config, account-scoped. Si no hay Meta Cloud API, caemos
-  // a un canal Evolution (Baileys) activo conectado por QR.
-  const { data: config } = await db
-    .from('whatsapp_config')
-    .select('*')
-    .eq('account_id', accountId)
-    .maybeSingle();
+  // WhatsApp config. Con varias líneas por cuenta (067) manda la del
+  // hilo: responder por el número por el que escribió el cliente es el
+  // objetivo del producto. Si el hilo no dice cuál (o su línea ya no
+  // existe) se usa la de por defecto de la cuenta.
+  const { data: config } = await resolveWhatsappConfig(
+    db,
+    accountId,
+    typeof conversation.whatsapp_config_id === 'string'
+      ? conversation.whatsapp_config_id
+      : null
+  );
 
   if (!config) {
+    // Sin Meta Cloud API: caemos a un canal Evolution (Baileys) activo
+    // conectado por QR.
     return sendEvolutionMessage(db, accountId, {
       conversationId,
       contact,
@@ -412,7 +419,8 @@ export async function sendMessageToConversation(
       db,
       accountId,
       templateName,
-      templateLanguage
+      templateLanguage,
+      config.waba_id
     );
     if (resolved.malformed) {
       throw new SendMessageError(

@@ -176,11 +176,15 @@ export async function POST(request: Request) {
     }
 
     const now = new Date().toISOString()
-    const { data: existing } = await supabase
+    // Varias líneas por negocio (067): conectar un número que ya estaba
+    // en este negocio lo actualiza; uno nuevo se AÑADE como otra línea
+    // (antes pisaba la única). La primera nace como la de por defecto.
+    const { data: accountLines } = await supabase
       .from('whatsapp_config')
-      .select('id')
+      .select('id, phone_number_id')
       .eq('account_id', accountId)
-      .maybeSingle()
+    const lines = (accountLines ?? []) as { id: string; phone_number_id: string }[]
+    const existing = lines.find((l) => l.phone_number_id === phoneNumberId) ?? null
 
     const baseRow = {
       phone_number_id: phoneNumberId,
@@ -201,6 +205,7 @@ export async function POST(request: Request) {
       const { error } = await supabase
         .from('whatsapp_config')
         .update(baseRow)
+        .eq('id', existing.id)
         .eq('account_id', accountId)
       if (error) {
         console.error('[embedded-signup] update failed:', error)
@@ -213,6 +218,7 @@ export async function POST(request: Request) {
       const { error } = await supabase.from('whatsapp_config').insert({
         account_id: accountId,
         user_id: user.id,
+        is_default: lines.length === 0,
         ...baseRow,
       })
       if (error) {

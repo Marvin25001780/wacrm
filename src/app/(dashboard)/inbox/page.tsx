@@ -194,13 +194,15 @@ export default function InboxPage() {
         return;
       }
 
+      // Varias líneas por negocio (067): conectado si alguna lo está.
       const { data } = await supabase
         .from("whatsapp_config")
         .select("status")
-        .eq("account_id", accountId)
-        .maybeSingle();
+        .eq("account_id", accountId);
 
-      setWhatsappConnected(data?.status === "connected");
+      setWhatsappConnected(
+        (data ?? []).some((row) => row.status === "connected")
+      );
     };
 
     checkConnection();

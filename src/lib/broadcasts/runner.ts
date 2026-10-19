@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { sendTemplateMessage } from '@/lib/whatsapp/meta-api'
 import { decrypt } from '@/lib/whatsapp/encryption'
+import { resolveWhatsappConfig } from '@/lib/whatsapp/config'
 import type { SendTimeParams } from '@/lib/whatsapp/template-send-builder'
 import {
   sanitizePhoneForMeta,
@@ -141,11 +142,8 @@ export async function sendScheduledBroadcast(
     .maybeSingle()
   if (!claim) return { status: 'skipped', sent: 0, failed: 0 }
 
-  const { data: config } = await admin
-    .from('whatsapp_config')
-    .select('*')
-    .eq('account_id', accountId)
-    .maybeSingle()
+  // Línea por defecto del negocio (067).
+  const { data: config } = await resolveWhatsappConfig(admin, accountId)
 
   if (!config) {
     await admin
@@ -155,16 +153,18 @@ export async function sendScheduledBroadcast(
     return { status: 'failed', sent: 0, failed: 0 }
   }
 
-  const accessToken = decrypt((config as { access_token: string }).access_token)
-  const phoneNumberId = (config as { phone_number_id: string }).phone_number_id
+  const accessToken = decrypt(config.access_token)
+  const phoneNumberId = config.phone_number_id
 
-  const { data: rawTemplateRow } = await admin
+  // Una plantilla homónima puede existir en cada WABA (067).
+  let templateQuery = admin
     .from('message_templates')
     .select('*')
     .eq('account_id', accountId)
     .eq('name', b.template_name as string)
     .eq('language', (b.template_language as string) || 'en_US')
-    .maybeSingle()
+  if (config.waba_id) templateQuery = templateQuery.eq('waba_id', config.waba_id)
+  const { data: rawTemplateRow } = await templateQuery.maybeSingle()
   const templateRow = rawTemplateRow ?? undefined
 
   const { data: recipients, error: recErr } = await admin

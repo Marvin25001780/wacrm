@@ -77,9 +77,20 @@ function makeDb(script: Script): SupabaseClient {
         });
       return Promise.resolve({ data: null, error: null });
     },
-    // Thenable: `await db.from().update().eq()` lands here.
-    then: (resolve: (v: { data: null; error: null }) => void) =>
-      resolve({ data: null, error: null }),
+    // Thenable: `await db.from().update().eq()` lands here — and so does
+    // the whatsapp_config read, which since 067 loads every line of the
+    // account (a list) and picks the default one.
+    then: (resolve: (v: { data: unknown; error: null }) => void) => {
+      if (table === 'whatsapp_config' && mode === 'select') {
+        return resolve({
+          data: script.config
+            ? [{ id: 'cfg-1', is_default: true, ...script.config }]
+            : [],
+          error: null,
+        });
+      }
+      return resolve({ data: null, error: null });
+    },
   };
 
   return {

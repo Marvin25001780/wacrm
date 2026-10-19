@@ -20,6 +20,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { sendTemplateMessage } from '@/lib/whatsapp/meta-api';
 import { decrypt } from '@/lib/whatsapp/encryption';
+import { resolveWhatsappConfig } from '@/lib/whatsapp/config';
 import {
   sanitizePhoneForMeta,
   isValidE164,
@@ -111,11 +112,11 @@ export async function createBroadcast(
 
   // Config (fail fast + provides the audit trail owner already resolved
   // by the caller). Meta send needs phone_number_id + decrypted token.
-  const { data: config, error: configError } = await db
-    .from('whatsapp_config')
-    .select('*')
-    .eq('account_id', accountId)
-    .single();
+  // Línea por defecto del negocio (067).
+  const { data: config, error: configError } = await resolveWhatsappConfig(
+    db,
+    accountId
+  );
   if (configError || !config) {
     throw new BroadcastError(
       'whatsapp_not_configured',
@@ -127,13 +128,15 @@ export async function createBroadcast(
 
   // Template row (once) for header/button components; guard a
   // malformed local row rather than N identical opaque failures.
-  const { data: rawTemplateRow } = await db
+  // Una plantilla homónima puede existir en cada WABA (067).
+  let templateQuery = db
     .from('message_templates')
     .select('*')
     .eq('account_id', accountId)
     .eq('name', templateName)
-    .eq('language', templateLanguage)
-    .maybeSingle();
+    .eq('language', templateLanguage);
+  if (config.waba_id) templateQuery = templateQuery.eq('waba_id', config.waba_id);
+  const { data: rawTemplateRow } = await templateQuery.maybeSingle();
   if (rawTemplateRow && !isMessageTemplate(rawTemplateRow)) {
     throw new BroadcastError(
       'template_malformed',

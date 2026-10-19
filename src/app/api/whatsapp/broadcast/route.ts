@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { sendTemplateMessage } from '@/lib/whatsapp/meta-api'
 import { decrypt } from '@/lib/whatsapp/encryption'
+import { resolveWhatsappConfig } from '@/lib/whatsapp/config'
 import type { SendTimeParams } from '@/lib/whatsapp/template-send-builder'
 import { isMessageTemplate } from '@/lib/whatsapp/template-row-guard'
 import {
@@ -134,11 +135,11 @@ export async function POST(request: Request) {
       )
     }
 
-    const { data: config, error: configError } = await supabase
-      .from('whatsapp_config')
-      .select('*')
-      .eq('account_id', accountId)
-      .single()
+    // Las difusiones salen por la línea por defecto del negocio (067).
+    const { data: config, error: configError } = await resolveWhatsappConfig(
+      supabase,
+      accountId,
+    )
 
     if (configError || !config) {
       return NextResponse.json(
@@ -157,13 +158,16 @@ export async function POST(request: Request) {
     // the loop would N+1 against Supabase for every recipient.
     // Guard against a malformed local row crashing every send in
     // the loop with the same opaque TypeError — fail loudly once.
-    const { data: rawTemplateRow } = await supabase
+    // Con líneas en varias WABA puede haber una plantilla homónima por
+    // WABA: se usa la de la WABA de la línea que envía.
+    let templateQuery = supabase
       .from('message_templates')
       .select('*')
       .eq('account_id', accountId)
       .eq('name', template_name)
       .eq('language', template_language || 'en_US')
-      .maybeSingle()
+    if (config.waba_id) templateQuery = templateQuery.eq('waba_id', config.waba_id)
+    const { data: rawTemplateRow } = await templateQuery.maybeSingle()
     if (rawTemplateRow && !isMessageTemplate(rawTemplateRow)) {
       return NextResponse.json(
         {

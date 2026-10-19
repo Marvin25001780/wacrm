@@ -7,6 +7,7 @@ import {
   verifyPhoneNumber,
 } from '@/lib/whatsapp/meta-api'
 import { encrypt, decrypt } from '@/lib/whatsapp/encryption'
+import { resolveWhatsappConfig } from '@/lib/whatsapp/config'
 
 /**
  * Resolve the caller's account_id from their profile. Inlined here
@@ -89,11 +90,35 @@ export async function GET(request: Request) {
       )
     }
 
-    const { data: config, error: configError } = await supabase
-      .from('whatsapp_config')
-      .select('phone_number_id, access_token, status')
-      .eq('account_id', accountId)
-      .maybeSingle()
+    const params = new URL(request.url).searchParams
+
+    // `?list=1`: todas las líneas del negocio (067), SIN tokens. Es lo
+    // que pinta la lista de números en Ajustes.
+    if (params.get('list') === '1') {
+      const { data: lines, error: listError } = await supabase
+        .from('whatsapp_config')
+        .select(
+          'id, label, phone_number_id, waba_id, status, is_default, registered_at, last_registration_error, created_at',
+        )
+        .eq('account_id', accountId)
+        .order('is_default', { ascending: false })
+        .order('created_at', { ascending: true })
+      if (listError) {
+        console.error('Error listing whatsapp_config:', listError)
+        return NextResponse.json(
+          { error: 'Failed to list WhatsApp numbers' },
+          { status: 500 },
+        )
+      }
+      return NextResponse.json({ lines: lines ?? [] })
+    }
+
+    // `?config_id=` verifica una línea concreta; sin él, la por defecto.
+    const { data: config, error: configError } = await resolveWhatsappConfig(
+      supabase,
+      accountId,
+      params.get('config_id'),
+    )
 
     if (configError) {
       console.error('Error fetching whatsapp_config:', configError)
@@ -116,11 +141,12 @@ export async function GET(request: Request) {
 
     // Camino ligero: la página de Canales solo quiere saber si hay una
     // configuración guardada, sin pagar una llamada a Meta por carga.
-    if (new URL(request.url).searchParams.get('lazy') === '1') {
+    if (params.get('lazy') === '1') {
       return NextResponse.json(
         {
           connected: config.status !== 'disconnected',
           phone_number_id: config.phone_number_id,
+          config_id: config.id,
         },
         { status: 200 },
       )
@@ -202,6 +228,18 @@ export async function POST(request: Request) {
 
     const body = await request.json()
     const { phone_number_id, waba_id, access_token, verify_token, pin } = body
+    // 067 — varias líneas por negocio:
+    //   config_id   → editar esa línea concreta
+    //   mode: 'add' → conectar una línea NUEVA
+    //   (ninguno)   → la línea por defecto (lo que hacía la pantalla
+    //                 de una sola línea: guardar = reemplazar)
+    const configId =
+      typeof body.config_id === 'string' && body.config_id ? body.config_id : null
+    const addMode = body.mode === 'add'
+    const label =
+      typeof body.label === 'string' && body.label.trim()
+        ? body.label.trim().slice(0, 60)
+        : undefined
 
     if (!access_token || !phone_number_id) {
       return NextResponse.json(
@@ -285,14 +323,52 @@ export async function POST(request: Request) {
       )
     }
 
-    // Look up any pre-existing row for this account so we know whether
-    // this number is already registered with Meta — if so we can skip
+    // Which row (if any) this save targets. Also tells us whether this
+    // number is already registered with Meta — if so we can skip
     // /register when the user didn't provide a PIN this time around.
-    const { data: existing } = await supabase
+    const { data: accountLines, error: linesError } = await supabase
       .from('whatsapp_config')
-      .select('id, registered_at, phone_number_id')
+      .select('id, registered_at, phone_number_id, is_default')
       .eq('account_id', accountId)
-      .maybeSingle()
+    if (linesError) {
+      console.error('Error loading whatsapp_config lines:', linesError)
+      return NextResponse.json(
+        { error: 'Failed to load configuration' },
+        { status: 500 },
+      )
+    }
+    type LineRow = {
+      id: string
+      registered_at: string | null
+      phone_number_id: string
+      is_default: boolean
+    }
+    const lines = (accountLines ?? []) as LineRow[]
+    // El mismo número ya conectado en este negocio siempre se edita (no
+    // se duplica: `phone_number_id` es único en toda la instancia).
+    const samePhoneLine = lines.find((l) => l.phone_number_id === phone_number_id)
+    let existing: LineRow | null
+    if (configId) {
+      existing = lines.find((l) => l.id === configId) ?? null
+      if (!existing) {
+        return NextResponse.json(
+          { error: 'WhatsApp number not found in this business.' },
+          { status: 404 },
+        )
+      }
+      if (samePhoneLine && samePhoneLine.id !== existing.id) {
+        return NextResponse.json(
+          { error: 'That phone number is already connected as another line.' },
+          { status: 409 },
+        )
+      }
+    } else if (samePhoneLine) {
+      existing = samePhoneLine
+    } else if (addMode) {
+      existing = null
+    } else {
+      existing = lines.find((l) => l.is_default) ?? lines[0] ?? null
+    }
 
     const sameNumber =
       existing?.phone_number_id === phone_number_id &&
@@ -385,7 +461,8 @@ export async function POST(request: Request) {
     if (existing) {
       const { error: updateError } = await supabase
         .from('whatsapp_config')
-        .update(baseRow)
+        .update(label !== undefined ? { ...baseRow, label } : baseRow)
+        .eq('id', existing.id)
         .eq('account_id', accountId)
 
       if (updateError) {
@@ -396,15 +473,17 @@ export async function POST(request: Request) {
         )
       }
     } else {
-      // Insert with both columns: `account_id` is the tenancy key
-      // (NOT NULL post-017, UNIQUE so duplicates trip the constraint
-      // up-front), `user_id` is the audit column identifying which
-      // member of the account saved the config.
+      // Insert with both columns: `account_id` is the tenancy key,
+      // `user_id` is the audit column identifying which member of the
+      // account saved the config. La primera línea del negocio nace
+      // como la de por defecto; las siguientes no (se cambia en Ajustes).
       const { error: insertError } = await supabase
         .from('whatsapp_config')
         .insert({
           account_id: accountId,
           user_id: user.id,
+          label: label ?? null,
+          is_default: lines.length === 0,
           ...baseRow,
         })
 
@@ -448,13 +527,93 @@ export async function POST(request: Request) {
 }
 
 /**
- * DELETE /api/whatsapp/config
+ * PATCH /api/whatsapp/config  { config_id, label?, is_default? }
  *
- * Removes the authenticated user's WhatsApp configuration row.
- * Used by the "Reset Configuration" button to recover from a corrupted
- * encrypted token (mismatched ENCRYPTION_KEY across environments).
+ * Renombra una línea o la marca como la de por defecto del negocio
+ * (067). Desmarcar la anterior lo hace el trigger
+ * `whatsapp_config_single_default` en la misma sentencia. Solo admin+:
+ * lo impone la política `whatsapp_config_update` (RLS), no esta ruta.
  */
-export async function DELETE() {
+export async function PATCH(request: Request) {
+  try {
+    const supabase = await createClient()
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser()
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const accountId = await resolveAccountId(supabase, user.id)
+    if (!accountId) {
+      return NextResponse.json(
+        { error: 'Your profile is not linked to an account.' },
+        { status: 403 },
+      )
+    }
+
+    const body = await request.json().catch(() => ({}))
+    const configId = typeof body.config_id === 'string' ? body.config_id : ''
+    if (!configId) {
+      return NextResponse.json({ error: 'config_id is required' }, { status: 400 })
+    }
+
+    const update: Record<string, unknown> = { updated_at: new Date().toISOString() }
+    if (typeof body.label === 'string') {
+      const trimmed = body.label.trim()
+      update.label = trimmed ? trimmed.slice(0, 60) : null
+    }
+    // Solo se puede MARCAR como por defecto: quitar la marca dejaría al
+    // negocio sin línea por defecto. Se cambia marcando otra.
+    if (body.is_default === true) update.is_default = true
+
+    if (Object.keys(update).length === 1) {
+      return NextResponse.json(
+        { error: 'Nothing to update (label or is_default: true)' },
+        { status: 400 },
+      )
+    }
+
+    const { data: updated, error: updateError } = await supabase
+      .from('whatsapp_config')
+      .update(update)
+      .eq('id', configId)
+      .eq('account_id', accountId)
+      .select('id')
+
+    if (updateError) {
+      console.error('Error updating whatsapp_config line:', updateError)
+      return NextResponse.json(
+        { error: 'Failed to update WhatsApp number' },
+        { status: 500 },
+      )
+    }
+    // 0 filas = no existe en este negocio o RLS lo impidió (no admin).
+    if (!updated || updated.length === 0) {
+      return NextResponse.json(
+        { error: 'WhatsApp number not found, or you need the admin role.' },
+        { status: 404 },
+      )
+    }
+
+    return NextResponse.json({ success: true })
+  } catch (error) {
+    console.error('Error in WhatsApp config PATCH:', error)
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+  }
+}
+
+/**
+ * DELETE /api/whatsapp/config[?config_id=]
+ *
+ * Removes one WhatsApp line: the one in `config_id`, or the default
+ * line when omitted (the single-line "Reset Configuration" button,
+ * used to recover from a corrupted encrypted token). If the removed
+ * line was the default, the oldest remaining one is promoted so the
+ * business never ends up with lines but no default.
+ */
+export async function DELETE(request: Request) {
   try {
     const supabase = await createClient()
 
@@ -475,10 +634,21 @@ export async function DELETE() {
       )
     }
 
-    const { error: deleteError } = await supabase
+    const { data: target } = await resolveWhatsappConfig(
+      supabase,
+      accountId,
+      new URL(request.url).searchParams.get('config_id'),
+    )
+    if (!target) {
+      return NextResponse.json({ success: true, deleted: 0 })
+    }
+
+    const { data: deleted, error: deleteError } = await supabase
       .from('whatsapp_config')
       .delete()
+      .eq('id', target.id)
       .eq('account_id', accountId)
+      .select('id')
 
     if (deleteError) {
       console.error('Error deleting whatsapp_config:', deleteError)
@@ -488,7 +658,29 @@ export async function DELETE() {
       )
     }
 
-    return NextResponse.json({ success: true })
+    // Si era la de por defecto y quedan otras, se asciende la más
+    // antigua. Los hilos de la línea borrada quedan con
+    // `whatsapp_config_id` NULL (FK SET NULL) y responden por la nueva
+    // por defecto.
+    if (target.is_default && deleted && deleted.length > 0) {
+      const { data: rest } = await supabase
+        .from('whatsapp_config')
+        .select('id')
+        .eq('account_id', accountId)
+        .order('created_at', { ascending: true })
+        .limit(1)
+      if (rest && rest[0]) {
+        const { error: promoteError } = await supabase
+          .from('whatsapp_config')
+          .update({ is_default: true })
+          .eq('id', rest[0].id)
+        if (promoteError) {
+          console.error('Error promoting new default line:', promoteError)
+        }
+      }
+    }
+
+    return NextResponse.json({ success: true, deleted: deleted?.length ?? 0 })
   } catch (error) {
     console.error('Error in WhatsApp config DELETE:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })

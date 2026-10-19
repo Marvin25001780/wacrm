@@ -141,6 +141,9 @@ export default function UsoMetaMetricsPage() {
             "status, phone_number_id, waba_id, connected_at, last_registration_error"
           )
           .eq("account_id", accountId)
+          // Varias líneas (067): se muestra la por defecto.
+          .order("is_default", { ascending: false })
+          .order("created_at", { ascending: true })
           .limit(1)
           .maybeSingle(),
       ]);

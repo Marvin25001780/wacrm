@@ -92,7 +92,12 @@ export async function resolveTemplateRow(
   db: SupabaseClient,
   accountId: string,
   templateName: string,
-  requestedLanguage?: string | null
+  requestedLanguage?: string | null,
+  // WABA de la línea que va a enviar (067). Con líneas en varias WABA
+  // puede haber una plantilla homónima por WABA; se prefieren las de
+  // esta. Las filas sin `waba_id` (anteriores a 067 sin backfill) se
+  // aceptan como último recurso.
+  wabaId?: string | null
 ): Promise<ResolvedTemplate> {
   const { data } = await db
     .from('message_templates')
@@ -102,8 +107,22 @@ export async function resolveTemplateRow(
 
   // Sorted here rather than with `.order()` so the only query-builder
   // surface this helper depends on is select + eq — the same shape the
-  // callers' existing fakes implement.
-  const rows = ((Array.isArray(data) ? data : []) as { language?: string }[])
+  // callers' existing fakes implement. Same reason for filtering the
+  // WABA in memory.
+  const allRows = (Array.isArray(data) ? data : []) as {
+    language?: string;
+    waba_id?: string | null;
+  }[];
+  const sameWaba = wabaId
+    ? allRows.filter((r) => r.waba_id === wabaId)
+    : [];
+  const scoped =
+    sameWaba.length > 0
+      ? sameWaba
+      : wabaId
+        ? allRows.filter((r) => !r.waba_id)
+        : allRows;
+  const rows = (scoped.length > 0 ? scoped : allRows)
     .slice()
     .sort((a, b) => (a.language ?? '').localeCompare(b.language ?? ''));
   const fallbackLanguage = requestedLanguage || 'en_US';

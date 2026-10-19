@@ -23,6 +23,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { findExistingContact, isUniqueViolation } from '@/lib/contacts/dedupe';
 import { sanitizePhoneForMeta, isValidE164 } from '@/lib/whatsapp/phone-utils';
 import { SendMessageError } from '@/lib/whatsapp/send-message';
+import { resolveWhatsappConfig } from '@/lib/whatsapp/config';
 import { resolveAuditUserId, ContactError } from '@/lib/api/v1/contacts';
 
 export interface ResolvedConversation {
@@ -54,12 +55,10 @@ export async function resolveConversationByPhone(
   }
 
   // Fail fast (and create nothing) when the account has no WhatsApp
-  // connected — the same error the send would raise anyway.
-  const { data: config } = await db
-    .from('whatsapp_config')
-    .select('id')
-    .eq('account_id', accountId)
-    .maybeSingle();
+  // connected — the same error the send would raise anyway. La API
+  // pública no tiene hilo del que heredar el número, así que usa la
+  // línea por defecto de la cuenta.
+  const { data: config } = await resolveWhatsappConfig(db, accountId);
   if (!config) {
     throw new SendMessageError(
       'whatsapp_not_configured',
@@ -67,6 +66,7 @@ export async function resolveConversationByPhone(
       400
     );
   }
+  const whatsappConfigId = config.id;
 
   // Audit user for created rows = the single account-wide default used
   // by every public-API write (see resolveAuditUserId), so a contact
@@ -139,12 +139,16 @@ export async function resolveConversationByPhone(
   // ---- conversation -------------------------------------------
   // Hilo del canal WhatsApp (un contacto puede tener hilos SMS/IG/FB
   // aparte). external_contact_id = teléfono.
+  // Con varias líneas (067) se busca el hilo DE ESTA línea: el mismo
+  // contacto puede tener un hilo por cada número, y crear uno nuevo es
+  // correcto (es lo que hace el webhook cuando escribe a otro número).
   const { data: conv } = await db
     .from('conversations')
     .select('id')
     .eq('account_id', accountId)
     .eq('contact_id', contactId)
     .eq('channel', 'whatsapp')
+    .eq('whatsapp_config_id', whatsappConfigId)
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -161,6 +165,7 @@ export async function resolveConversationByPhone(
       contact_id: contactId,
       channel: 'whatsapp',
       external_contact_id: sanitized,
+      whatsapp_config_id: whatsappConfigId,
     })
     .select('id')
     .single();
