@@ -3,28 +3,11 @@ import { getCurrentAccount, toErrorResponse } from "@/lib/auth/account";
 import { loadAiConfig } from "@/lib/ai/config";
 import { generateReply } from "@/lib/ai/generate";
 import { buildSystemPrompt } from "@/lib/ai/defaults";
+import { buildAgentSystemPrompt } from "@/lib/ai/agent-prompt";
 import { AiError, type ChatMessage } from "@/lib/ai/types";
 
 interface RouteParams {
   params: Promise<{ id: string }>;
-}
-
-function buildAgentSystemPrompt(agent: {
-  objective: string | null;
-  behavior: string | null;
-  tone: string[] | null;
-  prohibited_rules: string[] | null;
-}): string {
-  const parts: string[] = [];
-  if (agent.objective) parts.push(`Objetivo:\n${agent.objective}`);
-  if (agent.behavior) parts.push(`Comportamiento:\n${agent.behavior}`);
-  if (agent.tone && agent.tone.length > 0) {
-    parts.push(`Tono: ${agent.tone.join(", ")}`);
-  }
-  if (agent.prohibited_rules && agent.prohibited_rules.length > 0) {
-    parts.push(`Reglas prohibidas:\n- ${agent.prohibited_rules.join("\n- ")}`);
-  }
-  return parts.join("\n\n");
 }
 
 /**
@@ -68,7 +51,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     let config: Awaited<ReturnType<typeof loadAiConfig>>;
     try {
       config = await loadAiConfig(supabase, accountId);
-    } catch (configErr) {
+    } catch {
       return NextResponse.json(
         {
           error:

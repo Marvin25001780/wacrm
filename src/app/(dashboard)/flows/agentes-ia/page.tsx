@@ -8,7 +8,7 @@
 // ============================================================
 
 import { useEffect, useMemo, useState } from "react";
-import { Brain, MoreVertical, Pencil, Plus, Search, Trash2 } from "lucide-react";
+import { Bot, Brain, MoreVertical, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
@@ -56,6 +56,8 @@ export default function AiAgentsPage() {
 
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  /** Respuestas IA reales de la cuenta (antes: "Saldo de Crédito IA: $0.00"). */
+  const [aiReplies, setAiReplies] = useState(0);
 
   async function load() {
     try {
@@ -64,6 +66,7 @@ export default function AiAgentsPage() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Error al cargar agentes");
       setAgents(json.agents ?? []);
+      setAiReplies(typeof json.aiReplies === "number" ? json.aiReplies : 0);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Error al cargar");
     } finally {
@@ -176,8 +179,12 @@ export default function AiAgentsPage() {
           />
         </div>
         <div className="flex items-center gap-3">
-          <span className="text-sm text-muted-foreground">
-            Saldo de Crédito IA: $0.00
+          <span
+            className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-sm text-muted-foreground"
+            title="Mensajes contestados automáticamente por el asistente de IA (total de la cuenta)"
+          >
+            <Bot className="h-4 w-4 text-primary" />
+            Respuestas IA: {aiReplies.toLocaleString()}
           </span>
           <Button onClick={() => setDialogOpen(true)}>
             <Plus className="mr-2 h-4 w-4" />

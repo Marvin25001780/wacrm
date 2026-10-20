@@ -3,6 +3,7 @@ import { loadAiConfig } from './config'
 import { buildConversationContext } from './context'
 import { generateReply } from './generate'
 import { buildSystemPrompt } from './defaults'
+import { buildAgentSystemPrompt, loadActiveAgent } from './agent-prompt'
 import { engineSendText } from '@/lib/flows/meta-send'
 
 interface DispatchArgs {
@@ -73,8 +74,13 @@ export async function dispatchInboundToAiReply(
       return
     }
 
+    // Agente activo de la cuenta (A5): si hay uno, su personalidad
+    // reemplaza el prompt global. Sin agente, la cuenta se comporta
+    // como siempre.
+    const agent = await loadActiveAgent(db, accountId)
+
     const systemPrompt = buildSystemPrompt({
-      userPrompt: config.systemPrompt,
+      userPrompt: agent ? buildAgentSystemPrompt(agent) : config.systemPrompt,
       mode: 'auto_reply',
     })
 

@@ -8,14 +8,25 @@ import { getCurrentAccount, toErrorResponse } from "@/lib/auth/account";
 export async function GET() {
   try {
     const { supabase, accountId } = await getCurrentAccount();
-    const { data, error } = await supabase
-      .from("ai_agents")
-      .select("*")
-      .eq("account_id", accountId)
-      .order("created_at", { ascending: false });
+    const [{ data, error }, { data: replyCounts }] = await Promise.all([
+      supabase.from("ai_agents").select("*").eq("account_id", accountId).order("created_at", { ascending: false }),
+      // Contador real de respuestas IA (A6): suma de `ai_reply_count`
+      // de las conversaciones de la cuenta. Sustituye al "Saldo de
+      // Crédito IA: $0" que no respaldaba nada. TODO temporal: mover a
+      // un agregado SQL cuando la tabla crezca.
+      supabase
+        .from("conversations")
+        .select("ai_reply_count")
+        .eq("account_id", accountId)
+        .limit(10000),
+    ]);
 
     if (error) throw error;
-    return NextResponse.json({ agents: data ?? [] });
+    const aiReplies = (replyCounts ?? []).reduce(
+      (acc, row) => acc + ((row as { ai_reply_count?: number }).ai_reply_count ?? 0),
+      0,
+    );
+    return NextResponse.json({ agents: data ?? [], aiReplies });
   } catch (err) {
     return toErrorResponse(err);
   }

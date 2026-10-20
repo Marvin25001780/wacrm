@@ -1,23 +1,41 @@
 "use client";
 
 // ============================================================
-// Edición de Agente de IA — versión mínima funcional.
+// Edición de Agente de IA — layout Callbell (A1).
 //
-// Permite configurar la personalidad del agente (objetivo,
-// comportamiento, tono, reglas prohibidas) y probarlo en un
-// simulador de conversación.
+// Tres columnas:
+//   izq.  → las 4 secciones como tarjetas de navegación:
+//           Personalidad · Conocimiento · Acciones · Avanzada
+//   centro → la sección seleccionada (editar / estado vacío)
+//   der.  → SIMULADOR SIEMPRE VIVO (no es una pestaña: pruebas la
+//           personalidad mientras la escribes)
+//
+// En pantallas chicas se apilan: nav arriba (chips), panel y luego el
+// simulador — el mismo orden del DOM.
+//
+// Estado real del producto:
+//   - Personalidad: COMPLETO (guarda y el motor real la usa — A5).
+//   - Conocimiento: fase A2 (fuentes + Q&A con búsqueda semántica).
+//   - Acciones:     fase A3 (toCall del modelo: etiquetas, campos,
+//                   asignar, cerrar, nota).
+//   - Avanzada:     fase A4 (salida, calidad/temperatura, botones,
+//                   recordatorios/seguimiento).
 // ============================================================
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
   ArrowLeft,
+  BookOpen,
   Bot,
+  Code2,
+  Database,
   Loader2,
   Plus,
   Save,
   Send,
+  Sparkles,
   Trash2,
   User,
   X,
@@ -27,7 +45,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import type { ChatMessage } from "@/lib/ai/types";
@@ -43,6 +60,23 @@ interface AiAgent {
   prohibited_rules: string[];
 }
 
+type Section = "personality" | "knowledge" | "actions" | "advanced";
+
+// Navegación izquierda — artículo, icono, línea de apoyo. El badge de
+// Personalidad lleva el check: es la única fase COMPLETA hoy.
+const SECTIONS: {
+  id: Section;
+  title: string;
+  hint: string;
+  icon: React.ComponentType<{ className?: string }>;
+  ready: boolean;
+}[] = [
+  { id: "personality", title: "Personalidad", hint: "Objetivo, comportamiento, tono y reglas prohibidas", icon: Sparkles, ready: true },
+  { id: "knowledge", title: "Conocimiento del agente", hint: "Fuentes, preguntas y respuestas", icon: BookOpen, ready: false },
+  { id: "actions", title: "Acciones", hint: "Etiquetas, campos, notas y enrutamiento", icon: Code2, ready: false },
+  { id: "advanced", title: "Configuración avanzada", hint: "Botones, recordatorios y salidas", icon: Database, ready: false },
+];
+
 export default function AiAgentEditPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
@@ -50,6 +84,7 @@ export default function AiAgentEditPage() {
   const [agent, setAgent] = useState<AiAgent | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [section, setSection] = useState<Section>("personality");
 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -61,7 +96,8 @@ export default function AiAgentEditPage() {
   const [rules, setRules] = useState<string[]>([]);
   const [ruleInput, setRuleInput] = useState("");
 
-  // Simulator state
+  // Simulator state (columna derecha; siempre visible salvo en móvil
+  // apilado).
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [simInput, setSimInput] = useState("");
   const [simLoading, setSimLoading] = useState(false);
@@ -123,7 +159,11 @@ export default function AiAgentEditPage() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Error al guardar");
       setAgent(json.agent);
-      toast.success("Agente guardado");
+      toast.success(
+        status === "active"
+          ? "Agente guardado y activo — atenderá conversaciones nuevas"
+          : "Agente guardado"
+      );
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Error al guardar");
     } finally {
@@ -198,6 +238,20 @@ export default function AiAgentEditPage() {
     setMessages([]);
   }
 
+  // ---- Paneles de secciones futuras ---------------------------
+  // Conocimiento (A2): fuentes + Q&A.
+  // Acciones (A3): el modelo puede ejecutar cambios en el CRM.
+  const ACTION_ITEMS = useMemo(
+    () => [
+      { label: "Añadir etiquetas", desc: "Añade una o más etiquetas al contacto." },
+      { label: "Editar campos personalizados", desc: "Guarda los datos recopilados en los campos del contacto." },
+      { label: "Asignar equipo", desc: "Asigna la conversación a la bandeja de un equipo." },
+      { label: "Cerrar conversación", desc: "Cierra el chat cuando no se necesita un humano." },
+      { label: "Añadir nota interna", desc: "Añade una nota privada visible solo para tu equipo." },
+    ],
+    []
+  );
+
   if (loading) {
     return (
       <div className="flex h-64 items-center justify-center">
@@ -210,15 +264,16 @@ export default function AiAgentEditPage() {
 
   return (
     <div className="space-y-5">
+      {/* Cabecera: volver · nombre/estado · Guardar */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
-          <Button variant="ghost" size="icon" onClick={() => router.back()}>
+          <Button variant="ghost" size="icon" onClick={() => router.push("/flows/agentes-ia")}>
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div>
-            <h1 className="text-lg font-semibold">{agent.name}</h1>
+            <h1 className="text-lg font-semibold">{name || agent.name}</h1>
             <p className="text-sm text-muted-foreground">
-              {agent.description || "Agente de IA"}
+              {description || "Entrena tu propio agente según tus necesidades fácilmente."}
             </p>
           </div>
         </div>
@@ -239,200 +294,302 @@ export default function AiAgentEditPage() {
             ) : (
               <Save className="mr-2 h-4 w-4" />
             )}
-            Guardar
+            Guardar agente
           </Button>
         </div>
       </div>
 
-      <Tabs defaultValue="personality" className="w-full">
-        <TabsList>
-          <TabsTrigger value="personality">Personalidad</TabsTrigger>
-          <TabsTrigger value="simulator">Simulador</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="personality" className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="name">Nombre</Label>
-              <Input
-                id="name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Ej. Demo Agent"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="description">Descripción</Label>
-              <Input
-                id="description"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="Para qué sirve este agente"
-              />
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="objective">Objetivo</Label>
-            <Textarea
-              id="objective"
-              value={objective}
-              onChange={(e) => setObjective(e.target.value)}
-              placeholder="Qué debe lograr el agente..."
-              rows={4}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="behavior">Comportamiento</Label>
-            <Textarea
-              id="behavior"
-              value={behavior}
-              onChange={(e) => setBehavior(e.target.value)}
-              placeholder="Cómo debe actuar el agente ante diferentes situaciones..."
-              rows={4}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label>Tono del agente</Label>
-            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card p-2">
-              {tone.map((t) => (
-                <span
-                  key={t}
-                  className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary"
-                >
-                  {t}
-                  <button
-                    type="button"
-                    onClick={() => removeTone(t)}
-                    className="rounded-full hover:bg-primary/20"
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
-                </span>
-              ))}
-              <div className="flex flex-1 items-center gap-2">
-                <Input
-                  value={toneInput}
-                  onChange={(e) => setToneInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      addTone();
-                    }
-                  }}
-                  placeholder="Añadir tono (Ej. profesional)"
-                  className="h-8 border-0 bg-transparent shadow-none focus-visible:ring-0"
-                />
-                <Button type="button" size="icon" variant="ghost" className="h-7 w-7" onClick={addTone}>
-                  <Plus className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <Label>Reglas prohibidas</Label>
-            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card p-2">
-              {rules.map((r) => (
-                <span
-                  key={r}
-                  className="inline-flex items-center gap-1 rounded-full bg-destructive/10 px-2.5 py-1 text-xs font-medium text-destructive"
-                >
-                  {r}
-                  <button
-                    type="button"
-                    onClick={() => removeRule(r)}
-                    className="rounded-full hover:bg-destructive/20"
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
-                </span>
-              ))}
-              <div className="flex flex-1 items-center gap-2">
-                <Input
-                  value={ruleInput}
-                  onChange={(e) => setRuleInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      addRule();
-                    }
-                  }}
-                  placeholder="Añadir regla prohibida"
-                  className="h-8 border-0 bg-transparent shadow-none focus-visible:ring-0"
-                />
-                <Button type="button" size="icon" variant="ghost" className="h-7 w-7" onClick={addRule}>
-                  <Plus className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-          </div>
-        </TabsContent>
-
-        <TabsContent value="simulator" className="space-y-4">
-          <div className="flex items-center justify-between">
-            <p className="text-sm text-muted-foreground">
-              Escribe como un cliente para probar las respuestas del agente.
-            </p>
-            <Button variant="outline" size="sm" onClick={handleResetChat}>
-              <Trash2 className="mr-2 h-4 w-4" />
-              Reiniciar chat
-            </Button>
-          </div>
-
-          <div
-            ref={scrollRef}
-            className="flex h-[400px] flex-col gap-3 overflow-y-auto rounded-xl border border-border bg-card p-4"
-          >
-            {messages.length === 0 && (
-              <div className="flex flex-1 flex-col items-center justify-center text-center text-sm text-muted-foreground">
-                <Bot className="mb-2 h-8 w-8 opacity-50" />
-                <p>Envía un mensaje para empezar la simulación.</p>
-              </div>
-            )}
-            {messages.map((m, idx) => (
-              <div
-                key={idx}
+      {/* Layout Callbell: nav · panel · simulador. En xl van los 3 de
+          frente; por debajo se apilan en el orden del DOM. */}
+      <div className="grid gap-4 lg:grid-cols-[240px_1fr] xl:grid-cols-[240px_1fr_360px]">
+        {/* ---- Nav de secciones ---- */}
+        <nav
+          role="tablist"
+          aria-label="Secciones del agente"
+          className="flex gap-2 overflow-x-auto pb-1 lg:flex-col lg:overflow-visible lg:pb-0"
+        >
+          {SECTIONS.map((s) => {
+            const Icon = s.icon;
+            const selected = s.id === section;
+            return (
+              <button
+                key={s.id}
+                role="tab"
+                aria-selected={selected}
+                onClick={() => setSection(s.id)}
                 className={cn(
-                  "flex w-fit max-w-[80%] items-start gap-2 rounded-lg px-3 py-2 text-sm",
-                  m.role === "user"
-                    ? "ml-auto bg-primary text-primary-foreground"
-                    : "bg-muted",
+                  "flex w-64 shrink-0 flex-col rounded-xl border px-4 py-3 text-left transition-colors lg:w-full",
+                  selected
+                    ? "border-primary/60 bg-primary/5"
+                    : "border-border bg-card hover:border-primary/40",
                 )}
               >
-                {m.role === "assistant" && (
-                  <Bot className="mt-0.5 h-4 w-4 shrink-0" />
-                )}
-                {m.role === "user" && (
-                  <User className="mt-0.5 h-4 w-4 shrink-0" />
-                )}
-                <span className="whitespace-pre-wrap">{m.content}</span>
-              </div>
-            ))}
-            {simLoading && (
-              <div className="flex w-fit max-w-[80%] items-center gap-2 rounded-lg bg-muted px-3 py-2 text-sm">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Pensando...
-              </div>
-            )}
-          </div>
+                <span className="flex items-center gap-2 text-sm font-medium text-foreground">
+                  <Icon className={cn("h-4 w-4", selected ? "text-primary" : "text-muted-foreground")} />
+                  {s.title}
+                  {s.ready && (
+                    <span className="rounded-full bg-emerald-500/15 px-1.5 text-[10px] font-semibold uppercase text-emerald-500">
+                      listo
+                    </span>
+                  )}
+                </span>
+                <span className="mt-0.5 pl-6 text-xs leading-snug text-muted-foreground">
+                  {s.hint}
+                </span>
+              </button>
+            );
+          })}
+        </nav>
 
-          <form onSubmit={handleSend} className="flex items-center gap-2">
-            <Input
-              value={simInput}
-              onChange={(e) => setSimInput(e.target.value)}
-              placeholder="Escribe un mensaje de prueba..."
-              disabled={simLoading}
-            />
-            <Button type="submit" disabled={simLoading || !simInput.trim()}>
-              <Send className="h-4 w-4" />
-              <span className="sr-only">Enviar</span>
-            </Button>
-          </form>
-        </TabsContent>
-      </Tabs>
+        {/* ---- Panel de la sección ---- */}
+        <div className="min-w-0">
+          {section === "personality" && (
+            <div className="space-y-4">
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="name">Nombre</Label>
+                  <Input
+                    id="name"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="Ej. Demo Agent"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="description">Descripción</Label>
+                  <Input
+                    id="description"
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    placeholder="Para qué sirve este agente"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="objective">Objetivo del agente</Label>
+                <Textarea
+                  id="objective"
+                  value={objective}
+                  onChange={(e) => setObjective(e.target.value)}
+                  placeholder="Sé específico sobre los objetivos que el agente debe alcanzar. El objetivo se alcanza cuando el cliente no tiene nada más que preguntar."
+                  rows={4}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="behavior">Comportamiento del agente</Label>
+                <Textarea
+                  id="behavior"
+                  value={behavior}
+                  onChange={(e) => setBehavior(e.target.value)}
+                  placeholder="Dile al agente qué hacer, paso a paso: cómo saluda, qué hace con un saludo suelto, en qué idioma responde..."
+                  rows={5}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Tono del agente</Label>
+                <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card p-2">
+                  {tone.map((t) => (
+                    <span
+                      key={t}
+                      className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary"
+                    >
+                      {t}
+                      <button
+                        type="button"
+                        onClick={() => removeTone(t)}
+                        className="rounded-full hover:bg-primary/20"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </span>
+                  ))}
+                  <div className="flex flex-1 items-center gap-2">
+                    <Input
+                      value={toneInput}
+                      onChange={(e) => setToneInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          addTone();
+                        }
+                      }}
+                      placeholder="Añadir tono (Ej. profesional)"
+                      className="h-8 border-0 bg-transparent shadow-none focus-visible:ring-0"
+                    />
+                    <Button type="button" size="icon" variant="ghost" className="h-7 w-7" onClick={addTone}>
+                      <Plus className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Reglas prohibidas</Label>
+                <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card p-2">
+                  {rules.map((r) => (
+                    <span
+                      key={r}
+                      className="inline-flex items-center gap-1 rounded-full bg-destructive/10 px-2.5 py-1 text-xs font-medium text-destructive"
+                    >
+                      {r}
+                      <button
+                        type="button"
+                        onClick={() => removeRule(r)}
+                        className="rounded-full hover:bg-destructive/20"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </span>
+                  ))}
+                  <div className="flex flex-1 items-center gap-2">
+                    <Input
+                      value={ruleInput}
+                      onChange={(e) => setRuleInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          addRule();
+                        }
+                      }}
+                      placeholder="Añadir regla prohibida"
+                      className="h-8 border-0 bg-transparent shadow-none focus-visible:ring-0"
+                    />
+                    <Button type="button" size="icon" variant="ghost" className="h-7 w-7" onClick={addRule}>
+                      <Plus className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {section === "knowledge" && (
+            <div className="rounded-xl border border-border bg-card p-6 text-center">
+              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
+                <BookOpen className="h-6 w-6 text-primary" />
+              </div>
+              <p className="mt-3 text-sm font-medium">Conocimiento del agente</p>
+              <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
+                Aquí conectamos las <strong>fuentes</strong> (texto, URLs,
+                archivos) y las <strong>preguntas y respuestas</strong> del
+                negocio. El agente responderá consultándolas realmente
+                (búsqueda semántica con pgvector).
+              </p>
+              <p className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-amber-500/10 px-3 py-1 text-xs text-amber-600">
+                Fase A2 — en construcción
+              </p>
+            </div>
+          )}
+
+          {section === "actions" && (
+            <div className="space-y-3">
+              {ACTION_ITEMS.map((item) => (
+                <div
+                  key={item.label}
+                  className="flex items-center justify-between gap-4 rounded-xl border border-border bg-card px-4 py-3"
+                >
+                  <div>
+                    <p className="text-sm font-medium text-foreground">{item.label}</p>
+                    <p className="text-xs text-muted-foreground">{item.desc}</p>
+                  </div>
+                  <Switch checked={false} disabled aria-label={`${item.label} (próximamente)`} />
+                </div>
+              ))}
+              <p className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/10 px-3 py-1 text-xs text-amber-600">
+                Fase A3 — el modelo ejecutará estas acciones sobre el CRM
+              </p>
+            </div>
+          )}
+
+          {section === "advanced" && (
+            <div className="space-y-4">
+              <div className="grid gap-3 md:grid-cols-2">
+                {["Calidad de la respuesta", "Botones de respuesta", "Recordatorios", "Retraso del seguimiento"].map(
+                  (label) => (
+                    <div key={label} className="rounded-xl border border-border bg-card p-4">
+                      <p className="text-sm font-medium text-foreground">{label}</p>
+                      <div className="mt-2 h-9 rounded-lg border border-dashed border-border bg-muted/40" />
+                    </div>
+                  ),
+                )}
+              </div>
+              <div className="rounded-xl border border-border bg-card p-4">
+                <p className="text-sm font-medium text-foreground">Comportamiento del agente · salida</p>
+                <Textarea disabled placeholder="Una vez alcanzados mis objetivos, resumiré la conversación y..." className="mt-2" rows={3} />
+              </div>
+              <p className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/10 px-3 py-1 text-xs text-amber-600">
+                Fase A4 — estos parámetros llegarán al proveedor de IA
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* ---- Simulador (columna viva) ---- */}
+        <aside className="xl:sticky xl:top-4">
+          <div className="flex h-full flex-col rounded-xl border border-border bg-card">
+            <div className="flex items-center justify-between border-b border-border px-4 py-3">
+              <p className="text-sm font-medium">Simulador de agente</p>
+              <Button variant="ghost" size="icon" onClick={handleResetChat} title="Reiniciar chat">
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </div>
+
+            <div
+              ref={scrollRef}
+              className="flex min-h-64 flex-1 flex-col gap-3 overflow-y-auto p-4 lg:min-h-96 xl:max-h-[520px]"
+            >
+              {messages.length === 0 && (
+                <div className="flex flex-1 flex-col items-center justify-center rounded-lg border border-dashed border-border text-center text-sm text-muted-foreground">
+                  <Bot className="mb-2 h-8 w-8 opacity-50" />
+                  <p>Iniciar una conversación con el agente</p>
+                  <p className="mt-1 text-xs">Escribe como un cliente para probarlo tal y como responderá a tus clientes reales.</p>
+                </div>
+              )}
+              {messages.map((m, idx) => (
+                <div
+                  key={idx}
+                  className={cn(
+                    "flex w-fit max-w-[85%] items-start gap-2 rounded-lg px-3 py-2 text-sm",
+                    m.role === "user"
+                      ? "ml-auto bg-primary text-primary-foreground"
+                      : "bg-muted",
+                  )}
+                >
+                  {m.role === "assistant" && (
+                    <Bot className="mt-0.5 h-4 w-4 shrink-0" />
+                  )}
+                  {m.role === "user" && (
+                    <User className="mt-0.5 h-4 w-4 shrink-0" />
+                  )}
+                  <span className="whitespace-pre-wrap">{m.content}</span>
+                </div>
+              ))}
+              {simLoading && (
+                <div className="flex w-fit max-w-[85%] items-center gap-2 rounded-lg bg-muted px-3 py-2 text-sm">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Pensando...
+                </div>
+              )}
+            </div>
+
+            <form onSubmit={handleSend} className="flex items-center gap-2 border-t border-border p-3">
+              <Input
+                value={simInput}
+                onChange={(e) => setSimInput(e.target.value)}
+                placeholder="Escribe un mensaje..."
+                disabled={simLoading}
+              />
+              <Button type="submit" disabled={simLoading || !simInput.trim()}>
+                <Send className="h-4 w-4" />
+                <span className="sr-only">Enviar</span>
+              </Button>
+            </form>
+          </div>
+        </aside>
+      </div>
     </div>
   );
 }

@@ -10,6 +10,8 @@ const h = vi.hoisted(() => ({
   state: {
     conv: null as Record<string, unknown> | null,
     autoResponders: [] as { id: string }[],
+    /** Agente activo de la cuenta (null = el motor cae al prompt global). */
+    activeAgent: null as Record<string, unknown> | null,
     claim: true as boolean,
     updatePayload: null as Record<string, unknown> | null,
     rpcCalls: [] as { name: string; args: unknown }[],
@@ -47,6 +49,10 @@ vi.mock('./admin-client', () => ({
     from: (table: string) => {
       if (table === 'automations') {
         return pgChain(h.state.autoResponders)
+      }
+      // Agentes de IA: el activo llega como lista (LIMIT 1).
+      if (table === 'ai_agents') {
+        return pgChain(h.state.activeAgent ? [h.state.activeAgent] : [])
       }
       // conversations
       return {
@@ -93,6 +99,7 @@ beforeEach(() => {
     ai_reply_count: 0,
   }
   h.state.autoResponders = []
+  h.state.activeAgent = null
   h.state.claim = true
   h.state.updatePayload = null
   h.state.rpcCalls = []
@@ -100,6 +107,35 @@ beforeEach(() => {
   h.buildConversationContext.mockResolvedValue([{ role: 'user', content: 'hi' }])
   h.generateReply.mockResolvedValue({ text: 'Hello!', handoff: false })
   h.engineSendText.mockResolvedValue({ whatsapp_message_id: 'm1' })
+})
+
+describe('dispatchInboundToAiReply — agente activo (A5)', () => {
+  it('builds the prompt from the active agent, not the global one', async () => {
+    h.state.activeAgent = {
+      id: 'agent-1',
+      objective: 'Reservar cita para el taller',
+      behavior: 'Saluda y agenda',
+      tone: ['cercano'],
+      prohibited_rules: ['no promete precios'],
+    }
+    await dispatchInboundToAiReply(ARGS)
+    const sys = h.generateReply.mock.calls[0][0].systemPrompt as string
+    expect(sys).toContain('Objetivo:\nReservar cita para el taller')
+    expect(sys).toContain('Tono: cercano')
+    // No se filtran los metadatos del mock de conversación como agente.
+    expect(sys).not.toContain('assigned_agent_id')
+  })
+})
+
+describe('dispatchInboundToAiReply — sin agente activo (fallback)', () => {
+  it('keeps the account-global prompt behavior', async () => {
+    await dispatchInboundToAiReply(ARGS)
+    expect(h.engineSendText).toHaveBeenCalled()
+    // El agente no se consultó (no hay filas) — el prompt no menciona
+    // el encabezado de personalidad.
+    const sys = h.generateReply.mock.calls[0][0].systemPrompt as string
+    expect(sys).not.toContain('Objetivo:\nReservar')
+  })
 })
 
 describe('dispatchInboundToAiReply — eligibility gates', () => {
