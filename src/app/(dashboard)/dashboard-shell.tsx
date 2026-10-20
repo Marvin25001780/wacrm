@@ -15,7 +15,7 @@ import { hasMinRole } from "@/lib/auth/roles";
 // client components can't export Next's metadata object.
 
 function DashboardShellInner({ children }: { children: React.ReactNode }) {
-  const { user, loading, accountRole, profile } = useAuth();
+  const { user, loading, accountRole, account, profile, canEditSettings } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
 
@@ -55,18 +55,31 @@ function DashboardShellInner({ children }: { children: React.ReactNode }) {
 
   if (!user) return null;
 
-  // Wizard de bienvenida (068): se monta mientras el perfil no tenga el
-  // sello de onboarding (`onboarding_completed_at` = NULL). Lo completan
-  // y lo saltan por la misma puerta — ambos sellan, así que aparece una
-  // única vez por usuario.
+  // Wizard de bienvenida: LARGO mientras el perfil no tenga sello
+  // (068) y, si ya lo tiene, CORTO para el negocio sin sellar (069).
+  // En el corto solo entra un admin+: es el que puede responder por la
+  // cuenta (un agente/visor recibirá 403 al guardar). Completar y
+  // saltar sellan, así que cada uno aparece una única vez.
   const onboardingPending =
     !!profile && isOnboardingPending(profile.onboarding_completed_at);
+  const shortPending =
+    !onboardingPending &&
+    !!account &&
+    isOnboardingPending(account.onboarding_completed_at) &&
+    canEditSettings === true;
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
-      {/* Wizard de bienvenida (068) mientras el perfil esté sin sello.
-          Se pinta sobre la pantalla en la que estés — igual que Kommo. */}
-      {onboardingPending ? <OnboardingWizard /> : null}
+      {/* Wizard de bienvenida (068 largo / 069 corto) mientras el
+          sello correspondiente esté en NULL. Se pinta sobre la pantalla
+          en la que estés — igual que Kommo. El `key` obliga a una
+          instancia nueva cuando cambia de modo: el salto del largo
+          sella al usuario y, al instante, entra el corto del negocio —
+          sin reiniciar, el componente heredaría el paso actual y
+          quedaría fuera de su propia secuencia. */}
+      {onboardingPending || shortPending ? (
+        <OnboardingWizard key={onboardingPending ? "long" : "short"} />
+      ) : null}
       {/* Reports this tab's online/away presence once we know a user is
           signed in. Headless — renders nothing. */}
       <PresenceHeartbeat />

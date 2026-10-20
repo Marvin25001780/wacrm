@@ -65,6 +65,11 @@ export interface Account {
   team_size?: string | null;
   /** 068 — Optional website / social profile. */
   website?: string | null;
+  /**
+   * 069 — Short-wizard seal per BUSINESS. NULL keeps the 3-step
+   * wizard (lead sources / goals / team size) appearing for admins.
+   */
+  onboarding_completed_at?: string | null;
   created_at: string;
   updated_at: string;
 }

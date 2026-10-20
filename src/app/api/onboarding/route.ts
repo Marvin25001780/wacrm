@@ -91,12 +91,13 @@ export async function GET() {
     lead_sources: string[]
     goals: string[]
     team_size: string | null
+    onboarding_completed_at: string | null
   }
   let account: AccountState | null = null
   if (accountId) {
     const { data: row } = await supabase
       .from('accounts')
-      .select('name, website, lead_sources, goals, team_size')
+      .select('name, website, lead_sources, goals, team_size, onboarding_completed_at')
       .eq('id', accountId)
       .maybeSingle()
     account = (row as AccountState | null) ?? null
@@ -207,6 +208,11 @@ export async function PATCH(request: Request) {
         )
       }
       accountUpdate.team_size = size
+    }
+    // Sello del wizard CORTO por negocio (069): completarlo o saltarlo
+    // cierra el paso para esa cuenta.
+    if (body.account_completed === true) {
+      accountUpdate.onboarding_completed_at = new Date().toISOString()
     }
 
     if (Object.keys(accountUpdate).length > 0) {

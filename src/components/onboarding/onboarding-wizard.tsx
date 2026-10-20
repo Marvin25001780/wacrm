@@ -39,9 +39,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
-const TOTAL_STEPS = 7;
-
-// Galería de avatares (composición determinista → la URL es estable y
+// Galería de avatares (semillas deterministas → la URL es estable y
 // cacheable). Es una URL remota como las fotos subidas: nada nuevo.
 const AVATAR_STYLES = [
   "heart-eyes",
@@ -156,6 +154,11 @@ const EMPTY: OnboardingState = {
   accountName: "",
   website: "",
 };
+
+// Pasos de cada modo, en orden. El corto recorre el 2 (fuentes), el 5
+// (metas) y el 6 (tamaño) — mismos contenidos, sin avatar/canal/estilo.
+const LONG_SEQ = [1, 2, 3, 4, 5, 6, 7];
+const SHORT_SEQ = [2, 5, 6];
 
 function OptionCard({
   selected,
@@ -292,10 +295,16 @@ function ListPicker({
 }
 
 export function OnboardingWizard() {
-  const { account, canEditSettings, refreshProfile } = useAuth();
+  const { account, profile, canEditSettings, refreshProfile } = useAuth();
   const router = useRouter();
 
-  const [step, setStep] = useState(1);
+  // Modo: LARGO (7 pasos) cuando el USUARIO no tiene sello (068);
+  // CORTO —fuentes → metas → tamaño— cuando el sello de la persona ya
+  // está pero el NEGOCIO activo no selló el suyo (069). La shell solo
+  // nos monta en esos dos casos.
+  const isShort = Boolean(profile?.onboarding_completed_at);
+
+  const [step, setStep] = useState(isShort ? 2 : 1);
   const [state, setState] = useState<OnboardingState>(EMPTY);
   const [loaded, setLoaded] = useState(false);
   const [whatsappConnected, setWhatsappConnected] = useState(false);
@@ -331,20 +340,27 @@ export function OnboardingWizard() {
         setWhatsappConnected(connected);
         // Reanudar en el primer paso sin responder (no siempre en el 1):
         // los saltos quedan sellados por paso, así que quien dejó la
-        // mitad del wizard no lo repite desde cero.
-        const resume = !next.avatarUrl
-          ? 1
-          : next.leadSources.length === 0
+        // mitad del wizard no lo repite desde cero. En el largo, además,
+        // el paso del canal se da por completo si ya hay una línea.
+        const resume = isShort
+          ? next.leadSources.length === 0
             ? 2
-            : !connected
-              ? 3
-              : !next.industry
-                ? 4
-                : next.goals.length === 0
-                  ? 5
-                  : !next.teamSize
-                    ? 6
-                    : 7;
+            : next.goals.length === 0
+              ? 5
+              : 6
+          : !next.avatarUrl
+            ? 1
+            : next.leadSources.length === 0
+              ? 2
+              : !connected
+                ? 3
+                : !next.industry
+                  ? 4
+                  : next.goals.length === 0
+                    ? 5
+                    : !next.teamSize
+                      ? 6
+                      : 7;
         setStep(resume);
       }
     } catch (err) {
@@ -358,7 +374,7 @@ export function OnboardingWizard() {
     void loadState();
   }, [loadState]);
 
-  // Guarda "por paso" y avanza.
+  // Guarda "por paso" y avanza (siguiendo la secuencia del modo).
   const save = useCallback(
     async (patch: Record<string, unknown>, advance = true) => {
       setSaving(true);
@@ -373,7 +389,12 @@ export function OnboardingWizard() {
           toast.error(payload.error || "No se pudo guardar");
           return false;
         }
-        if (advance) setStep((prev) => Math.min(prev + 1, TOTAL_STEPS));
+        if (advance) {
+          setStep((prev) => {
+            const s = isShort ? SHORT_SEQ : LONG_SEQ;
+            return s[s.indexOf(prev) + 1] ?? prev;
+          });
+        }
         return true;
       } catch (err) {
         console.error("[onboarding] save error:", err);
@@ -383,22 +404,29 @@ export function OnboardingWizard() {
         setSaving(false);
       }
     },
-    [],
+    // isShort no cambia en la vida de la instancia; el lint lo quiere
+    // por ser parte del espacio leído.
+    [isShort],
   );
 
-  // Cierra el wizard (fin o salto) sellando el onboarding.
+  const seq = isShort ? SHORT_SEQ : LONG_SEQ;
+  const stepIdx = seq.indexOf(step);
+
+  // Cierra el wizard (fin o salto) sellando SU onboarding: el largo
+  // sella a la persona (068) y el corto, al negocio (069).
   const finish = useCallback(async () => {
     setClosing(true);
-    const ok = await save({ completed: true }, false);
+    const sealPatch = isShort
+      ? { account_completed: true }
+      : { completed: true };
+    const ok = await save(sealPatch, false);
     if (ok) {
       await refreshProfile();
-      toast.success(state.goals.length || state.industry
-        ? "Nexus listo para ti"
-        : "Onboarding saltado — puedes completarlo en tu Perfil cuando quieras");
+      toast.success("Onboarding saltado — puedes completarlo después desde Ajustes");
       router.push("/inbox");
     }
     setClosing(false);
-  }, [save, refreshProfile, router, state.goals.length, state.industry]);
+  }, [save, refreshProfile, router, isShort]);
 
   const primaryChannel = useMemo(
     () => LEAD_SOURCES.find((s) => state.leadSources.includes(s.id) && s.channel)?.channel ?? "whatsapp",
@@ -458,7 +486,7 @@ export function OnboardingWizard() {
                         : "Esto nos ayuda a personalizar tu experiencia en Nexus."}
           </p>
           <div className="mt-1 text-[11px] text-muted-foreground/70">
-            Paso {step} de {TOTAL_STEPS}
+            Paso {stepIdx + 1} de {seq.length}
           </div>
 
           <div className="mt-5 space-y-4">
@@ -648,38 +676,49 @@ export function OnboardingWizard() {
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => setStep((prev) => Math.max(prev - 1, 1))}
-              disabled={saving || closing || step === 1}
+              onClick={() =>
+                setStep(seq[Math.max(stepIdx - 1, 0)] ?? step)
+              }
+              disabled={saving || closing || stepIdx === 0}
               className="text-muted-foreground hover:text-foreground"
             >
               <ArrowLeft className="size-4" />
               Atrás
             </Button>
-            {step === TOTAL_STEPS ? (
+            {stepIdx === seq.length - 1 ? (
               <Button
                 onClick={() =>
                   void (async () => {
+                    // Último paso: en el largo, TODO lo acumulado; en el
+                    // corto, solo lo del negocio + su sello (069).
                     const ok = await save(
-                      {
-                        ...(canEditSettings
-                          ? {
-                              account_name: state.accountName.trim(),
-                              website: state.website.trim() || null,
-                              lead_sources: state.leadSources,
-                              goals: state.goals,
-                              team_size: state.teamSize,
-                            }
-                          : {}),
-                        industry: state.industry,
-                        role_title: state.roleTitle,
-                        avatar_url: state.avatarUrl,
-                        completed: true,
-                      },
+                      isShort
+                        ? {
+                            lead_sources: state.leadSources,
+                            goals: state.goals,
+                            team_size: state.teamSize,
+                            account_completed: true,
+                          }
+                        : {
+                            ...(canEditSettings
+                              ? {
+                                  account_name: state.accountName.trim(),
+                                  website: state.website.trim() || null,
+                                  lead_sources: state.leadSources,
+                                  goals: state.goals,
+                                  team_size: state.teamSize,
+                                }
+                              : {}),
+                            industry: state.industry,
+                            role_title: state.roleTitle,
+                            avatar_url: state.avatarUrl,
+                            completed: true,
+                          },
                       false,
                     );
                     if (ok) {
                       await refreshProfile();
-                      toast.success("Nexus listo para ti");
+                      toast.success(isShort ? "Configuración del negocio guardada" : "Nexus listo para ti");
                       router.push("/inbox");
                       setClosing(true);
                     }
@@ -690,7 +729,7 @@ export function OnboardingWizard() {
                 {closing || saving ? (
                   <Loader2 className="mr-2 size-4 animate-spin" />
                 ) : null}
-                Guardar y entrar
+                {isShort ? "Guardar y activar" : "Guardar y entrar"}
               </Button>
             ) : step === 3 ? (
               <Button onClick={() => void save({ lead_sources: state.leadSources })} disabled={saving || closing}>
@@ -705,6 +744,7 @@ export function OnboardingWizard() {
                     (() => {
                       const patch: Record<string, unknown> = {};
                       if (step === 1 && state.avatarUrl) patch.avatar_url = state.avatarUrl;
+                      if (step === 2) patch.lead_sources = state.leadSources;
                       if (step === 4) {
                         patch.industry = state.industry;
                         patch.role_title = state.roleTitle;
