@@ -58,6 +58,15 @@ import {
   type AgentAdvanced,
 } from "@/components/flows/agent/advanced-panel";
 
+/** Cómo se lee cada acción que el agente REPORTARÍA en el simulador. */
+const SIM_ACTION_LABEL: Record<string, string> = {
+  add_tag: "Aplicaría etiqueta",
+  update_contact: "Actualizaría el contacto",
+  assign_conversation: "Asignaría la conversación",
+  close_conversation: "Cerraría la conversación",
+  add_note: "Añadiría nota interna",
+};
+
 interface AiAgent {
   id: string;
   name: string;
@@ -137,8 +146,10 @@ export default function AiAgentEditPage() {
   });
 
   // Simulator state (columna derecha; siempre visible salvo en móvil
-  // apilado).
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  // apilado). `actions` son las que el agente REPORTARÍA (el simulador no
+  // toca datos reales): se muestran para ver qué haría en la bandeja.
+  type SimMessage = ChatMessage & { actions?: string[] };
+  const [messages, setMessages] = useState<SimMessage[]>([]);
   const [simInput, setSimInput] = useState("");
   const [simLoading, setSimLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -264,7 +275,7 @@ export default function AiAgentEditPage() {
     const text = simInput.trim();
     if (!text || simLoading) return;
 
-    const nextMessages: ChatMessage[] = [...messages, { role: "user", content: text }];
+    const nextMessages: SimMessage[] = [...messages, { role: "user", content: text }];
     setMessages(nextMessages);
     setSimInput("");
     setSimLoading(true);
@@ -273,7 +284,11 @@ export default function AiAgentEditPage() {
       const res = await fetch(`/api/ai-agents/${id}/simulate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages, newMessage: text }),
+        body: JSON.stringify({
+          // Solo rol+texto al modelo: el historial no arrastra metadatos.
+          messages: messages.map(({ role, content }) => ({ role, content })),
+          newMessage: text,
+        }),
       });
       const json = await res.json();
       if (!res.ok) {
@@ -290,7 +305,14 @@ export default function AiAgentEditPage() {
         }
         return;
       }
-      setMessages([...nextMessages, { role: "assistant", content: json.reply }]);
+      setMessages([
+        ...nextMessages,
+        {
+          role: "assistant",
+          content: json.reply,
+          actions: Array.isArray(json.actions) ? (json.actions as string[]) : [],
+        },
+      ]);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Error en el simulador");
     } finally {
@@ -552,19 +574,38 @@ export default function AiAgentEditPage() {
                 <div
                   key={idx}
                   className={cn(
-                    "flex w-fit max-w-[85%] items-start gap-2 rounded-lg px-3 py-2 text-sm",
-                    m.role === "user"
-                      ? "ml-auto bg-primary text-primary-foreground"
-                      : "bg-muted",
+                    "flex w-fit max-w-[85%] flex-col gap-1",
+                    m.role === "user" ? "ml-auto items-end" : "items-start",
                   )}
                 >
-                  {m.role === "assistant" && (
-                    <Bot className="mt-0.5 h-4 w-4 shrink-0" />
+                  <div
+                    className={cn(
+                      "flex items-start gap-2 rounded-lg px-3 py-2 text-sm",
+                      m.role === "user"
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-muted",
+                    )}
+                  >
+                    {m.role === "assistant" && (
+                      <Bot className="mt-0.5 h-4 w-4 shrink-0" />
+                    )}
+                    {m.role === "user" && (
+                      <User className="mt-0.5 h-4 w-4 shrink-0" />
+                    )}
+                    <span className="whitespace-pre-wrap">{m.content}</span>
+                  </div>
+                  {m.role === "assistant" && m.actions && m.actions.length > 0 && (
+                    <div className="flex flex-wrap gap-1 pl-6">
+                      {m.actions.map((a) => (
+                        <span
+                          key={a}
+                          className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary"
+                        >
+                          {SIM_ACTION_LABEL[a] ?? a}
+                        </span>
+                      ))}
+                    </div>
                   )}
-                  {m.role === "user" && (
-                    <User className="mt-0.5 h-4 w-4 shrink-0" />
-                  )}
-                  <span className="whitespace-pre-wrap">{m.content}</span>
                 </div>
               ))}
               {simLoading && (
