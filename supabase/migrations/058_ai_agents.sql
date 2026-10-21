@@ -51,3 +51,10 @@ DROP TRIGGER IF EXISTS audit_ai_agents ON ai_agents;
 CREATE TRIGGER audit_ai_agents
   AFTER INSERT OR UPDATE OR DELETE ON ai_agents
   FOR EACH ROW EXECUTE FUNCTION public.audit_row();
+
+-- RLS no sustituye los privilegios de tabla. Sin estos GRANT, el
+-- cliente autenticado recibe "permission denied for table ai_agents"
+-- antes de que PostgreSQL evalúe las políticas.
+REVOKE ALL ON public.ai_agents FROM anon, authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.ai_agents TO authenticated;
+GRANT ALL ON public.ai_agents TO service_role;
