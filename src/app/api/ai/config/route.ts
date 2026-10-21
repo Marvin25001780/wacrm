@@ -156,10 +156,15 @@ export async function POST(request: Request) {
     }
 
     const encryptedKey = rawKey ? encrypt(rawKey) : null
+    // El modelo de respaldo pertenece al MISMO proveedor. Si se cambió de
+    // proveedor, el fallback guardado ya no existe (p. ej. un modelo de
+    // Groq en una config de Gemini): el turno principal termina bien y
+    // después falla el respaldo con un 404. Se descarta al cambiar.
+    const providerChanged = !!existing && existing.provider !== provider
     const shared = {
       provider,
       model,
-      fallback_model: fallbackModel,
+      fallback_model: providerChanged ? null : fallbackModel,
       system_prompt: systemPrompt,
       is_active: isActive,
       auto_reply_enabled: autoReplyEnabled,

@@ -110,4 +110,34 @@ describe('runAgentTurn — conocimiento y acciones', () => {
     expect(res.actions).toEqual(['add_tag'])
     expect(res.applied).toBeUndefined()
   })
+
+  it('desenvuelve el JSON aunque no haya acciones', async () => {
+    h.generateReply.mockResolvedValue({
+      text: '{"reply":"La limpieza cuesta 25 USD","actions":[]}',
+      handoff: false,
+    })
+
+    const res = await runAgentTurn(db, { ...agent, action_tags: true }, [
+      { role: 'user', content: '¿cuánto cuesta la limpieza?' },
+    ])
+
+    expect(res.reply).toBe('La limpieza cuesta 25 USD')
+    expect(res.actions).toEqual([])
+  })
+
+  it('respuesta vacía usa el mensaje de salida y marca handoff', async () => {
+    h.generateReply.mockResolvedValue({
+      text: '{"reply":"","actions":[]}',
+      handoff: false,
+    })
+
+    const res = await runAgentTurn(
+      db,
+      { ...agent, action_tags: true, exit_message: 'Te escribe un asesor.' },
+      [{ role: 'user', content: 'quiero agendar' }],
+    )
+
+    expect(res.reply).toBe('Te escribe un asesor.')
+    expect(res.handoff).toBe(true)
+  })
 })

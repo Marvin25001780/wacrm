@@ -13,7 +13,10 @@ import type { AiProvider } from './types'
 export const AI_PROVIDER_DEFAULT_MODEL: Record<AiProvider, string> = {
   openai: 'gpt-5.4-mini',
   anthropic: 'claude-haiku-4-5-20251001',
-  gemini: 'gemini-2.5-flash',
+  // Gemini: 3.8-flash es el más nuevo pero con "thinking" y bajo carga
+  // tarda 20-30 s por turno; Flash-Lite responde en ~1 s y basta para
+  // atención al cliente.
+  gemini: 'gemini-3.5-flash-lite',
   deepseek: 'deepseek-chat',
   // Groq retiró Llama 3.3 70B del plan gratis/Developer el 16-ago-2026;
   // gpt-oss-120b es el reemplazo oficial y sigue en el free tier.

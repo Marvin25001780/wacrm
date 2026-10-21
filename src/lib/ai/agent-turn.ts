@@ -145,11 +145,12 @@ export async function runAgentTurn(
   })
 
   // ---- Generación ----------------------------------------------
-  const { text, handoff } = await generateReply({
+  const { text, handoff: generatedHandoff } = await generateReply({
     config,
     systemPrompt,
     messages,
   })
+  let handoff = generatedHandoff
 
   let reply = text
   let actionList: AgentActionType[] = []
@@ -158,17 +159,28 @@ export async function runAgentTurn(
   if (allowedActions.length > 0 && text && !handoff) {
     // El turno puede venir envuelto en JSON (protocolo de acciones).
     const parsed = parseAgentReply(text, allowedActions)
-    if (parsed.actions.length > 0) {
-      reply = parsed.text
-      actionList = parsed.actions.map((a) => a.type)
-      if (options.execute && options.ctx) {
-        applied = await applyAgentActions(db, parsed.actions, {
-          accountId,
-          conversationId: options.ctx.conversationId,
-          contactId: options.ctx.contactId,
-          userId: options.ctx.userId,
-        })
-      }
+    // SIEMPRE se usa el texto de la envolvente, aunque no haya acciones:
+    // el modelo responde `{"reply": "...", "actions": []}` y sin esto el
+    // cliente recibiría el JSON crudo.
+    reply = parsed.text
+    actionList = parsed.actions.map((a) => a.type)
+    if (options.execute && options.ctx && parsed.actions.length > 0) {
+      applied = await applyAgentActions(db, parsed.actions, {
+        accountId,
+        conversationId: options.ctx.conversationId,
+        contactId: options.ctx.contactId,
+        userId: options.ctx.userId,
+      })
+    }
+  }
+
+  // Respuesta vacía (el modelo devolvió `"reply": ""`): si el agente
+  // tiene mensaje de salida se usa ese y se marca handoff; si no, se
+  // deja vacío para que el motor no envíe un mensaje en blanco.
+  if (!handoff && !reply.trim()) {
+    if (agent.exit_message) {
+      reply = agent.exit_message
+      handoff = true
     }
   }
 

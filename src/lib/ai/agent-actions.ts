@@ -130,6 +130,7 @@ export interface AppliedAction {
 async function ensureTag(
   db: SupabaseClient,
   accountId: string,
+  userId: string,
   name: string
 ): Promise<{ id: string } | null> {
   const clean = name.trim().slice(0, 60)
@@ -151,7 +152,9 @@ async function ensureTag(
   const color = palette[clean.length % palette.length]
   const { data: created, error } = await db
     .from('tags')
-    .insert({ account_id: accountId, name: clean, color })
+    // `user_id` es NOT NULL desde 001 (quién creó la etiqueta) y la RLS
+    // heredada la exige; sin ella el insert falla y la acción se pierde.
+    .insert({ account_id: accountId, user_id: userId, name: clean, color })
     .select('id')
     .single()
   if (error || !created) {
@@ -173,7 +176,7 @@ async function executeAction(
         if (typeof name !== 'string' || !name.trim()) {
           return { type: action.type, ok: false, detail: 'sin nombre' }
         }
-        const tag = await ensureTag(db, ctx.accountId, name)
+        const tag = await ensureTag(db, ctx.accountId, ctx.userId, name)
         if (!tag) return { type: action.type, ok: false, detail: 'no se pudo resolver la etiqueta' }
         const { error } = await db
           .from('contact_tags')
@@ -191,7 +194,7 @@ async function executeAction(
         }
         const fields = action.value as Record<string, unknown>
         // Campos safe-listed: el modelo NO decide el teléfono ni el
-        // account; name/email/company son los campos de所谓 contacto.
+        // account; name/email/company son los campos del contacto.
         const update: Record<string, unknown> = { updated_at: new Date().toISOString() }
         for (const key of ['name', 'email', 'company'] as const) {
           const v = fields[key]
@@ -241,6 +244,9 @@ async function executeAction(
           return { type: action.type, ok: false, detail: 'sin texto' }
         }
         const { error } = await db.from('contact_notes').insert({
+          // `account_id` es NOT NULL (multiespacio): sin él la nota no
+          // se guarda y la acción se reportaba como fallida.
+          account_id: ctx.accountId,
           contact_id: ctx.contactId,
           user_id: ctx.userId,
           note_text: text.trim().slice(0, 2000),

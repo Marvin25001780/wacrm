@@ -112,6 +112,9 @@ export function AiConfig() {
       model === defaults.groq ||
       model.trim() === '';
     if (isDefaultModel) setModel(defaults[next]);
+    // El respaldo es específico del proveedor: al cambiarlo, el modelo
+    // anterior deja de existir. Se limpia para no guardar un fallback roto.
+    if (next !== provider) setFallbackModel('');
   };
 
   const keyPayload = () => (keyEdited ? apiKey.trim() : undefined);
