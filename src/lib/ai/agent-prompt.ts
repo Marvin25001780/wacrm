@@ -29,6 +29,18 @@ export interface AiAgentRow {
   behavior: string | null
   tone: string[] | null
   prohibited_rules: string[] | null
+  // ---- A3: acciones que el modelo puede ejecutar (palancas) ----
+  action_tags?: boolean
+  action_fields?: boolean
+  action_assign?: boolean
+  action_close?: boolean
+  action_notes?: boolean
+  // ---- A4: ajustes finos de respuesta ---------------------------
+  exit_message?: string | null
+  response_quality?: 'concise' | 'balanced' | 'detailed' | null
+  max_reply_buttons?: number | null
+  max_reminders?: number | null
+  follow_up_delay_minutes?: number | null
 }
 
 /**
@@ -62,12 +74,22 @@ export async function loadActiveAgent(
  * objetivo → comportamiento → tono → reglas prohibidas. Vacío solo
  * cuando el agente no tiene NADA configurado (el llamador decide
  * si caer al prompt global o avisar).
+ *
+ * `advanced` (A4, opcional) suma las reglas de salida/calidad/
+ * botones/recordatorios cuando el agente las tiene configuradas.
  */
 export function buildAgentSystemPrompt(
   agent: Pick<
     AiAgentRow,
     'objective' | 'behavior' | 'tone' | 'prohibited_rules'
-  >
+  >,
+  advanced?: {
+    exit_message?: string | null
+    response_quality?: 'concise' | 'balanced' | 'detailed' | null
+    max_reply_buttons?: number | null
+    max_reminders?: number | null
+    follow_up_delay_minutes?: number | null
+  }
 ): string {
   const parts: string[] = []
   if (agent.objective) parts.push(`Objetivo:\n${agent.objective}`)
@@ -80,5 +102,37 @@ export function buildAgentSystemPrompt(
       `Reglas prohibidas:\n- ${agent.prohibited_rules.join('\n- ')}`
     )
   }
+
+  const adv = advanced
+  if (adv) {
+    if (adv.response_quality === 'concise') {
+      parts.push(
+        'Estilo de respuesta: MUY conciso — frases cortas de WhatsApp, sin párrafos largos ni detalle innecesario.'
+      )
+    } else if (adv.response_quality === 'detailed') {
+      parts.push(
+        'Estilo de respuesta: detallado — explica opciones y próximos pasos con claridad, sin sobrepasarte.'
+      )
+    }
+    if (adv.exit_message && adv.exit_message.trim()) {
+      parts.push(
+        `Cuando consideres que tu objetivo está alcanzado, cierra la conversación con este mensaje final (y después deja el turno al humano):\n"${adv.exit_message.trim()}"`
+      )
+    }
+    const maxButtons = adv.max_reply_buttons ?? 2
+    if (maxButtons > 0) {
+      parts.push(
+        `Puedes proponerle al cliente hasta ${maxButtons} ${maxButtons === 1 ? 'opción' : 'opciones'} de respuesta (opciones breves, separadas por guiones con "Opciones:") — nunca más.`
+      )
+    }
+    const maxRem = adv.max_reminders ?? 2
+    const delay = adv.follow_up_delay_minutes ?? 30
+    if (maxRem > 0) {
+      parts.push(
+        `Si el cliente deja de responder, puedes enviar hasta ${maxRem} recordatorio${maxRem === 1 ? '' : 's'} con al menos ${delay} minutos entre uno y otro. Nunca más de ${maxRem}.`
+      )
+    }
+  }
+
   return parts.join('\n\n')
 }

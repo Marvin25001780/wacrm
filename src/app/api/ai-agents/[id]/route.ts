@@ -46,6 +46,18 @@ export async function PATCH(request: Request, { params }: RouteParams) {
       "behavior",
       "tone",
       "prohibited_rules",
+      // A3 — palancas de acciones
+      "action_tags",
+      "action_fields",
+      "action_assign",
+      "action_close",
+      "action_notes",
+      // A4 — avanzada
+      "exit_message",
+      "response_quality",
+      "max_reply_buttons",
+      "max_reminders",
+      "follow_up_delay_minutes",
     ];
     const update: Record<string, unknown> = {};
     for (const key of allowed) {
@@ -66,6 +78,39 @@ export async function PATCH(request: Request, { params }: RouteParams) {
         { error: "Estado inválido" },
         { status: 400 },
       );
+    }
+    // ---- Validación de los campos A3/A4 ------------------------
+    for (const key of ["action_tags", "action_fields", "action_assign", "action_close", "action_notes"]) {
+      if (body[key] !== undefined && typeof body[key] !== "boolean") {
+        return NextResponse.json({ error: `${key} debe ser booleano` }, { status: 400 });
+      }
+    }
+    if (body.response_quality !== undefined) {
+      if (!["concise", "balanced", "detailed"].includes(body.response_quality)) {
+        return NextResponse.json({ error: "Calidad de respuesta inválida" }, { status: 400 });
+      }
+    }
+    const intValidations: [string, [number, number]][] = [
+      ["max_reply_buttons", [0, 4]],
+      ["max_reminders", [0, 5]],
+      ["follow_up_delay_minutes", [5, 720]],
+    ];
+    for (const [key, [min, max]] of intValidations) {
+      const v = body[key];
+      if (v !== undefined) {
+        if (!Number.isInteger(v) || v < min || v > max) {
+          return NextResponse.json(
+            { error: `${key} debe ser un entero entre ${min} y ${max}` },
+            { status: 400 },
+          );
+        }
+      }
+    }
+    if (body.exit_message !== undefined && body.exit_message !== null) {
+      if (typeof body.exit_message !== "string") {
+        return NextResponse.json({ error: "exit_message debe ser texto" }, { status: 400 });
+      }
+      update.exit_message = body.exit_message.trim().slice(0, 2000) || null;
     }
 
     if (Object.keys(update).length === 0) {

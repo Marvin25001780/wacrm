@@ -22,7 +22,7 @@
 //                   recordatorios/seguimiento).
 // ============================================================
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
@@ -48,6 +48,15 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import type { ChatMessage } from "@/lib/ai/types";
+import { KnowledgePanel } from "@/components/flows/agent/knowledge-panel";
+import {
+  ActionsPanel,
+  type AgentActionFlags,
+} from "@/components/flows/agent/actions-panel";
+import {
+  AdvancedPanel,
+  type AgentAdvanced,
+} from "@/components/flows/agent/advanced-panel";
 
 interface AiAgent {
   id: string;
@@ -58,12 +67,25 @@ interface AiAgent {
   behavior: string | null;
   tone: string[];
   prohibited_rules: string[];
+  // A3
+  action_tags?: boolean;
+  action_fields?: boolean;
+  action_assign?: boolean;
+  action_close?: boolean;
+  action_notes?: boolean;
+  // A4
+  exit_message?: string | null;
+  response_quality?: "concise" | "balanced" | "detailed" | null;
+  max_reply_buttons?: number | null;
+  max_reminders?: number | null;
+  follow_up_delay_minutes?: number | null;
 }
 
 type Section = "personality" | "knowledge" | "actions" | "advanced";
 
-// Navegación izquierda — artículo, icono, línea de apoyo. El badge de
-// Personalidad lleva el check: es la única fase COMPLETA hoy.
+// Navegación izquierda — artículo, icono, línea de apoyo. Las cuatro
+// están VIVAS: Personalidad/Knowledge/Actions/Advanced guardan y el
+// motor real las usa.
 const SECTIONS: {
   id: Section;
   title: string;
@@ -72,9 +94,9 @@ const SECTIONS: {
   ready: boolean;
 }[] = [
   { id: "personality", title: "Personalidad", hint: "Objetivo, comportamiento, tono y reglas prohibidas", icon: Sparkles, ready: true },
-  { id: "knowledge", title: "Conocimiento del agente", hint: "Fuentes, preguntas y respuestas", icon: BookOpen, ready: false },
-  { id: "actions", title: "Acciones", hint: "Etiquetas, campos, notas y enrutamiento", icon: Code2, ready: false },
-  { id: "advanced", title: "Configuración avanzada", hint: "Botones, recordatorios y salidas", icon: Database, ready: false },
+  { id: "knowledge", title: "Conocimiento del agente", hint: "Fuentes, preguntas y respuestas", icon: BookOpen, ready: true },
+  { id: "actions", title: "Acciones", hint: "Etiquetas, campos, notas y enrutamiento", icon: Code2, ready: true },
+  { id: "advanced", title: "Configuración avanzada", hint: "Botones, recordatorios y salidas", icon: Database, ready: true },
 ];
 
 export default function AiAgentEditPage() {
@@ -95,6 +117,24 @@ export default function AiAgentEditPage() {
   const [toneInput, setToneInput] = useState("");
   const [rules, setRules] = useState<string[]>([]);
   const [ruleInput, setRuleInput] = useState("");
+
+  // A3 — palancas (estado del editor; "Guardar agente" manda todo)
+  const [actions, setActions] = useState<AgentActionFlags>({
+    action_tags: false,
+    action_fields: false,
+    action_assign: false,
+    action_close: false,
+    action_notes: false,
+  });
+
+  // A4 — avanzada
+  const [advanced, setAdvanced] = useState<AgentAdvanced>({
+    exit_message: "",
+    response_quality: "balanced",
+    max_reply_buttons: 2,
+    max_reminders: 2,
+    follow_up_delay_minutes: 30,
+  });
 
   // Simulator state (columna derecha; siempre visible salvo en móvil
   // apilado).
@@ -118,6 +158,22 @@ export default function AiAgentEditPage() {
       setBehavior(a.behavior ?? "");
       setTone(a.tone ?? []);
       setRules(a.prohibited_rules ?? []);
+      // A3 — palancas guardadas
+      setActions({
+        action_tags: a.action_tags ?? false,
+        action_fields: a.action_fields ?? false,
+        action_assign: a.action_assign ?? false,
+        action_close: a.action_close ?? false,
+        action_notes: a.action_notes ?? false,
+      });
+      // A4 — avanzada guardada
+      setAdvanced({
+        exit_message: a.exit_message ?? "",
+        response_quality: a.response_quality ?? "balanced",
+        max_reply_buttons: a.max_reply_buttons ?? 2,
+        max_reminders: a.max_reminders ?? 2,
+        follow_up_delay_minutes: a.follow_up_delay_minutes ?? 30,
+      });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Error al cargar");
     } finally {
@@ -154,6 +210,14 @@ export default function AiAgentEditPage() {
           behavior: behavior.trim() || null,
           tone,
           prohibited_rules: rules,
+          // A3 — palancas
+          ...actions,
+          // A4 — avanzada
+          exit_message: advanced.exit_message.trim() || null,
+          response_quality: advanced.response_quality,
+          max_reply_buttons: advanced.max_reply_buttons,
+          max_reminders: advanced.max_reminders,
+          follow_up_delay_minutes: advanced.follow_up_delay_minutes,
         }),
       });
       const json = await res.json();
@@ -214,7 +278,7 @@ export default function AiAgentEditPage() {
       const json = await res.json();
       if (!res.ok) {
         const msg = json.error || "Error en el simulador";
-        if (json.code === "ai_not_configured") {
+        if (json.code === "ai_not_configured" || json.code === "ai_key_unreadable") {
           toast.error(msg, {
             action: {
               label: "Configurar",
@@ -237,20 +301,6 @@ export default function AiAgentEditPage() {
   function handleResetChat() {
     setMessages([]);
   }
-
-  // ---- Paneles de secciones futuras ---------------------------
-  // Conocimiento (A2): fuentes + Q&A.
-  // Acciones (A3): el modelo puede ejecutar cambios en el CRM.
-  const ACTION_ITEMS = useMemo(
-    () => [
-      { label: "Añadir etiquetas", desc: "Añade una o más etiquetas al contacto." },
-      { label: "Editar campos personalizados", desc: "Guarda los datos recopilados en los campos del contacto." },
-      { label: "Asignar equipo", desc: "Asigna la conversación a la bandeja de un equipo." },
-      { label: "Cerrar conversación", desc: "Cierra el chat cuando no se necesita un humano." },
-      { label: "Añadir nota interna", desc: "Añade una nota privada visible solo para tu equipo." },
-    ],
-    []
-  );
 
   if (loading) {
     return (
@@ -466,64 +516,14 @@ export default function AiAgentEditPage() {
             </div>
           )}
 
-          {section === "knowledge" && (
-            <div className="rounded-xl border border-border bg-card p-6 text-center">
-              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
-                <BookOpen className="h-6 w-6 text-primary" />
-              </div>
-              <p className="mt-3 text-sm font-medium">Conocimiento del agente</p>
-              <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
-                Aquí conectamos las <strong>fuentes</strong> (texto, URLs,
-                archivos) y las <strong>preguntas y respuestas</strong> del
-                negocio. El agente responderá consultándolas realmente
-                (búsqueda semántica con pgvector).
-              </p>
-              <p className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-amber-500/10 px-3 py-1 text-xs text-amber-600">
-                Fase A2 — en construcción
-              </p>
-            </div>
-          )}
+          {section === "knowledge" && <KnowledgePanel agentId={id} />}
 
           {section === "actions" && (
-            <div className="space-y-3">
-              {ACTION_ITEMS.map((item) => (
-                <div
-                  key={item.label}
-                  className="flex items-center justify-between gap-4 rounded-xl border border-border bg-card px-4 py-3"
-                >
-                  <div>
-                    <p className="text-sm font-medium text-foreground">{item.label}</p>
-                    <p className="text-xs text-muted-foreground">{item.desc}</p>
-                  </div>
-                  <Switch checked={false} disabled aria-label={`${item.label} (próximamente)`} />
-                </div>
-              ))}
-              <p className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/10 px-3 py-1 text-xs text-amber-600">
-                Fase A3 — el modelo ejecutará estas acciones sobre el CRM
-              </p>
-            </div>
+            <ActionsPanel value={actions} onChange={setActions} />
           )}
 
           {section === "advanced" && (
-            <div className="space-y-4">
-              <div className="grid gap-3 md:grid-cols-2">
-                {["Calidad de la respuesta", "Botones de respuesta", "Recordatorios", "Retraso del seguimiento"].map(
-                  (label) => (
-                    <div key={label} className="rounded-xl border border-border bg-card p-4">
-                      <p className="text-sm font-medium text-foreground">{label}</p>
-                      <div className="mt-2 h-9 rounded-lg border border-dashed border-border bg-muted/40" />
-                    </div>
-                  ),
-                )}
-              </div>
-              <div className="rounded-xl border border-border bg-card p-4">
-                <p className="text-sm font-medium text-foreground">Comportamiento del agente · salida</p>
-                <Textarea disabled placeholder="Una vez alcanzados mis objetivos, resumiré la conversación y..." className="mt-2" rows={3} />
-              </div>
-              <p className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/10 px-3 py-1 text-xs text-amber-600">
-                Fase A4 — estos parámetros llegarán al proveedor de IA
-              </p>
-            </div>
+            <AdvancedPanel value={advanced} onChange={setAdvanced} />
           )}
         </div>
 

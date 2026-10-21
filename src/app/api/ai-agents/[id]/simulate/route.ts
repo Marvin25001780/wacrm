@@ -1,9 +1,6 @@
 import { NextResponse } from "next/server";
 import { getCurrentAccount, toErrorResponse } from "@/lib/auth/account";
-import { loadAiConfig } from "@/lib/ai/config";
-import { generateReply } from "@/lib/ai/generate";
-import { buildSystemPrompt } from "@/lib/ai/defaults";
-import { buildAgentSystemPrompt } from "@/lib/ai/agent-prompt";
+import { runAgentTurn, AgentTurnError } from "@/lib/ai/agent-turn";
 import { AiError, type ChatMessage } from "@/lib/ai/types";
 
 interface RouteParams {
@@ -13,8 +10,10 @@ interface RouteParams {
 /**
  * POST /api/ai-agents/:id/simulate
  *
- * Recibe un historial de mensajes y el mensaje nuevo del usuario,
- * y devuelve la respuesta del agente usando la config de IA de la cuenta.
+ * Un turno del agente EN EL SIMULADOR: misma caja que el motor real
+ * (personalidad + conocimiento + protocolo de acciones), pero sin
+ * conversación/contacto real — las acciones se REPORTAN ("aplicaría
+ * etiqueta X"), no se aplican: no hay contra qué aplicarlas.
  */
 export async function POST(request: Request, { params }: RouteParams) {
   try {
@@ -48,44 +47,27 @@ export async function POST(request: Request, { params }: RouteParams) {
       );
     }
 
-    let config: Awaited<ReturnType<typeof loadAiConfig>>;
-    try {
-      config = await loadAiConfig(supabase, accountId);
-    } catch {
-      return NextResponse.json(
-        {
-          error:
-            "No se pudo cargar la configuración de IA. Verifica la clave de cifrado o reconfigura el asistente en Configuración → Asistente de IA.",
-          code: "ai_config_error",
-        },
-        { status: 400 },
-      );
-    }
-
-    if (!config) {
-      return NextResponse.json(
-        {
-          error:
-            "El asistente de IA no está configurado. Configúralo en Configuración → Asistente de IA.",
-          code: "ai_not_configured",
-        },
-        { status: 400 },
-      );
-    }
-
-    const systemPrompt = buildSystemPrompt({
-      userPrompt: buildAgentSystemPrompt(agent),
-      mode: "auto_reply",
+    const history = [...messages, { role: "user" as const, content: newMessage }];
+    const turn = await runAgentTurn(supabase, agent, history, {
+      execute: false, // sin contacto real: se reportan, no se aplican
     });
 
-    const { text } = await generateReply({
-      config,
-      systemPrompt,
-      messages: [...messages, { role: "user", content: newMessage }],
+    return NextResponse.json({
+      reply: turn.reply,
+      knowledgeLoaded: turn.knowledgeLoaded,
+      actions: turn.actions,
     });
-
-    return NextResponse.json({ reply: text });
   } catch (err) {
+    if (err instanceof AgentTurnError) {
+      return NextResponse.json(
+        { error: err.message, code: err.code },
+        {
+          status: err.code === 'ai_not_configured' || err.code === 'ai_key_unreadable'
+            ? 400
+            : 502,
+        },
+      );
+    }
     if (err instanceof AiError) {
       return NextResponse.json(
         { error: err.message, code: err.code },
