@@ -286,7 +286,7 @@ export function AiConfig() {
                 id="ai-fallback"
                 value={fallbackModel}
                 onChange={(e) => setFallbackModel(e.target.value)}
-                placeholder="Opcional — p. ej. llama-3.1-8b-instant"
+                placeholder="Opcional — p. ej. openai/gpt-oss-20b"
                 disabled={disabled}
               />
               <p className="text-xs text-muted-foreground">

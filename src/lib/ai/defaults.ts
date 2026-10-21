@@ -13,9 +13,11 @@ import type { AiProvider } from './types'
 export const AI_PROVIDER_DEFAULT_MODEL: Record<AiProvider, string> = {
   openai: 'gpt-5.4-mini',
   anthropic: 'claude-haiku-4-5-20251001',
-  gemini: 'gemini-2.0-flash',
+  gemini: 'gemini-2.5-flash',
   deepseek: 'deepseek-chat',
-  groq: 'llama-3.3-70b-versatile',
+  // Groq retiró Llama 3.3 70B del plan gratis/Developer el 16-ago-2026;
+  // gpt-oss-120b es el reemplazo oficial y sigue en el free tier.
+  groq: 'openai/gpt-oss-120b',
 }
 
 /** Human-friendly provider labels shared by the settings UI. */
