@@ -158,6 +158,10 @@ const EMPTY: OnboardingState = {
 // Pasos de cada modo, en orden. El corto recorre el 2 (fuentes), el 5
 // (metas) y el 6 (tamaño) — mismos contenidos, sin avatar/canal/estilo.
 const LONG_SEQ = [1, 2, 3, 4, 5, 6, 7];
+// Un miembro que no administra el negocio no puede escribir en
+// `accounts` (la API responde 403). Su wizard solo toca lo suyo:
+// avatar, industria y cargo. Los pasos 2/3/5/6/7 son del negocio.
+const MEMBER_SEQ = [1, 4];
 const SHORT_SEQ = [2, 5, 6];
 
 function OptionCard({
@@ -303,6 +307,10 @@ export function OnboardingWizard() {
   // está pero el NEGOCIO activo no selló el suyo (069). La shell solo
   // nos monta en esos dos casos.
   const isShort = Boolean(profile?.onboarding_completed_at);
+  // El wizard corto es solo para admin+ (lo monta la shell). En el
+  // largo, un miembro sin permiso de administración no recorre los
+  // pasos que escriben en `accounts`.
+  const seq = isShort ? SHORT_SEQ : canEditSettings ? LONG_SEQ : MEMBER_SEQ;
 
   const [step, setStep] = useState(isShort ? 2 : 1);
   const [state, setState] = useState<OnboardingState>(EMPTY);
@@ -342,25 +350,30 @@ export function OnboardingWizard() {
         // los saltos quedan sellados por paso, así que quien dejó la
         // mitad del wizard no lo repite desde cero. En el largo, además,
         // el paso del canal se da por completo si ya hay una línea.
+        // Quien no administra el negocio solo tiene pasos de perfil.
         const resume = isShort
           ? next.leadSources.length === 0
             ? 2
             : next.goals.length === 0
               ? 5
               : 6
-          : !next.avatarUrl
-            ? 1
-            : next.leadSources.length === 0
-              ? 2
-              : !connected
-                ? 3
-                : !next.industry
-                  ? 4
-                  : next.goals.length === 0
-                    ? 5
-                    : !next.teamSize
-                      ? 6
-                      : 7;
+          : !canEditSettings
+            ? !next.avatarUrl
+              ? 1
+              : 4
+            : !next.avatarUrl
+              ? 1
+              : next.leadSources.length === 0
+                ? 2
+                : !connected
+                  ? 3
+                  : !next.industry
+                    ? 4
+                    : next.goals.length === 0
+                      ? 5
+                      : !next.teamSize
+                        ? 6
+                        : 7;
         setStep(resume);
       }
     } catch (err) {
@@ -368,7 +381,7 @@ export function OnboardingWizard() {
     } finally {
       setLoaded(true);
     }
-  }, []);
+  }, [isShort, canEditSettings]);
 
   useEffect(() => {
     void loadState();
@@ -391,8 +404,7 @@ export function OnboardingWizard() {
         }
         if (advance) {
           setStep((prev) => {
-            const s = isShort ? SHORT_SEQ : LONG_SEQ;
-            return s[s.indexOf(prev) + 1] ?? prev;
+            return seq[seq.indexOf(prev) + 1] ?? prev;
           });
         }
         return true;
@@ -404,12 +416,10 @@ export function OnboardingWizard() {
         setSaving(false);
       }
     },
-    // isShort no cambia en la vida de la instancia; el lint lo quiere
-    // por ser parte del espacio leído.
-    [isShort],
+    // `seq` solo cambia si cambia el modo (largo/corto/miembro).
+    [seq],
   );
 
-  const seq = isShort ? SHORT_SEQ : LONG_SEQ;
   const stepIdx = seq.indexOf(step);
 
   // Cierra el wizard (fin o salto) sellando SU onboarding: el largo
