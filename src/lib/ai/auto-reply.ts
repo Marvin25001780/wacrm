@@ -4,8 +4,9 @@ import { buildConversationContext } from './context'
 import { generateReply } from './generate'
 import { buildSystemPrompt } from './defaults'
 import { loadActiveAgent } from './agent-prompt'
+import { agentRespondsOn, normalizeConversationChannel } from './channels'
 import { runAgentTurn } from './agent-turn'
-import { engineSendText } from '@/lib/flows/meta-send'
+import { sendMessageToConversation } from '@/lib/whatsapp/send-message'
 
 interface DispatchArgs {
   accountId: string
@@ -21,6 +22,10 @@ interface DispatchArgs {
  *   1. la cuenta tiene un agente ACTIVO → turno completo del agente
  *      (personalidad, conocimiento A2, acciones A3, avanzada A4);
  *   2. sin agente → el prompt global de `ai_configs`, como siempre.
+ *
+ * El agente solo atiende los canales que eligió al activarse. El
+ * prompt global se conserva únicamente para WhatsApp: SMS, Instagram
+ * y Facebook no respondían con IA antes de esta versión.
  *
  * Guardas del motor (comunes a ambos): no si una automatización de
  * nivel mensaje está activa, no si el hilo ya tiene humano asignado,
@@ -38,6 +43,27 @@ export async function dispatchInboundToAiReply(
     const config = await loadAiConfig(db, accountId)
     if (!config || !config.autoReplyEnabled) return
 
+    // El canal vive en la conversación, no en el mensaje: el agente
+    // responde (o no) según el hilo completo.
+    const { data: conv, error: convErr } = await db
+      .from('conversations')
+      .select('assigned_agent_id, ai_reply_count, ai_processing_at, channel')
+      .eq('id', conversationId)
+      .maybeSingle()
+    if (convErr || !conv) return
+
+    const conversationChannel = normalizeConversationChannel(conv.channel)
+    const agent = await loadActiveAgent(db, accountId)
+
+    if (agent) {
+      if (!agentRespondsOn(agent, conversationChannel)) return
+    } else if (conversationChannel !== 'whatsapp') {
+      // Sin agente, el prompt global mantiene su alcance histórico:
+      // solo WhatsApp. Los demás canales necesitan un agente activo
+      // con ese canal seleccionado.
+      return
+    }
+
     const { data: autoResponders } = await db
       .from('automations')
       .select('id')
@@ -47,18 +73,13 @@ export async function dispatchInboundToAiReply(
       .limit(1)
     if (autoResponders && autoResponders.length > 0) return
 
-    // Resetear disabled siempre al recibir un nuevo mensaje
+    // Resetear disabled siempre al recibir un nuevo mensaje de un canal
+    // que este agente atiende.
     await db
       .from('conversations')
       .update({ ai_autoreply_disabled: false })
       .eq('id', conversationId)
 
-    const { data: conv, error: convErr } = await db
-      .from('conversations')
-      .select('assigned_agent_id, ai_reply_count, ai_processing_at')
-      .eq('id', conversationId)
-      .maybeSingle()
-    if (convErr || !conv) return
     if (conv.assigned_agent_id) return
     if (conv.ai_reply_count >= config.autoReplyMaxPerConversation) return
 
@@ -89,8 +110,6 @@ export async function dispatchInboundToAiReply(
       return
     }
 
-    const agent = await loadActiveAgent(db, accountId)
-
     if (agent) {
       // ---------- CAMINO 1: turno del agente activo ----------
       let turn
@@ -109,12 +128,10 @@ export async function dispatchInboundToAiReply(
       }
 
       if (turn.handoff || !turn.reply) {
-        await engineSendTextSafe({
-          db_text: turn.reply,
+        await sendAiReplySafe({
           accountId,
-          userId: configOwnerUserId,
           conversationId,
-          contactId,
+          text: turn.reply,
         })
         await db
           .from('conversations')
@@ -140,11 +157,9 @@ export async function dispatchInboundToAiReply(
           .eq('id', conversationId)
         return
       }
-      await engineSendText({
+      await sendAiReply({
         accountId,
-        userId: configOwnerUserId,
         conversationId,
-        contactId,
         text: turn.reply,
       })
       await db
@@ -168,11 +183,9 @@ export async function dispatchInboundToAiReply(
 
     if (handoff || !text) {
       if (text) {
-        await engineSendText({
+        await sendAiReply({
           accountId,
-          userId: configOwnerUserId,
           conversationId,
-          contactId,
           text,
         })
       }
@@ -195,11 +208,9 @@ export async function dispatchInboundToAiReply(
       return
     }
 
-    await engineSendText({
+    await sendAiReply({
       accountId,
-      userId: configOwnerUserId,
       conversationId,
-      contactId,
       text,
     })
 
@@ -213,19 +224,35 @@ export async function dispatchInboundToAiReply(
   }
 }
 
-async function engineSendTextSafe(args: {
-  db_text: string
+/**
+ * Envía la respuesta por el canal real del hilo (WhatsApp, SMS,
+ * Instagram o Facebook) y la firma como `bot`. Usa el mismo núcleo que
+ * la bandeja, así respeta la línea de WhatsApp del hilo, Evolution,
+ * credenciales y persistencia.
+ */
+async function sendAiReply(args: {
   accountId: string
-  userId: string
   conversationId: string
-  contactId: string
+  text: string
 }): Promise<void> {
-  if (!args.db_text) return
-  await engineSendText({
-    accountId: args.accountId,
-    userId: args.userId,
+  await sendMessageToConversation(supabaseAdmin(), args.accountId, {
     conversationId: args.conversationId,
-    contactId: args.contactId,
-    text: args.db_text,
+    messageType: 'text',
+    contentText: args.text,
+    senderId: null,
+    senderType: 'bot',
+  })
+}
+
+async function sendAiReplySafe(args: {
+  accountId: string
+  conversationId: string
+  text: string | null | undefined
+}): Promise<void> {
+  if (!args.text) return
+  await sendAiReply({
+    accountId: args.accountId,
+    conversationId: args.conversationId,
+    text: args.text,
   })
 }
