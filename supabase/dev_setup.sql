@@ -4173,6 +4173,15 @@ ALTER TABLE conversations
 ALTER TABLE conversations
   ADD COLUMN IF NOT EXISTS ai_reply_count integer NOT NULL DEFAULT 0;
 
+-- Lock en vuelo del motor de IA. Sin esta columna el SELECT del motor
+-- falla con 42703 y la IA no responde (ver migración 072).
+ALTER TABLE conversations
+  ADD COLUMN IF NOT EXISTS ai_processing_at timestamptz;
+
+CREATE INDEX IF NOT EXISTS idx_conversations_ai_processing_at
+  ON conversations (ai_processing_at)
+  WHERE ai_processing_at IS NOT NULL;
+
 -- ============================================================
 -- Atomic auto-reply slot claim.
 --

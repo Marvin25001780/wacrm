@@ -15,6 +15,8 @@ const h = vi.hoisted(() => ({
     claim: true as boolean,
     updatePayload: null as Record<string, unknown> | null,
     rpcCalls: [] as { name: string; args: unknown }[],
+    /** Simula una base sin migración 072 (columna del lock ausente). */
+    missingLockColumn: false,
   },
 }))
 
@@ -24,8 +26,8 @@ const h = vi.hoisted(() => ({
  * underlying `Promise` so callers can `await` the terminal method or
  * the chain directly.
  */
-function pgChain(result: unknown = null) {
-  const p = Promise.resolve({ data: result, error: null })
+function pgChain(result: unknown = null, error: unknown = null) {
+  const p = Promise.resolve({ data: result, error })
   const chain = {
     select: () => chain,
     eq: () => chain,
@@ -58,7 +60,19 @@ vi.mock('./admin-client', () => ({
       }
       // conversations
       return {
-        select: () => pgChain(h.state.conv),
+        select: (cols?: string) => {
+          if (
+            h.state.missingLockColumn &&
+            typeof cols === 'string' &&
+            cols.includes('ai_processing_at')
+          ) {
+            return pgChain(null, {
+              code: '42703',
+              message: 'column conversations.ai_processing_at does not exist',
+            })
+          }
+          return pgChain(h.state.conv)
+        },
         update: (payload: Record<string, unknown>) => {
           h.state.updatePayload = payload
           return pgChain({ id: 'locked' })
@@ -106,6 +120,7 @@ beforeEach(() => {
   h.state.claim = true
   h.state.updatePayload = null
   h.state.rpcCalls = []
+  h.state.missingLockColumn = false
   h.loadAiConfig.mockResolvedValue(aiConfig())
   h.buildConversationContext.mockResolvedValue([{ role: 'user', content: 'hi' }])
   h.generateReply.mockResolvedValue({ text: 'Hello!', handoff: false })
@@ -232,6 +247,26 @@ describe('dispatchInboundToAiReply — eligibility gates', () => {
     await dispatchInboundToAiReply(ARGS)
     expect(h.generateReply).not.toHaveBeenCalled()
     expect(h.sendMessageToConversation).not.toHaveBeenCalled()
+  })
+})
+
+describe('dispatchInboundToAiReply — base sin migración 072', () => {
+  it('responde aunque falte conversations.ai_processing_at', async () => {
+    h.state.missingLockColumn = true
+    h.state.conv = {
+      assigned_agent_id: null,
+      ai_reply_count: 0,
+      channel: 'whatsapp',
+    }
+
+    await dispatchInboundToAiReply(ARGS)
+
+    expect(h.generateReply).toHaveBeenCalled()
+    expect(h.sendMessageToConversation).toHaveBeenCalledWith(
+      expect.anything(),
+      'acct-1',
+      expect.objectContaining({ conversationId: 'conv-1', senderType: 'bot' }),
+    )
   })
 })
 

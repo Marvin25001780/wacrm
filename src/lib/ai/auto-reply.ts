@@ -15,6 +15,72 @@ interface DispatchArgs {
   configOwnerUserId: string
 }
 
+interface ReplyConversationRow {
+  assigned_agent_id: string | null
+  ai_reply_count: number
+  ai_processing_at?: string | null
+  channel: string | null
+}
+
+const CONVERSATION_COLUMNS =
+  'assigned_agent_id, ai_reply_count, ai_processing_at, channel'
+
+// Sin la migración 072 la columna del lock no existe. La IA debe seguir
+// respondiendo igual: el lock evita duplicados, no es un requisito para
+// contestar.
+const CONVERSATION_COLUMNS_WITHOUT_LOCK =
+  'assigned_agent_id, ai_reply_count, channel'
+
+/**
+ * Carga el hilo con la columna del lock y, si la base aún no tiene la
+ * migración 072 (`42703 undefined_column`), reintenta sin ella. Antes
+ * este SELECT fallaba y el motor lo interpretaba como "conversación no
+ * encontrada": la IA se apagaba en silencio.
+ */
+async function loadConversationForReply(
+  db: import('@supabase/supabase-js').SupabaseClient,
+  conversationId: string,
+): Promise<{ conv: ReplyConversationRow | null; lockSupported: boolean }> {
+  const first = await db
+    .from('conversations')
+    .select(CONVERSATION_COLUMNS)
+    .eq('id', conversationId)
+    .maybeSingle()
+
+  if (!first.error) {
+    return { conv: (first.data as ReplyConversationRow | null), lockSupported: true }
+  }
+
+  if (first.error.code === '42703') {
+    console.warn(
+      '[ai auto-reply] conversations.ai_processing_at no existe; sigo sin lock. Aplica la migración 072.',
+    )
+    const legacy = await db
+      .from('conversations')
+      .select(CONVERSATION_COLUMNS_WITHOUT_LOCK)
+      .eq('id', conversationId)
+      .maybeSingle()
+    if (legacy.error) {
+      console.error(
+        '[ai auto-reply] conversation lookup failed:',
+        legacy.error.message,
+      )
+      return { conv: null, lockSupported: false }
+    }
+    return {
+      conv: (legacy.data as ReplyConversationRow | null),
+      lockSupported: false,
+    }
+  }
+
+  console.error(
+    '[ai auto-reply] conversation lookup failed:',
+    first.error.message,
+  )
+  return { conv: null, lockSupported: true }
+}
+
+
 /**
  * Responde automáticamente (o no) a un mensaje entrante de la cuenta.
  *
@@ -37,6 +103,8 @@ export async function dispatchInboundToAiReply(
 ): Promise<void> {
   const { accountId, conversationId, contactId, configOwnerUserId } = args
 
+  let lockSupported = true
+
   try {
     const db = supabaseAdmin()
 
@@ -45,12 +113,20 @@ export async function dispatchInboundToAiReply(
 
     // El canal vive en la conversación, no en el mensaje: el agente
     // responde (o no) según el hilo completo.
-    const { data: conv, error: convErr } = await db
-      .from('conversations')
-      .select('assigned_agent_id, ai_reply_count, ai_processing_at, channel')
-      .eq('id', conversationId)
-      .maybeSingle()
-    if (convErr || !conv) return
+    const loaded = await loadConversationForReply(db, conversationId)
+    const conv = loaded.conv
+    lockSupported = loaded.lockSupported
+    if (!conv) return
+
+    // Limpia el lock del hilo cuando la base lo soporta. En modo legacy
+    // (sin migración 072) no hay nada que limpiar.
+    const clearLock = async () => {
+      if (!lockSupported) return
+      await db
+        .from('conversations')
+        .update({ ai_processing_at: null })
+        .eq('id', conversationId)
+    }
 
     const conversationChannel = normalizeConversationChannel(conv.channel)
     const agent = await loadActiveAgent(db, accountId)
@@ -83,30 +159,32 @@ export async function dispatchInboundToAiReply(
     if (conv.assigned_agent_id) return
     if (conv.ai_reply_count >= config.autoReplyMaxPerConversation) return
 
-    const now = Date.now()
-    const processingAt = conv.ai_processing_at
-      ? new Date(conv.ai_processing_at).getTime()
-      : null
+    if (lockSupported) {
+      const now = Date.now()
+      const processingAt = conv.ai_processing_at
+        ? new Date(conv.ai_processing_at).getTime()
+        : null
 
-    if (processingAt) {
-      const age = now - processingAt
-      if (age < 90_000) return
+      if (processingAt) {
+        const age = now - processingAt
+        if (age < 90_000) return
+      }
+
+      // Lock atómico optimista: dos entregas del webhook no generan dos
+      // respuestas del bot sobre el mismo mensaje.
+      const { data: locked } = await db
+        .from('conversations')
+        .update({ ai_processing_at: new Date().toISOString() })
+        .eq('id', conversationId)
+        .eq('ai_processing_at', conv.ai_processing_at)
+        .select('id')
+        .maybeSingle()
+      if (!locked) return
     }
-
-    // Lock atómico optimista: dos entregas del webhook no generan dos
-    // respuestas del bot sobre el mismo mensaje.
-    const { data: locked } = await db
-      .from('conversations')
-      .update({ ai_processing_at: new Date().toISOString() })
-      .eq('id', conversationId)
-      .eq('ai_processing_at', conv.ai_processing_at)
-      .select('id')
-      .maybeSingle()
-    if (!locked) return
 
     const messages = await buildConversationContext(db, conversationId)
     if (messages.length === 0) {
-      await db.from('conversations').update({ ai_processing_at: null }).eq('id', conversationId)
+      await clearLock()
       return
     }
 
@@ -137,7 +215,7 @@ export async function dispatchInboundToAiReply(
           .from('conversations')
           .update({
             ai_autoreply_disabled: true,
-            ai_processing_at: null,
+            ...(lockSupported ? { ai_processing_at: null } : {}),
           })
           .eq('id', conversationId)
         return
@@ -151,10 +229,7 @@ export async function dispatchInboundToAiReply(
         },
       )
       if (claimErr || claimed !== true) {
-        await db
-          .from('conversations')
-          .update({ ai_processing_at: null })
-          .eq('id', conversationId)
+        await clearLock()
         return
       }
       await sendAiReply({
@@ -162,10 +237,7 @@ export async function dispatchInboundToAiReply(
         conversationId,
         text: turn.reply,
       })
-      await db
-        .from('conversations')
-        .update({ ai_processing_at: null })
-        .eq('id', conversationId)
+      await clearLock()
       return
     }
 
@@ -189,10 +261,16 @@ export async function dispatchInboundToAiReply(
           text,
         })
       }
-      await db
+      const { error: handoffErr } = await db
         .from('conversations')
-        .update({ ai_autoreply_disabled: true, ai_processing_at: null })
+        .update({
+          ai_autoreply_disabled: true,
+          ...(lockSupported ? { ai_processing_at: null } : {}),
+        })
         .eq('id', conversationId)
+      if (handoffErr) {
+        console.error('[ai auto-reply] handoff update failed:', handoffErr.message)
+      }
       return
     }
 
@@ -204,7 +282,7 @@ export async function dispatchInboundToAiReply(
       },
     )
     if (claimErr || claimed !== true) {
-      await db.from('conversations').update({ ai_processing_at: null }).eq('id', conversationId)
+      await clearLock()
       return
     }
 
@@ -214,12 +292,17 @@ export async function dispatchInboundToAiReply(
       text,
     })
 
-    await db.from('conversations').update({ ai_processing_at: null }).eq('id', conversationId)
+    await clearLock()
   } catch (err) {
     console.error('[ai auto-reply] dispatch failed:', err)
     try {
       const db = supabaseAdmin()
-      await db.from('conversations').update({ ai_processing_at: null }).eq('id', conversationId)
+      if (lockSupported) {
+        await db
+          .from('conversations')
+          .update({ ai_processing_at: null })
+          .eq('id', conversationId)
+      }
     } catch {}
   }
 }
