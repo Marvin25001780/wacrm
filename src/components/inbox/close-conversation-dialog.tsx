@@ -3,16 +3,17 @@
 // ============================================================
 // CloseConversationDialog
 //
-// Al cerrar una conversación desde la Bandeja se pide:
-//   1. El motivo de cierre (catálogo + texto libre para "Otro").
-//   2. Opcionalmente, el CSAT (1..5 estrellas + comentario).
+// Al cerrar una conversación desde la Bandeja solo se pide el motivo
+// de cierre (catálogo + texto libre para "Otro"). El CSAT NO se pide
+// aquí: lo debe responder el cliente, no el agente; una nota puesta
+// por el agente mide su percepción, no la satisfacción del cliente.
 //
 // El diálogo solo recolecta la información; la persistencia la hace
 // el padre (MessageThread) para no duplicar la lógica de Supabase.
 // ============================================================
 
 import { useEffect, useState } from 'react';
-import { Loader2, Star } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -25,7 +26,6 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import { useAuth } from '@/hooks/use-auth';
 import { createClient } from '@/lib/supabase/client';
 import { cn } from '@/lib/utils';
@@ -34,9 +34,6 @@ import { CLOSE_REASON_OTHER, CLOSE_REASONS } from '@/lib/inbox/close-reasons';
 export interface CloseConversationPayload {
   /** Motivo de cierre (null si no se eligió ninguno). */
   reason: string | null;
-  /** CSAT 1..5, solo si el agente lo registró. */
-  score?: number;
-  comment?: string;
 }
 
 export function CloseConversationDialog({
@@ -50,8 +47,6 @@ export function CloseConversationDialog({
 }) {
   const [reasonChoice, setReasonChoice] = useState<string | null>(null);
   const [customReason, setCustomReason] = useState('');
-  const [score, setScore] = useState<number | null>(null);
-  const [comment, setComment] = useState('');
   const [saving, setSaving] = useState(false);
   const [reasonOptions, setReasonOptions] = useState<string[]>([
     ...CLOSE_REASONS,
@@ -65,8 +60,6 @@ export function CloseConversationDialog({
     if (!open) return;
     setReasonChoice(null);
     setCustomReason('');
-    setScore(null);
-    setComment('');
     setSaving(false);
   }, [open]);
 
@@ -101,8 +94,6 @@ export function CloseConversationDialog({
     try {
       await onConfirm({
         reason: resolvedReason.trim() || null,
-        score: score ?? undefined,
-        comment: comment.trim() || undefined,
       });
       onOpenChange(false);
     } finally {
@@ -118,8 +109,7 @@ export function CloseConversationDialog({
             Cerrar conversación
           </DialogTitle>
           <DialogDescription className="text-muted-foreground">
-            Indica el motivo del cierre. Registrar la satisfacción (CSAT) es
-            opcional.
+            Indica el motivo del cierre (opcional).
           </DialogDescription>
         </DialogHeader>
 
@@ -173,44 +163,6 @@ export function CloseConversationDialog({
                 autoFocus
               />
             ) : null}
-          </div>
-
-          {/* CSAT */}
-          <div className="space-y-2">
-            <Label>Satisfacción del cliente (opcional)</Label>
-            <div className="flex items-center gap-1">
-              {[1, 2, 3, 4, 5].map((value) => (
-                <button
-                  key={value}
-                  type="button"
-                  onClick={() => setScore((prev) => (prev === value ? null : value))}
-                  aria-label={`${value} de 5`}
-                  aria-pressed={(score ?? 0) >= value}
-                  className="rounded-md p-0.5 transition-transform hover:scale-110"
-                >
-                  <Star
-                    className={cn(
-                      'size-6',
-                      (score ?? 0) >= value
-                        ? 'fill-amber-400 text-amber-400'
-                        : 'text-muted-foreground',
-                    )}
-                  />
-                </button>
-              ))}
-              {score ? (
-                <span className="ml-2 text-xs text-muted-foreground">
-                  {score} / 5
-                </span>
-              ) : null}
-            </div>
-            <Textarea
-              value={comment}
-              onChange={(e) => setComment(e.target.value)}
-              placeholder="Comentario del cliente (opcional)"
-              maxLength={400}
-              rows={2}
-            />
           </div>
         </div>
 

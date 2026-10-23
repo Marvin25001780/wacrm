@@ -121,6 +121,11 @@ export default function PerformanceMetricsPage() {
           supabase
             .from("csat_responses")
             .select("conversation_id, agent_id, score, comment, created_at")
+            // Solo encuestas respondidas por el cliente. Las notas que
+            // pudiera registrar un agente (`source = 'manual'`) miden su
+            // percepción, no la satisfacción del cliente, y no deben
+            // promediarse como CSAT.
+            .eq("source", "survey")
             .gte("created_at", fromIso)
             .lt("created_at", toIsoExclusive)
             .limit(20000),
@@ -388,13 +393,13 @@ export default function PerformanceMetricsPage() {
           <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
             <Panel
               title="Satisfacción del cliente (CSAT)"
-              subtitle="Distribución de las respuestas del período"
+              subtitle="Distribución de las respuestas de los clientes en el período"
             >
               {result.totals.csatCount === 0 ? (
                 <EmptyState
                   icon={Smile}
                   title="Sin respuestas CSAT"
-                  hint="Registra encuestas de satisfacción para verlas aquí."
+                  hint="Se mostrarán cuando los clientes respondan una encuesta de satisfacción."
                 />
               ) : (
                 <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
