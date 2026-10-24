@@ -15,6 +15,9 @@
 //                    siguiente saliente).
 //   • cierre      → created_at → closed_at de la conversación.
 //   • CSAT        → score 1..5; satisfecho ≥4, neutral =3, insatisfecho ≤2.
+//                    Solo deben pasarse filas de encuestas respondidas por
+//                    el cliente (`source = 'survey'`), nunca notas que
+//                    registre un agente.
 // ============================================================
 
 import { localDayKey } from "@/lib/dashboard/date-utils";

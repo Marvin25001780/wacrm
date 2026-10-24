@@ -671,11 +671,11 @@ export function MessageThread({
     [conversation, onStatusChange]
   );
 
-  // Cierre con motivo + CSAT opcional. La persistencia vive aquí (el
-  // diálogo solo recolecta) para mantener el acceso a Supabase en un
-  // único lugar del hilo.
+  // Cierre con motivo. La persistencia vive aquí (el diálogo solo
+  // recolecta) para mantener el acceso a Supabase en un único lugar del
+  // hilo. El CSAT no se registra aquí: debe responderlo el cliente.
   const handleCloseConversation = useCallback(
-    async ({ reason, score, comment }: CloseConversationPayload) => {
+    async ({ reason }: CloseConversationPayload) => {
       if (!conversation) return;
 
       const supabase = createClient();
@@ -690,32 +690,9 @@ export function MessageThread({
         return;
       }
 
-      if (typeof score === "number") {
-        if (accountId) {
-          const { error: csatError } = await supabase
-            .from("csat_responses")
-            .insert({
-              account_id: accountId,
-              conversation_id: conversation.id,
-              contact_id: contact?.id ?? null,
-              // Mismo espacio que assigned_agent_id (auth.users.id).
-              agent_id: conversation.assigned_agent_id ?? null,
-              score,
-              comment: comment ?? null,
-              source: "manual",
-            });
-          if (csatError) {
-            console.error("Failed to save CSAT:", csatError);
-            toast.error(
-              "La conversación se cerró, pero no se pudo guardar el CSAT"
-            );
-          }
-        }
-      }
-
       onStatusChange(conversation.id, "closed");
     },
-    [conversation, contact, accountId, onStatusChange]
+    [conversation, onStatusChange]
   );
 
   // Añade/quita una etiqueta de la conversación abierta.
@@ -1259,7 +1236,7 @@ export function MessageThread({
                 <DropdownMenuItem
                   key={opt.value}
                   onClick={() => {
-                    // Cerrar abre el diálogo para capturar motivo + CSAT;
+                    // Cerrar abre el diálogo para capturar el motivo;
                     // el resto de estados se aplican directo.
                     if (opt.value === "closed") setCloseDialogOpen(true);
                     else handleStatusChange(opt.value);

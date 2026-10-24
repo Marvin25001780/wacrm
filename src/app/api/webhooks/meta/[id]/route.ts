@@ -1,6 +1,7 @@
-import { NextResponse } from 'next/server'
+import { NextResponse, after } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { channelsAdmin } from '@/lib/channels/admin-client'
+import { dispatchInboundToAiReply } from '@/lib/ai/auto-reply'
 import { decrypt } from '@/lib/whatsapp/encryption'
 import { dispatchWebhookEvent } from '@/lib/webhooks/deliver'
 import {
@@ -25,6 +26,18 @@ import { syncContactAvatar } from '@/lib/avatar/sync'
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+// La ingesta es rápida; la respuesta de IA puede llamar a un proveedor
+// externo. `after()` la ejecuta después de responderle a Meta sin
+// bloquear su ventana de reintentos.
+export const maxDuration = 60
+
+interface IngestedInbound {
+  conversationId: string
+  contactId: string
+  contentType: string
+  text: string | null
+}
 
 function safeDecrypt(value: unknown): string {
   if (typeof value !== 'string' || !value) return ''
@@ -166,13 +179,40 @@ export async function POST(
 
   const accessToken = safeDecrypt(config.access_token)
 
+  const delivered: IngestedInbound[] = []
   for (const ev of events) {
     try {
-      await ingestMessage(admin, accountId, ownerUserId, accessToken, ev)
+      const ingested = await ingestMessage(
+        admin,
+        accountId,
+        ownerUserId,
+        accessToken,
+        ev,
+      )
+      if (ingested) delivered.push(ingested)
     } catch (err) {
       console.error('[meta-webhook] ingest failed:', err)
     }
   }
+
+  // IA después de responderle a Meta. Solo mensajes de texto nuevos:
+  // los adjuntos no se reenvían al modelo y los duplicados ya se
+  // filtraron en la ingesta.
+  after(async () => {
+    for (const item of delivered) {
+      if (item.contentType !== 'text' || !item.text?.trim()) continue
+      try {
+        await dispatchInboundToAiReply({
+          accountId,
+          conversationId: item.conversationId,
+          contactId: item.contactId,
+          configOwnerUserId: ownerUserId,
+        })
+      } catch (err) {
+        console.error('[meta-webhook] ai auto-reply failed:', err)
+      }
+    }
+  })
 
   return NextResponse.json({ status: 'received', handled: events.length })
 }
@@ -205,7 +245,7 @@ async function ingestMessage(
   ownerUserId: string,
   accessToken: string,
   ev: MetaInboundMessage,
-) {
+): Promise<IngestedInbound | null> {
   const channel = ev.channel
 
   // Idempotencia: Meta reintenta; no dupliquemos por mid.
@@ -215,7 +255,7 @@ async function ingestMessage(
       .select('id')
       .eq('message_id', ev.messageId)
       .limit(1)
-    if (dup && dup.length > 0) return
+    if (dup && dup.length > 0) return null
   }
 
   // ¿Hilo existente para este usuario de la plataforma?
@@ -248,7 +288,7 @@ async function ingestMessage(
       .single()
     if (error || !created) {
       console.error('[meta-webhook] contact insert error:', error)
-      return
+      return null
     }
     contactId = created.id as string
   }
@@ -267,7 +307,7 @@ async function ingestMessage(
       .single()
     if (error || !newConv) {
       console.error('[meta-webhook] conversation insert error:', error)
-      return
+      return null
     }
     conversationId = newConv.id as string
     unreadCount = (newConv.unread_count as number) ?? 0
@@ -313,7 +353,7 @@ async function ingestMessage(
   })
   if (msgErr) {
     console.error('[meta-webhook] message insert error:', msgErr)
-    return
+    return null
   }
 
   await admin
@@ -333,4 +373,7 @@ async function ingestMessage(
     channel,
     text,
   })
+
+  if (!conversationId || !contactId) return null
+  return { conversationId, contactId, contentType, text }
 }

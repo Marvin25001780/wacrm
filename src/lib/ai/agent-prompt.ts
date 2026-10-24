@@ -25,6 +25,8 @@ export interface AiAgentRow {
   name: string
   description: string | null
   status: 'active' | 'inactive'
+  /** Canales donde responde. Las filas previas a 071 se leen como WhatsApp. */
+  channels?: string[] | null
   objective: string | null
   behavior: string | null
   tone: string[] | null

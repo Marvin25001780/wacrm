@@ -17,7 +17,10 @@ export const AI_PROVIDER_DEFAULT_MODEL: Record<AiProvider, string> = {
   // tarda 20-30 s por turno; Flash-Lite responde en ~1 s y basta para
   // atención al cliente.
   gemini: 'gemini-3.5-flash-lite',
-  deepseek: 'deepseek-chat',
+  // DeepSeek: `deepseek-chat` se retiró el 24-jul-2026. El ID vigente
+  // de V4.1-Flash es `deepseek-flash` (los legacy `deepseek-v4-flash*`
+  // solo se enrutan temporalmente).
+  deepseek: 'deepseek-flash',
   // Groq retiró Llama 3.3 70B del plan gratis/Developer el 16-ago-2026;
   // gpt-oss-120b es el reemplazo oficial y sigue en el free tier.
   groq: 'openai/gpt-oss-120b',

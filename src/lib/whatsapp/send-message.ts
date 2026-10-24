@@ -107,6 +107,12 @@ export interface SendMessageParams {
   interactivePayload?: InteractiveMessagePayload | null;
   replyToMessageId?: string | null;
   senderId?: string | null;
+  /**
+   * Quién firma el mensaje. Los envíos humanos usan 'agent' (default);
+   * el motor de IA usa 'bot' para que la bandeja lo muestre como
+   * asistente y no como un agente humano.
+   */
+  senderType?: 'agent' | 'bot';
 }
 
 export interface SendMessageResult {
@@ -221,6 +227,7 @@ export async function sendMessageToConversation(
     templateMessageParams,
     interactivePayload,
     replyToMessageId,
+    senderType = 'agent',
   } = params;
 
   if (!conversationId) {
@@ -290,6 +297,7 @@ export async function sendMessageToConversation(
       storedMediaUrl: mediaUrl,
       senderId,
       replyToMessageId,
+      senderType,
     });
   }
 
@@ -311,6 +319,7 @@ export async function sendMessageToConversation(
       contentText,
       senderId,
       replyToMessageId,
+      senderType,
     });
   }
 
@@ -345,6 +354,7 @@ export async function sendMessageToConversation(
       filename,
       senderId,
       replyToMessageId,
+      senderType,
     });
   }
 
@@ -571,7 +581,7 @@ export async function sendMessageToConversation(
     .from('messages')
     .insert({
       conversation_id: conversationId,
-      sender_type: 'agent',
+      sender_type: senderType,
       sender_id: senderId ?? null,
       content_type: messageType,
       content_text: persistedText,
@@ -664,6 +674,7 @@ async function sendEvolutionMessage(
     filename?: string | null;
     senderId?: string | null;
     replyToMessageId?: string | null;
+    senderType?: 'agent' | 'bot';
   }
 ): Promise<SendMessageResult> {
   const {
@@ -676,6 +687,7 @@ async function sendEvolutionMessage(
     filename,
     senderId,
     replyToMessageId,
+    senderType = 'agent',
   } = params;
 
   const { data: row } = await db
@@ -778,7 +790,7 @@ async function sendEvolutionMessage(
     .from('messages')
     .insert({
       conversation_id: conversationId,
-      sender_type: 'agent',
+      sender_type: senderType,
       sender_id: senderId ?? null,
       content_type: messageType,
       content_text: contentText || null,
@@ -856,6 +868,7 @@ async function sendMetaChannelMessage(
     storedMediaUrl?: string | null;
     senderId?: string | null;
     replyToMessageId?: string | null;
+    senderType?: 'agent' | 'bot';
   }
 ): Promise<SendMessageResult> {
   const {
@@ -869,6 +882,7 @@ async function sendMetaChannelMessage(
     storedMediaUrl,
     senderId,
     replyToMessageId,
+    senderType = 'agent',
   } = params;
 
   if (!externalContactId) {
@@ -970,7 +984,7 @@ async function sendMetaChannelMessage(
     .from('messages')
     .insert({
       conversation_id: conversationId,
-      sender_type: 'agent',
+      sender_type: senderType,
       sender_id: senderId ?? null,
       content_type: messageType,
       content_text: contentText || null,
@@ -1044,10 +1058,18 @@ async function sendSmsMessage(
     contentText?: string | null;
     senderId?: string | null;
     replyToMessageId?: string | null;
+    senderType?: 'agent' | 'bot';
   }
 ): Promise<SendMessageResult> {
-  const { conversationId, contact, messageType, contentText, senderId, replyToMessageId } =
-    params;
+  const {
+    conversationId,
+    contact,
+    messageType,
+    contentText,
+    senderId,
+    replyToMessageId,
+    senderType = 'agent',
+  } = params;
 
   if (messageType !== 'text') {
     throw new SendMessageError(
@@ -1104,7 +1126,7 @@ async function sendSmsMessage(
     .from('messages')
     .insert({
       conversation_id: conversationId,
-      sender_type: 'agent',
+      sender_type: senderType,
       sender_id: senderId ?? null,
       content_type: 'text',
       content_text: contentText || null,

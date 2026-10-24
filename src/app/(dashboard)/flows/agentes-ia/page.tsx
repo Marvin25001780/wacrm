@@ -31,6 +31,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { ActivateAgentDialog } from "@/components/flows/agent/activate-agent-dialog";
+import type { AiChannelStatus } from "@/lib/ai/channels";
 import { cn } from "@/lib/utils";
 
 interface AiAgent {
@@ -38,15 +40,26 @@ interface AiAgent {
   name: string;
   description: string | null;
   status: "active" | "inactive";
+  channels?: string[];
   objective: string | null;
   created_at: string;
 }
+
+const NO_CHANNEL_STATUS: AiChannelStatus = {
+  whatsapp: false,
+  sms: false,
+  instagram: false,
+  facebook: false,
+};
 
 export default function AiAgentsPage() {
   const router = useRouter();
   const [agents, setAgents] = useState<AiAgent[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
+  const [channelStatus, setChannelStatus] =
+    useState<AiChannelStatus>(NO_CHANNEL_STATUS);
+  const [activateAgent, setActivateAgent] = useState<AiAgent | null>(null);
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [formName, setFormName] = useState("");
@@ -67,6 +80,7 @@ export default function AiAgentsPage() {
       if (!res.ok) throw new Error(json.error || "Error al cargar agentes");
       setAgents(json.agents ?? []);
       setAiReplies(typeof json.aiReplies === "number" ? json.aiReplies : 0);
+      setChannelStatus(json.channelStatus ?? NO_CHANNEL_STATUS);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Error al cargar");
     } finally {
@@ -124,17 +138,22 @@ export default function AiAgentsPage() {
   }
 
   async function toggleStatus(agent: AiAgent) {
-    const next = agent.status === "active" ? "inactive" : "active";
+    // Al activar, primero se eligen los canales. Desactivar es directo.
+    if (agent.status === "inactive") {
+      setActivateAgent(agent);
+      return;
+    }
+
     try {
       const res = await fetch(`/api/ai-agents/${agent.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: next }),
+        body: JSON.stringify({ status: "inactive" }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Error al actualizar");
       setAgents((prev) => prev.map((a) => (a.id === agent.id ? json.agent : a)));
-      toast.success(next === "active" ? "Agente activado" : "Agente desactivado");
+      toast.success("Agente desactivado");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Error al actualizar");
     }
@@ -293,6 +312,28 @@ export default function AiAgentsPage() {
             </div>
           ))}
         </div>
+      )}
+
+      {activateAgent && (
+        <ActivateAgentDialog
+          key={activateAgent.id}
+          open
+          onOpenChange={(open) => !open && setActivateAgent(null)}
+          agent={activateAgent}
+          channelStatus={channelStatus}
+          onActivated={(updated) => {
+            const agent = updated as AiAgent;
+            setAgents((prev) =>
+              prev.map((item) => {
+                if (item.id === agent.id) return agent;
+                // El backend apaga los demás agentes al activar uno.
+                return item.status === "active"
+                  ? { ...item, status: "inactive" }
+                  : item;
+              }),
+            );
+          }}
+        />
       )}
 
       {/* Create dialog */}

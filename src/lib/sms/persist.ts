@@ -32,9 +32,17 @@ export interface InboundSmsRecord {
   receivedAt: string
 }
 
+export interface StoredInboundSms {
+  conversationId: string
+  contactId: string
+  text: string
+}
+
 export interface SmsSyncResult {
   stored: number
   skipped: number
+  /** Mensajes nuevos, para que el llamador pueda disparar la IA. */
+  storedMessages: StoredInboundSms[]
 }
 
 function asString(value: unknown): string {
@@ -53,7 +61,7 @@ async function resolveConversation(
   userId: string,
   phone: string,
   name?: string | null,
-): Promise<string> {
+): Promise<{ conversationId: string; contactId: string }> {
   const formatted = formatPhone(phone)
 
   // ---- contact -------------------------------------------------
@@ -101,7 +109,9 @@ async function resolveConversation(
     .eq('channel', 'sms')
     .maybeSingle()
   if (convErr) throw convErr
-  if (conv?.id) return conv.id as string
+  if (conv?.id) {
+    return { conversationId: conv.id as string, contactId }
+  }
 
   const { data: newConv, error: createErr } = await db
     .from('conversations')
@@ -124,12 +134,14 @@ async function resolveConversation(
         .eq('contact_id', contactId)
         .eq('channel', 'sms')
         .maybeSingle()
-      if (raced.data?.id) return raced.data.id as string
+      if (raced.data?.id) {
+        return { conversationId: raced.data.id as string, contactId }
+      }
     }
     console.error('[sms/persist] conversation insert error:', createErr)
     throw createErr ?? new Error('Failed to create SMS conversation')
   }
-  return newConv.id as string
+  return { conversationId: newConv.id as string, contactId }
 }
 
 /**
@@ -202,7 +214,7 @@ export async function recordOutboundSms(
   message: string,
   gatewayId?: string | null,
 ): Promise<void> {
-  const conversationId = await resolveConversation(db, accountId, userId, to)
+  const { conversationId } = await resolveConversation(db, accountId, userId, to)
   const now = new Date().toISOString()
 
   const { error } = await db.from('messages').insert({
@@ -240,17 +252,17 @@ export async function recordInboundSms(
   accountId: string,
   userId: string,
   rec: InboundSmsRecord,
-): Promise<boolean> {
+): Promise<StoredInboundSms | null> {
   if (rec.messageId) {
     const { data: dup } = await db
       .from('messages')
       .select('id')
       .eq('message_id', rec.messageId)
       .maybeSingle()
-    if (dup) return false
+    if (dup) return null
   }
 
-  const conversationId = await resolveConversation(
+  const { conversationId, contactId } = await resolveConversation(
     db,
     accountId,
     userId,
@@ -260,14 +272,7 @@ export async function recordInboundSms(
 
   // Lead automático — best-effort, nunca romper la ingesta.
   try {
-    const { data: convRow } = await db
-      .from('conversations')
-      .select('contact_id')
-      .eq('id', conversationId)
-      .maybeSingle()
-    if (convRow?.contact_id) {
-      await ensureLeadForContactRow(db, accountId, userId, convRow.contact_id as string, 'sms')
-    }
+    await ensureLeadForContactRow(db, accountId, userId, contactId, 'sms')
   } catch (err) {
     console.warn('[sms/persist] ensureLead failed:', err)
   }
@@ -303,7 +308,7 @@ export async function recordInboundSms(
     })
     .eq('id', conversationId)
 
-  return true
+  return { conversationId, contactId, text: rec.text }
 }
 
 /**
@@ -319,6 +324,7 @@ export async function syncInboundSms(
 ): Promise<SmsSyncResult> {
   let stored = 0
   let skipped = 0
+  const storedMessages: StoredInboundSms[] = []
 
   for (const raw of list) {
     const rec = extractInboundSms(raw)
@@ -327,9 +333,13 @@ export async function syncInboundSms(
       continue
     }
     try {
-      const didStore = await recordInboundSms(db, accountId, userId, rec)
-      if (didStore) stored++
-      else skipped++
+      const storedMessage = await recordInboundSms(db, accountId, userId, rec)
+      if (storedMessage) {
+        stored++
+        storedMessages.push(storedMessage)
+      } else {
+        skipped++
+      }
     } catch (err) {
       skipped++
       console.error(
@@ -339,5 +349,5 @@ export async function syncInboundSms(
     }
   }
 
-  return { stored, skipped }
+  return { stored, skipped, storedMessages }
 }

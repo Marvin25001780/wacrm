@@ -57,6 +57,12 @@ import {
   AdvancedPanel,
   type AgentAdvanced,
 } from "@/components/flows/agent/advanced-panel";
+import { ActivateAgentDialog } from "@/components/flows/agent/activate-agent-dialog";
+import {
+  AI_AGENT_CHANNEL_META,
+  agentChannels,
+  type AiChannelStatus,
+} from "@/lib/ai/channels";
 
 /** Cómo se lee cada acción que el agente REPORTARÍA en el simulador. */
 const SIM_ACTION_LABEL: Record<string, string> = {
@@ -72,6 +78,7 @@ interface AiAgent {
   name: string;
   description: string | null;
   status: "active" | "inactive";
+  channels?: string[];
   objective: string | null;
   behavior: string | null;
   tone: string[];
@@ -115,7 +122,15 @@ export default function AiAgentEditPage() {
   const [agent, setAgent] = useState<AiAgent | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [statusSaving, setStatusSaving] = useState(false);
   const [section, setSection] = useState<Section>("personality");
+  const [channelStatus, setChannelStatus] = useState<AiChannelStatus>({
+    whatsapp: false,
+    sms: false,
+    instagram: false,
+    facebook: false,
+  });
+  const [activationOpen, setActivationOpen] = useState(false);
 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -162,6 +177,12 @@ export default function AiAgentEditPage() {
       if (!res.ok) throw new Error(json.error || "Error al cargar agente");
       const a = json.agent as AiAgent;
       setAgent(a);
+      setChannelStatus(json.channelStatus ?? {
+        whatsapp: false,
+        sms: false,
+        instagram: false,
+        facebook: false,
+      });
       setName(a.name);
       setDescription(a.description ?? "");
       setStatus(a.status);
@@ -243,6 +264,36 @@ export default function AiAgentEditPage() {
       toast.error(err instanceof Error ? err.message : "Error al guardar");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleToggleStatus(next: boolean) {
+    // Activar exige elegir canales primero. Desactivar se guarda al
+    // instante para que el motor deje de responder sin depender de que
+    // el usuario recuerde pulsar "Guardar agente".
+    if (next) {
+      if (status !== "active") setActivationOpen(true);
+      return;
+    }
+    if (status === "inactive" || statusSaving) return;
+
+    setStatusSaving(true);
+    setStatus("inactive");
+    try {
+      const res = await fetch(`/api/ai-agents/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "inactive" }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Error al desactivar");
+      setAgent(json.agent as AiAgent);
+      toast.success("Agente desactivado");
+    } catch (err) {
+      setStatus("active");
+      toast.error(err instanceof Error ? err.message : "Error al desactivar");
+    } finally {
+      setStatusSaving(false);
     }
   }
 
@@ -347,6 +398,25 @@ export default function AiAgentEditPage() {
             <p className="text-sm text-muted-foreground">
               {description || "Entrena tu propio agente según tus necesidades fácilmente."}
             </p>
+            <div className="mt-1 flex flex-wrap items-center gap-1">
+              {agentChannels(agent.channels).map((channel) => (
+                <span
+                  key={channel}
+                  className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground"
+                >
+                  {AI_AGENT_CHANNEL_META[channel].label}
+                </span>
+              ))}
+              {status === "active" && (
+                <button
+                  type="button"
+                  onClick={() => setActivationOpen(true)}
+                  className="text-[11px] font-medium text-primary hover:underline"
+                >
+                  Editar canales
+                </button>
+              )}
+            </div>
           </div>
         </div>
         <div className="flex items-center gap-3">
@@ -354,7 +424,8 @@ export default function AiAgentEditPage() {
             <Switch
               id="agent-status"
               checked={status === "active"}
-              onCheckedChange={(v) => setStatus(v ? "active" : "inactive")}
+              disabled={statusSaving}
+              onCheckedChange={handleToggleStatus}
             />
             <Label htmlFor="agent-status" className="text-sm">
               {status === "active" ? "Activo" : "Inactivo"}
@@ -631,6 +702,21 @@ export default function AiAgentEditPage() {
           </div>
         </aside>
       </div>
+
+      {activationOpen && (
+        <ActivateAgentDialog
+          key={agent.id}
+          open
+          onOpenChange={setActivationOpen}
+          agent={agent}
+          channelStatus={channelStatus}
+          onActivated={(updated) => {
+            const next = updated as AiAgent;
+            setAgent(next);
+            setStatus(next.status);
+          }}
+        />
+      )}
     </div>
   );
 }

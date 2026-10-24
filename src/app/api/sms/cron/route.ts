@@ -1,9 +1,12 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/automations/admin-client'
+import { dispatchInboundToAiReply } from '@/lib/ai/auto-reply'
 import { decrypt } from '@/lib/whatsapp/encryption'
 import { textbeeFetchReceived } from '@/lib/sms/textbee'
 import { syncInboundSms } from '@/lib/sms/persist'
 import { resolveAuditUserId } from '@/lib/api/v1/contacts'
+
+export const maxDuration = 60
 
 /**
  * GET /api/sms/cron
@@ -74,6 +77,22 @@ export async function GET(request: Request) {
     accounts++
     stored += out.stored
     skipped += out.skipped
+
+    // Mismo motor que WhatsApp e Instagram/Facebook. El agente decide
+    // si este canal está entre los que eligió al activarse.
+    for (const inbound of out.storedMessages) {
+      if (!inbound.text.trim()) continue
+      try {
+        await dispatchInboundToAiReply({
+          accountId,
+          conversationId: inbound.conversationId,
+          contactId: inbound.contactId,
+          configOwnerUserId: userId,
+        })
+      } catch (err) {
+        console.error('[sms/cron] ai auto-reply failed:', err)
+      }
+    }
   }
 
   return NextResponse.json({ accounts, stored, skipped })

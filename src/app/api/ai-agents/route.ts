@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getCurrentAccount, toErrorResponse } from "@/lib/auth/account";
+import { loadAiChannelStatus } from "@/lib/ai/channel-status";
 
 /**
  * GET /api/ai-agents
@@ -8,7 +9,7 @@ import { getCurrentAccount, toErrorResponse } from "@/lib/auth/account";
 export async function GET() {
   try {
     const { supabase, accountId } = await getCurrentAccount();
-    const [{ data, error }, { data: replyCounts }] = await Promise.all([
+    const [{ data, error }, { data: replyCounts }, channelStatus] = await Promise.all([
       supabase.from("ai_agents").select("*").eq("account_id", accountId).order("created_at", { ascending: false }),
       // Contador real de respuestas IA (A6): suma de `ai_reply_count`
       // de las conversaciones de la cuenta. Sustituye al "Saldo de
@@ -19,6 +20,7 @@ export async function GET() {
         .select("ai_reply_count")
         .eq("account_id", accountId)
         .limit(10000),
+      loadAiChannelStatus(supabase, accountId),
     ]);
 
     if (error) throw error;
@@ -26,7 +28,7 @@ export async function GET() {
       (acc, row) => acc + ((row as { ai_reply_count?: number }).ai_reply_count ?? 0),
       0,
     );
-    return NextResponse.json({ agents: data ?? [], aiReplies });
+    return NextResponse.json({ agents: data ?? [], aiReplies, channelStatus });
   } catch (err) {
     return toErrorResponse(err);
   }
