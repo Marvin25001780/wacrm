@@ -38,6 +38,7 @@ import {
   StickyNote,
   Target,
   TrendingUp,
+  Upload,
   Users,
   Workflow,
   Zap,
@@ -146,16 +147,19 @@ const analiticaNav: NavItem = {
 };
 
 // ------------------------------------------------------------
-// 6. Finanzas — cobranza y reportes financieros.
+// 6. Cobranza - cartera, carga masiva, reportes y políticas.
 // ------------------------------------------------------------
-const finanzasNav: NavItem = {
-  href: "/receivables",
-  label: "Finanzas",
+const cobranzaNav: NavItem = {
+  href: "/cobranza",
+  label: "Cobranza",
   icon: HandCoins,
-  minRole: "admin",
+  minRole: "agent",
   children: [
-    { href: "/receivables", label: "Cobranza", icon: HandCoins, minRole: "admin" },
-    { href: "/receivables/reports", label: "Reportes de cartera", icon: BarChart3, minRole: "admin" },
+    { href: "/cobranza", label: "Panel", icon: LayoutDashboard, minRole: "agent" },
+    { href: "/cobranza/cartera", label: "Cartera", icon: Users, minRole: "agent" },
+    { href: "/cobranza/importar", label: "Carga masiva", icon: Upload, minRole: "admin" },
+    { href: "/cobranza/reportes", label: "Reportes", icon: BarChart3, minRole: "admin" },
+    { href: "/cobranza/configuracion", label: "Políticas", icon: Settings, minRole: "admin" },
   ],
 };
 
@@ -168,7 +172,7 @@ export const navItems: NavItem[] = [
   flujosNav,
   operacionesNav,
   analiticaNav,
-  finanzasNav,
+  cobranzaNav,
 ];
 
 export const bottomNavItems: NavItem[] = [

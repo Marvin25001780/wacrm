@@ -1294,3 +1294,8 @@ export interface ChannelConfig {
   created_at: string;
   updated_at: string;
 }
+
+// ============================================================
+// Cobranza (migraciones 073-078)
+// ============================================================
+export * from './collections';
