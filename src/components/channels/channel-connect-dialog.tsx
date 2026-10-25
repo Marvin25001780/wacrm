@@ -257,6 +257,22 @@ function MetaConnectDialog({
     window.location.href = `/api/channels/meta/oauth/start?channel=${channel}`;
   }
 
+  // Instagram puede conectarse sin Página de Facebook, con el login
+  // directo de Instagram (Instagram API with Instagram Login).
+  const instagramLoginReady = Boolean(
+    process.env.NEXT_PUBLIC_INSTAGRAM_APP_ID,
+  );
+
+  function startInstagramLogin() {
+    if (!instagramLoginReady) {
+      toast.error(
+        'Falta configurar la app de Instagram (NEXT_PUBLIC_INSTAGRAM_APP_ID).',
+      );
+      return;
+    }
+    window.location.href = '/api/channels/instagram/oauth/start';
+  }
+
   async function selectAccount(chosenPageId: string) {
     setSelectingId(chosenPageId);
     try {
@@ -630,6 +646,21 @@ function MetaConnectDialog({
               >
                 Conectar manualmente
               </Button>
+              {channel === 'instagram' ? (
+                <Button
+                  variant="outline"
+                  onClick={startInstagramLogin}
+                  disabled={!instagramLoginReady}
+                  title={
+                    instagramLoginReady
+                      ? 'Conectar sin Página de Facebook'
+                      : 'Falta NEXT_PUBLIC_INSTAGRAM_APP_ID'
+                  }
+                >
+                  <MessageCircle className="h-4 w-4" />
+                  Continuar con Instagram
+                </Button>
+              ) : null}
               <Button onClick={startOAuth} disabled={!oauthReady}>
                 <MessageCircle className="h-4 w-4" />
                 Continuar con Facebook

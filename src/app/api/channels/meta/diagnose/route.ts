@@ -3,6 +3,9 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { requireRole, toErrorResponse } from '@/lib/auth/account'
 import { decrypt } from '@/lib/whatsapp/encryption'
 import {
+  fetchInstagramMe,
+} from '@/lib/channels/instagram-oauth'
+import {
   fetchPageProfile,
   fetchPageSubscriptions,
   subscribePageToApp,
@@ -84,6 +87,65 @@ export async function GET(request: NextRequest) {
         : null,
       verify_token:
         typeof config.verify_token === 'string' ? config.verify_token : null,
+    }
+
+    const authMode = typeof config.auth_mode === 'string' ? config.auth_mode : ''
+
+    // Login directo de Instagram: no hay Página ni `subscribed_apps`;
+    // la suscripción se configura en Meta y solo se valida el token.
+    if (row?.is_active && authMode === 'instagram_login') {
+      if (!accessToken) {
+        return NextResponse.json({
+          ...base,
+          ok: false,
+          problem: 'Falta el token de Instagram. Vuelve a conectar el canal.',
+        })
+      }
+
+      const me = await fetchInstagramMe(accessToken)
+      const problems: string[] = []
+      if (!me.ok) {
+        problems.push(`Instagram rechazó el token: ${me.error}`)
+      }
+
+      const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+      const { count: recentConversations } = await ctx.supabase
+        .from('conversations')
+        .select('id', { count: 'exact', head: true })
+        .eq('channel', channel)
+        .gte('updated_at', since)
+      const { data: lastConversation } = await ctx.supabase
+        .from('conversations')
+        .select('id, last_message_text, last_message_at')
+        .eq('channel', channel)
+        .order('last_message_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      return NextResponse.json({
+        ...base,
+        ok: problems.length === 0,
+        auth_mode: authMode,
+        page_name:
+          typeof config.page_name === 'string' ? config.page_name : null,
+        ig_user_id:
+          typeof config.ig_user_id === 'string' ? config.ig_user_id : null,
+        ig_username:
+          typeof config.ig_username === 'string' ? config.ig_username : null,
+        account_username: me.ok ? me.data.username : null,
+        subscribed_fields: ['messages'],
+        recent_conversations: recentConversations ?? 0,
+        last_message: lastConversation
+          ? {
+              text: lastConversation.last_message_text ?? null,
+              at: lastConversation.last_message_at ?? null,
+            }
+          : null,
+        problems,
+        warnings: [
+          'Login directo de Instagram: la suscripción al webhook se configura en Meta → Configuración de Instagram, no desde el CRM.',
+        ],
+      })
     }
 
     if (!row?.is_active || !pageId || !accessToken) {

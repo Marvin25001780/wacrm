@@ -11,6 +11,7 @@ import {
   type MetaInboundMessage,
 } from '@/lib/channels/meta'
 import { ensureLeadForContactRow } from '@/lib/leads/ensure-lead'
+import { fetchInstagramUserName } from '@/lib/channels/instagram-oauth'
 import { syncContactAvatar } from '@/lib/avatar/sync'
 
 // ============================================================
@@ -196,6 +197,8 @@ export async function POST(
   }
 
   const accessToken = safeDecrypt(config.access_token)
+  const instagramLogin =
+    cfg.channel === 'instagram' && config.auth_mode === 'instagram_login'
 
   const delivered: IngestedInbound[] = []
   for (const ev of events) {
@@ -206,6 +209,7 @@ export async function POST(
         ownerUserId,
         accessToken,
         ev,
+        instagramLogin,
       )
       if (ingested) delivered.push(ingested)
     } catch (err) {
@@ -263,6 +267,7 @@ async function ingestMessage(
   ownerUserId: string,
   accessToken: string,
   ev: MetaInboundMessage,
+  instagramLogin = false,
 ): Promise<IngestedInbound | null> {
   const channel = ev.channel
 
@@ -292,7 +297,9 @@ async function ingestMessage(
 
   if (!contactId) {
     const name = accessToken
-      ? await fetchUserName(ev.senderId, accessToken)
+      ? instagramLogin
+        ? await fetchInstagramUserName(ev.senderId, accessToken)
+        : await fetchUserName(ev.senderId, accessToken)
       : null
     const { data: created, error } = await admin
       .from('contacts')

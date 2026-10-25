@@ -49,6 +49,22 @@ export async function POST(request: Request) {
     const config = (row.config ?? {}) as Record<string, unknown>
     const pageId = typeof config.page_id === 'string' ? config.page_id : ''
 
+    // El login directo de Instagram no usa `subscribed_apps`: la
+    // suscripción se gestiona en el panel de Meta.
+    if (
+      channel === 'instagram' &&
+      config.auth_mode === 'instagram_login'
+    ) {
+      return NextResponse.json({
+        ok: true,
+        page_id: null,
+        subscribed_fields: ['messages'],
+        apps: [],
+        notice:
+          'Login directo de Instagram: confirma la suscripción a "messages" en Meta → Configuración de Instagram → Webhooks.',
+      })
+    }
+
     let accessToken = ''
     try {
       accessToken =

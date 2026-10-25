@@ -284,15 +284,22 @@ export default function ChannelsPage() {
       const row = metaRows[key];
       if (row?.is_active) {
         const pageId = typeof row.config.page_id === 'string' ? row.config.page_id : '';
+        const igUsername =
+          typeof row.config.ig_username === 'string' ? row.config.ig_username : '';
+        const igLogin = row.config.auth_mode === 'instagram_login';
         const hasAppSecret = row.config.has_app_secret === true;
         const warnings: string[] = [];
         if (!hasAppSecret) {
           warnings.push('Falta app_secret guardado. Los mensajes pueden no entrar.');
         }
+        const details: string[] = [];
+        if (igUsername) details.push(`Cuenta: @${igUsername}`);
+        if (pageId) details.push(`Página: ${pageId}`);
+        if (igLogin) details.push('Login directo de Instagram');
         return {
           state: warnings.length ? 'warning' : 'connected',
           label: warnings.length ? 'Conectado con advertencias' : 'Conectado',
-          details: pageId ? [`Página: ${pageId}`] : [],
+          details,
           warnings,
         };
       }

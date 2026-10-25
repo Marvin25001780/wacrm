@@ -58,6 +58,10 @@ import {
   type EvoMediaType,
 } from '@/lib/channels/evolution';
 import {
+  sendInstagramAttachment,
+  sendInstagramText,
+} from '@/lib/channels/instagram-oauth'
+import {
   sendMetaText,
   sendMetaAttachment,
   metaAttachmentType,
@@ -910,6 +914,8 @@ async function sendMetaChannelMessage(
 
   const cfg = (row.config ?? {}) as Record<string, unknown>;
   const pageId = typeof cfg.page_id === 'string' ? cfg.page_id : '';
+  const authMode = typeof cfg.auth_mode === 'string' ? cfg.auth_mode : '';
+  const igUserId = typeof cfg.ig_user_id === 'string' ? cfg.ig_user_id : '';
   let accessToken = '';
   try {
     accessToken =
@@ -917,7 +923,14 @@ async function sendMetaChannelMessage(
   } catch (err) {
     console.error('[send-message] meta access_token decrypt failed:', err);
   }
-  if (!pageId || !accessToken) {
+
+  // Instagram puede venir de dos flujos: con Página de Facebook
+  // (`page_id`) o con inicio de sesión directo de Instagram
+  // (`auth_mode: instagram_login` + `ig_user_id`).
+  const isInstagramLogin =
+    channel === 'instagram' && authMode === 'instagram_login';
+
+  if (!accessToken || (isInstagramLogin ? !igUserId : !pageId)) {
     throw new SendMessageError(
       'channel_inactive',
       `Faltan credenciales del canal ${channel}`,
@@ -928,7 +941,62 @@ async function sendMetaChannelMessage(
   const isMediaKind = (MEDIA_KINDS as readonly string[]).includes(messageType);
   let sentMessageId = '';
 
-  if (isMediaKind) {
+  if (isInstagramLogin) {
+    if (isMediaKind) {
+      const kind = metaAttachmentType(messageType);
+      if (!kind) {
+        throw new SendMessageError(
+          'bad_request',
+          `Tipo de adjunto no soportado en ${channel}`,
+          400
+        );
+      }
+      if (!mediaUrl) {
+        throw new SendMessageError('bad_request', 'Falta la URL del adjunto', 400);
+      }
+      const res = await sendInstagramAttachment({
+        igUserId,
+        accessToken,
+        recipientId: externalContactId,
+        kind,
+        url: mediaUrl,
+      });
+      if (!res.ok) {
+        console.error(
+          '[send-message] Instagram attachment send failed:',
+          res.error
+        );
+        throw new SendMessageError(
+          'meta_error',
+          `Error de ${channel}: ${res.error}`,
+          502
+        );
+      }
+      sentMessageId = res.data.messageId || `instagram_${Date.now()}`;
+    } else if (messageType === 'text') {
+      const res = await sendInstagramText({
+        igUserId,
+        accessToken,
+        recipientId: externalContactId,
+        text: contentText || '',
+      });
+      if (!res.ok) {
+        console.error('[send-message] Instagram text send failed:', res.error);
+        throw new SendMessageError(
+          'meta_error',
+          `Error de ${channel}: ${res.error}`,
+          502
+        );
+      }
+      sentMessageId = res.data.messageId || `instagram_${Date.now()}`;
+    } else {
+      throw new SendMessageError(
+        'bad_request',
+        `Tipo de mensaje no soportado en ${channel}`,
+        400
+      );
+    }
+  } else if (isMediaKind) {
     const kind = metaAttachmentType(messageType);
     if (!kind) {
       throw new SendMessageError(

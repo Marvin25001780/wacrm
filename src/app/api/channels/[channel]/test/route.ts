@@ -4,6 +4,7 @@ import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit
 import { decrypt } from '@/lib/whatsapp/encryption'
 import { isChannelType } from '@/lib/channels/config'
 import { fetchPageProfile, fetchPageSubscriptions } from '@/lib/channels/meta'
+import { fetchInstagramMe } from '@/lib/channels/instagram-oauth'
 
 /**
  * POST /api/channels/[channel]/test
@@ -49,6 +50,26 @@ export async function POST(
       const pageId = String(config.page_id ?? '')
       const token =
         typeof config.access_token === 'string' ? decrypt(config.access_token) : ''
+      const authMode =
+        typeof config.auth_mode === 'string' ? config.auth_mode : ''
+
+      // Login directo de Instagram: se valida contra graph.instagram.com.
+      if (channel === 'instagram' && authMode === 'instagram_login') {
+        if (!token) {
+          return NextResponse.json(
+            { ok: false, status: null, error: 'Faltan credenciales' },
+            { status: 400 },
+          )
+        }
+        const me = await fetchInstagramMe(token)
+        return NextResponse.json({
+          ok: me.ok,
+          status: me.ok ? 200 : null,
+          error: me.ok ? undefined : me.error,
+          page_name: me.ok ? me.data.username || me.data.name : undefined,
+        })
+      }
+
       if (!pageId || !token) {
         return NextResponse.json(
           { ok: false, status: null, error: 'Faltan credenciales' },

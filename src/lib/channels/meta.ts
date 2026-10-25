@@ -427,10 +427,20 @@ interface RawMessaging {
   }
 }
 
+interface RawChange {
+  field?: string
+  value?: RawMessaging
+}
+
 /**
  * Normaliza el payload de un webhook de Meta a mensajes entrantes.
  * Ignora ecos (mensajes propios), receipts y eventos sin texto/adjunto.
  * Canal según `object` ('instagram' → instagram, 'page' → facebook).
+ *
+ * Soporta las dos formas de payload:
+ *   - Messenger / Instagram vía Facebook Login → `entry[].messaging[]`
+ *   - Instagram API with Instagram Login → `entry[].changes[]` con
+ *     `field: "messages"` y el mensaje dentro de `value`.
  */
 export function extractInboundMessages(payload: unknown): MetaInboundMessage[] {
   const root = (payload ?? {}) as { object?: string; entry?: unknown[] }
@@ -439,37 +449,50 @@ export function extractInboundMessages(payload: unknown): MetaInboundMessage[] {
   const out: MetaInboundMessage[] = []
   if (!Array.isArray(root.entry)) return out
 
+  const push = (m: RawMessaging | undefined) => {
+    if (!m || !m.message) return
+    if (m.message.is_echo) return
+    const senderId = m.sender?.id
+    if (!senderId) return
+    const text =
+      typeof m.message.text === 'string' && m.message.text.trim()
+        ? m.message.text
+        : null
+    const att = m.message.attachments?.[0]
+    const attachmentUrl =
+      typeof att?.payload?.url === 'string' ? att.payload.url : null
+    const attachmentType = typeof att?.type === 'string' ? att.type : null
+    if (!text && !attachmentUrl) return
+
+    out.push({
+      senderId,
+      recipientId: m.recipient?.id ?? '',
+      channel,
+      messageId: typeof m.message.mid === 'string' ? m.message.mid : null,
+      text,
+      attachmentUrl,
+      attachmentType,
+      timestamp: typeof m.timestamp === 'number' ? m.timestamp : Date.now(),
+    })
+  }
+
   for (const entryRaw of root.entry) {
-    const entry = (entryRaw ?? {}) as { messaging?: RawMessaging[] }
-    if (!Array.isArray(entry.messaging)) continue
-    for (const m of entry.messaging) {
-      if (!m || !m.message) continue
-      if (m.message.is_echo) continue
-      const senderId = m.sender?.id
-      const recipientId = m.recipient?.id ?? ''
-      if (!senderId) continue
-      const text =
-        typeof m.message.text === 'string' && m.message.text.trim()
-          ? m.message.text
-          : null
-      const att = m.message.attachments?.[0]
-      const attachmentUrl =
-        typeof att?.payload?.url === 'string' ? att.payload.url : null
-      const attachmentType =
-        typeof att?.type === 'string' ? att.type : null
-      if (!text && !attachmentUrl) continue
-      out.push({
-        senderId,
-        recipientId,
-        channel,
-        messageId: typeof m.message.mid === 'string' ? m.message.mid : null,
-        text,
-        attachmentUrl,
-        attachmentType,
-        timestamp:
-          typeof m.timestamp === 'number' ? m.timestamp : Date.now(),
-      })
+    const entry = (entryRaw ?? {}) as {
+      messaging?: RawMessaging[]
+      changes?: RawChange[]
+    }
+
+    if (Array.isArray(entry.messaging)) {
+      for (const m of entry.messaging) push(m)
+    }
+
+    if (Array.isArray(entry.changes)) {
+      for (const change of entry.changes) {
+        if (!change || change.field !== 'messages') continue
+        push(change.value)
+      }
     }
   }
+
   return out
 }
