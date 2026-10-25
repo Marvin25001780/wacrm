@@ -452,6 +452,13 @@ export function extractInboundMessages(payload: unknown): MetaInboundMessage[] {
   const push = (m: RawMessaging | undefined) => {
     if (!m || !m.message) return
     if (m.message.is_echo) return
+    // Eventos de prueba del panel de Meta: no son mensajes reales.
+    if (
+      m.message.mid === 'random_mid' ||
+      m.message.mid === 'test_message_id'
+    ) {
+      return
+    }
     const senderId = m.sender?.id
     if (!senderId) return
     const text =
