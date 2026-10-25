@@ -176,6 +176,16 @@ function MetaConnectDialog({
   const [busy, setBusy] = useState(false);
   const [testing, setTesting] = useState(false);
   const [checking, setChecking] = useState(false);
+  const [diagnosing, setDiagnosing] = useState(false);
+  const [diag, setDiag] = useState<{
+    ok?: boolean;
+    page_name?: string | null;
+    page_id?: string | null;
+    subscribed_fields?: string[];
+    problems?: string[];
+    problem?: string;
+    webhook_url?: string | null;
+  } | null>(null);
 
   const hasToken = Boolean(row?.config?.has_access_token);
   const hasSecret = Boolean(row?.config?.has_app_secret);
@@ -360,6 +370,26 @@ function MetaConnectDialog({
     }
   }
 
+  /**
+   * Consulta la Graph API y devuelve qué falta para que lleguen los
+   * mensajes: token, página, suscripción y campos activos.
+   */
+  async function diagnose() {
+    setDiagnosing(true);
+    try {
+      const res = await fetch(`/api/channels/meta/diagnose?channel=${channel}`);
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'No se pudo diagnosticar');
+      setDiag(json);
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : 'No se pudo diagnosticar',
+      );
+    } finally {
+      setDiagnosing(false);
+    }
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
@@ -404,6 +434,32 @@ function MetaConnectDialog({
               />
             </div>
 
+            {diag ? (
+              <div className="space-y-1 rounded-lg border border-border bg-muted/40 p-3 text-xs">
+                <p className="text-foreground">
+                  Página: {diag.page_name || diag.page_id || '—'}
+                </p>
+                <p className="text-muted-foreground">
+                  Campos suscritos:{' '}
+                  {diag.subscribed_fields?.length
+                    ? diag.subscribed_fields.join(', ')
+                    : 'ninguno'}
+                </p>
+                {diag.problem ? (
+                  <p className="text-destructive">{diag.problem}</p>
+                ) : null}
+                {diag.problems && diag.problems.length > 0 ? (
+                  <ul className="list-disc space-y-0.5 pl-4 text-destructive">
+                    {diag.problems.map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                ) : diag.ok ? (
+                  <p className="text-emerald-400">Todo correcto.</p>
+                ) : null}
+              </div>
+            ) : null}
+
             <DialogFooter>
               <Button
                 variant="outline"
@@ -423,6 +479,14 @@ function MetaConnectDialog({
               >
                 {checking && <Loader2 className="h-4 w-4 animate-spin" />}
                 Activar entrega
+              </Button>
+              <Button
+                variant="outline"
+                onClick={diagnose}
+                disabled={diagnosing}
+              >
+                {diagnosing && <Loader2 className="h-4 w-4 animate-spin" />}
+                Diagnóstico
               </Button>
               <Button
                 variant="outline"
