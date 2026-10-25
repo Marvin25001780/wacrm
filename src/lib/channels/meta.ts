@@ -193,9 +193,13 @@ export async function subscribePageToApp(
 export async function fetchPageSubscriptions(
   pageId: string,
   accessToken: string,
-): Promise<MetaResult<{ apps: { name: string; subscribedFields: string[] }[] }>> {
+): Promise<
+  MetaResult<{
+    apps: { id: string; name: string; subscribedFields: string[] }[]
+  }>
+> {
   const params = new URLSearchParams({
-    fields: 'name,subscribed_fields',
+    fields: 'id,name,subscribed_fields',
     access_token: accessToken,
   })
 
@@ -210,6 +214,7 @@ export async function fetchPageSubscriptions(
   const apps = list.map((raw) => {
     const item = (raw ?? {}) as Record<string, unknown>
     return {
+      id: typeof item.id === 'string' ? item.id : '',
       name: typeof item.name === 'string' ? item.name : '',
       subscribedFields: Array.isArray(item.subscribed_fields)
         ? item.subscribed_fields.filter((f): f is string => typeof f === 'string')

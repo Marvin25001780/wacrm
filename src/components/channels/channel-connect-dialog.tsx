@@ -182,6 +182,8 @@ function MetaConnectDialog({
     page_name?: string | null;
     page_id?: string | null;
     subscribed_fields?: string[];
+    subscribed_apps?: { id: string; name: string }[];
+    app_id?: string | null;
     problems?: string[];
     warnings?: string[];
     problem?: string;
@@ -446,6 +448,22 @@ function MetaConnectDialog({
                     ? diag.subscribed_fields.join(', ')
                     : 'ninguno'}
                 </p>
+                <p className="text-muted-foreground">
+                  Apps suscritas:{' '}
+                  {diag.subscribed_apps?.length
+                    ? diag.subscribed_apps
+                        .map(
+                          (app) =>
+                            `${app.name || 'sin nombre'} (${app.id})`,
+                        )
+                        .join(', ')
+                    : 'ninguna'}
+                </p>
+                {diag.app_id ? (
+                  <p className="text-muted-foreground">
+                    App del CRM: {diag.app_id}
+                  </p>
+                ) : null}
                 {diag.problem ? (
                   <p className="text-destructive">{diag.problem}</p>
                 ) : null}

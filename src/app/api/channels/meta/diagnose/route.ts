@@ -107,6 +107,8 @@ export async function GET(request: NextRequest) {
 
     const apps = subs.ok ? subs.data.apps : []
     const fields = [...new Set(apps.flatMap((app) => app.subscribedFields))]
+    const appIdMatches =
+      envAppId && apps.length > 0 ? apps.some((app) => app.id === envAppId) : null
 
     // Perfil best-effort: si falla, es informativo, no bloquea.
     const profile = await fetchPageProfile(pageId, accessToken)
@@ -131,6 +133,13 @@ export async function GET(request: NextRequest) {
         'El token no corresponde a la página configurada. Vuelve a conectar el canal.',
       )
     }
+    if (appIdMatches === false) {
+      problems.push(
+        `La página está suscrita a otra app (${apps
+          .map((app) => `${app.name || 'sin nombre'} ${app.id}`)
+          .join(', ')}), no a la app del CRM (${envAppId}). Los mensajes se envían al webhook de esa otra app.`,
+      )
+    }
     if (!profile.ok) {
       warnings.push(`No se pudo leer el perfil de la página: ${profile.error}`)
     }
@@ -148,6 +157,7 @@ export async function GET(request: NextRequest) {
       ok: problems.length === 0,
       page_name: pageName,
       page_id_matches: pageIdMatches,
+      app_id_matches: appIdMatches,
       subscribed_apps: apps,
       subscribed_fields: fields,
       subscribe_error: subscribeError,
