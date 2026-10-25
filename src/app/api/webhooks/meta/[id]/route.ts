@@ -165,6 +165,18 @@ export async function POST(
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   }
 
+  // Meta permite enviar una "muestra" desde el panel de webhooks. No es
+  // un mensaje real y trae otra forma ({ sample: { field, value } });
+  // se acepta y se registra para poder comprobar la conectividad.
+  const sample = (payload as { sample?: { field?: unknown } })?.sample
+  if (sample && typeof sample.field === 'string') {
+    console.info('[meta-webhook] sample received', {
+      config: id,
+      field: sample.field,
+    })
+    return NextResponse.json({ status: 'ok', sample: true })
+  }
+
   const events = extractInboundMessages(payload)
   if (events.length === 0) {
     return NextResponse.json({ status: 'ok', handled: 0 })
