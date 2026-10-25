@@ -234,9 +234,13 @@ export function ConversationList({
     }
 
     // By WhatsApp number (067). Other channels' threads have no number,
-    // so they drop out while a number is selected.
+    // so they must stay visible: el filtro de línea solo aplica a
+    // WhatsApp. Antes se ocultaban y parecía que no llegaban mensajes.
     if (activeLineId) {
-      result = result.filter((c) => lineOf(c, defaultLineId) === activeLineId);
+      result = result.filter((c) => {
+        if ((c.channel ?? "whatsapp") !== "whatsapp") return true;
+        return lineOf(c, defaultLineId) === activeLineId;
+      });
     }
 
     // Contact-based filters (tags via OR logic, exact company match).
