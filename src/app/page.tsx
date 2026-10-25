@@ -389,6 +389,7 @@ export default function LandingPage() {
             {["Servicios", "Sobre Nosotros", "Blog", "Contacto"].map((item, i) => (
               <a key={i} className="text-on-surface-variant text-sm hover:text-primary transition-colors" href="#">{item}</a>
             ))}
+            <a className="text-on-surface-variant text-sm hover:text-primary transition-colors" href="/terminos">Términos</a>
             <a className="text-on-surface-variant text-sm hover:text-primary transition-colors" href="/privacidad">Privacidad</a>
           </div>
           <div className="text-on-surface-variant text-sm text-center">
