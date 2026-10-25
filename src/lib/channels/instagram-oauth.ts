@@ -251,8 +251,15 @@ export async function fetchInstagramUserName(
 /** Comprueba el token y devuelve la identidad de la cuenta. */
 export async function fetchInstagramMe(
   accessToken: string,
+  igUserId: string,
 ): Promise<InstagramResult<{ id: string; username: string; name: string }>> {
-  const url = new URL(`${INSTAGRAM_GRAPH_BASE}/me`)
+  if (!igUserId) {
+    return { ok: false, error: 'Falta el id de la cuenta de Instagram' }
+  }
+
+  const url = new URL(
+    `${INSTAGRAM_GRAPH_BASE}/${encodeURIComponent(igUserId)}`,
+  )
   url.searchParams.set('fields', 'user_id,username,name')
   url.searchParams.set('access_token', accessToken)
 
@@ -275,7 +282,7 @@ export async function fetchInstagramMe(
         ? String(json.user_id)
         : typeof json.id === 'string'
           ? json.id
-          : ''
+          : igUserId
     return {
       ok: true,
       data: {
@@ -305,7 +312,9 @@ export async function fetchInstagramProfile(
   }
 
   try {
-    const url = new URL(`${INSTAGRAM_GRAPH_BASE}/me`)
+    const url = new URL(
+      `${INSTAGRAM_GRAPH_BASE}/${encodeURIComponent(fallbackUserId)}`,
+    )
     url.searchParams.set(
       'fields',
       'user_id,username,name,profile_picture_url',

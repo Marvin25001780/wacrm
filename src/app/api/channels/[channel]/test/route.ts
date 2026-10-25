@@ -61,7 +61,10 @@ export async function POST(
             { status: 400 },
           )
         }
-        const me = await fetchInstagramMe(token)
+        const me = await fetchInstagramMe(
+          token,
+          typeof config.ig_user_id === 'string' ? config.ig_user_id : '',
+        )
         return NextResponse.json({
           ok: me.ok,
           status: me.ok ? 200 : null,

@@ -102,7 +102,10 @@ export async function GET(request: NextRequest) {
         })
       }
 
-      const me = await fetchInstagramMe(accessToken)
+      const me = await fetchInstagramMe(
+        accessToken,
+        typeof config.ig_user_id === 'string' ? config.ig_user_id : '',
+      )
       const problems: string[] = []
       if (!me.ok) {
         problems.push(`Instagram rechazó el token: ${me.error}`)
