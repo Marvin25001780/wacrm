@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server'
 import { randomUUID } from 'node:crypto'
 import { requireRole, toErrorResponse } from '@/lib/auth/account'
-import { encrypt } from '@/lib/whatsapp/encryption'
+import { decrypt, encrypt } from '@/lib/whatsapp/encryption'
+import { subscribePageToApp } from '@/lib/channels/meta'
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit'
 
 /**
@@ -93,9 +94,30 @@ export async function POST(request: Request) {
 
     if (error || !data) throw error ?? new Error('upsert failed')
 
+    // Activar la entrega de eventos: sin esta suscripción Meta no envía
+    // mensajes de la página ni de su cuenta de Instagram vinculada.
+    let subscribed = true
+    let subscribeError = ''
+    try {
+      const pageToken = decrypt(chosen.access_token)
+      const result = await subscribePageToApp(pageId, pageToken)
+      if (!result.ok) {
+        subscribed = false
+        subscribeError = result.error
+        console.error('[meta-select] page subscription failed:', result.error)
+      }
+    } catch (err) {
+      subscribed = false
+      subscribeError =
+        err instanceof Error ? err.message : 'No se pudo suscribir la página'
+      console.error('[meta-select] page subscription threw:', err)
+    }
+
     return NextResponse.json({
       success: true,
       page_name: typeof chosen.name === 'string' ? chosen.name : '',
+      subscribed,
+      subscribe_error: subscribeError || undefined,
     })
   } catch (err) {
     return toErrorResponse(err)

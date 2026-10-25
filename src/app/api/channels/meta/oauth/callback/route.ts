@@ -5,6 +5,7 @@ import { encrypt } from '@/lib/whatsapp/encryption'
 import {
   exchangeMetaCodeForUserToken,
   fetchMetaAccounts,
+  subscribePageToApp,
 } from '@/lib/channels/meta'
 import {
   META_OAUTH_COOKIE,
@@ -144,6 +145,19 @@ export async function GET(request: NextRequest) {
         backToChannels(request, '?meta=error&reason=save'),
       )
     }
+    // Suscribir la página al webhook es lo que activa la entrega de
+    // mensajes. Sin esto el canal queda "conectado" pero mudo.
+    const subscribed = await subscribePageToApp(only.id, only.accessToken)
+    if (!subscribed.ok) {
+      console.error('[meta-oauth] page subscription failed:', subscribed.error)
+      return withClearedCookie(
+        backToChannels(
+          request,
+          `?meta=connected&channel=${parsed.channel}&subscribe=error&reason=${safeReason(subscribed.error)}`,
+        ),
+      )
+    }
+
     return withClearedCookie(
       backToChannels(request, `?meta=connected&channel=${parsed.channel}`),
     )

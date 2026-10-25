@@ -158,6 +158,11 @@ export default function ChannelsPage() {
             ? 'Instagram Direct'
             : 'Canal';
       toast.success(`${label} conectado`);
+      if (params.get('subscribe') === 'error') {
+        toast.error(
+          `Conectado, pero Meta no activó la entrega: ${params.get('reason') ?? 'error desconocido'}. Abre el canal y pulsa "Activar entrega".`,
+        );
+      }
     } else if (meta === 'choose') {
       if (channel === 'instagram' || channel === 'facebook') {
         setDialogChannel(channel);

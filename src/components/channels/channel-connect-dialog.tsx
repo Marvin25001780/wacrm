@@ -175,6 +175,7 @@ function MetaConnectDialog({
   const [verifyToken, setVerifyToken] = useState('');
   const [busy, setBusy] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [checking, setChecking] = useState(false);
 
   const hasToken = Boolean(row?.config?.has_access_token);
   const hasSecret = Boolean(row?.config?.has_app_secret);
@@ -254,6 +255,12 @@ function MetaConnectDialog({
       toast.success(
         `${network} conectado${json.page_name ? `: ${json.page_name}` : ''}`,
       );
+      if (json.subscribed === false) {
+        toast.error(
+          json.subscribe_error ||
+            'La página no quedó suscrita al webhook. Pulsa "Activar entrega".',
+        );
+      }
       setMode('connected');
       onChanged();
     } catch (err) {
@@ -282,6 +289,12 @@ function MetaConnectDialog({
       toast.success(
         `${network} conectado${json.page_name ? `: ${json.page_name}` : ''}`,
       );
+      if (json.subscribed === false) {
+        toast.error(
+          json.subscribe_error ||
+            'La página no quedó suscrita al webhook. Pulsa "Activar entrega".',
+        );
+      }
       setMode('connected');
       onChanged();
     } catch (err) {
@@ -317,6 +330,33 @@ function MetaConnectDialog({
       toast.error('No se pudo probar la conexión');
     } finally {
       setTesting(false);
+    }
+  }
+
+  /**
+   * Re-suscribe la página al webhook. Es lo que hace que Meta entregue
+   * los mensajes; sin esto el canal queda conectado pero no recibe nada.
+   */
+  async function verifyDelivery() {
+    setChecking(true);
+    try {
+      const res = await fetch('/api/channels/meta/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ channel }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'No se pudo activar la entrega');
+      const fields = Array.isArray(json.subscribed_fields)
+        ? json.subscribed_fields.join(', ')
+        : '';
+      toast.success(`Entrega activa${fields ? `: ${fields}` : ''}`);
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : 'No se pudo activar la entrega',
+      );
+    } finally {
+      setChecking(false);
     }
   }
 
@@ -375,6 +415,14 @@ function MetaConnectDialog({
               <Button variant="outline" onClick={test} disabled={testing}>
                 {testing && <Loader2 className="h-4 w-4 animate-spin" />}
                 Probar
+              </Button>
+              <Button
+                variant="outline"
+                onClick={verifyDelivery}
+                disabled={checking}
+              >
+                {checking && <Loader2 className="h-4 w-4 animate-spin" />}
+                Activar entrega
               </Button>
               <Button
                 variant="outline"

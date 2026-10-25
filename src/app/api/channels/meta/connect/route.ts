@@ -4,7 +4,7 @@ import { requireRole, toErrorResponse } from '@/lib/auth/account'
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit'
 import { decrypt } from '@/lib/whatsapp/encryption'
 import { mergeChannelConfig, serializeChannelConfig } from '@/lib/channels/config'
-import { fetchPageProfile } from '@/lib/channels/meta'
+import { fetchPageProfile, subscribePageToApp } from '@/lib/channels/meta'
 
 /**
  * POST /api/channels/meta/connect
@@ -126,9 +126,28 @@ export async function POST(request: Request) {
 
     if (error || !data) throw error ?? new Error('upsert failed')
 
+    // Sin suscribir la página, Meta no entrega los mensajes al webhook.
+    let subscribed = true
+    let subscribeError = ''
+    try {
+      const result = await subscribePageToApp(pageId, effectiveToken)
+      if (!result.ok) {
+        subscribed = false
+        subscribeError = result.error
+        console.error('[meta-connect] page subscription failed:', result.error)
+      }
+    } catch (err) {
+      subscribed = false
+      subscribeError =
+        err instanceof Error ? err.message : 'No se pudo suscribir la página'
+      console.error('[meta-connect] page subscription threw:', err)
+    }
+
     return NextResponse.json({
       data: serializeChannelConfig(data as Record<string, unknown>),
       page_name: profile.data.name,
+      subscribed,
+      subscribe_error: subscribeError || undefined,
     })
   } catch (err) {
     return toErrorResponse(err)

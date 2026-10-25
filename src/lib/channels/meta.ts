@@ -129,6 +129,93 @@ export async function fetchPageProfile(
   return { ok: true, data: { id, name } }
 }
 
+/**
+ * Campos que la página debe tener suscritos para que Meta entregue los
+ * eventos al webhook: mensajes, postbacks, reacciones y optins.
+ */
+export const META_SUBSCRIBED_FIELDS = [
+  'messages',
+  'messaging_postbacks',
+  'message_reactions',
+  'messaging_optins',
+] as const
+
+/**
+ * Suscribe la página al webhook de la app.
+ *
+ * Sin esta llamada Meta NO entrega los eventos `page`/`instagram`:
+ * conectar por OAuth solo guarda el token, no activa la entrega. Es el
+ * motivo típico de "conectado pero no llegan mensajes".
+ */
+export async function subscribePageToApp(
+  pageId: string,
+  accessToken: string,
+): Promise<MetaResult<{ pageId: string; subscribedFields: string[] }>> {
+  if (!pageId || !accessToken) {
+    return { ok: false, status: 400, error: 'Falta page_id o access_token' }
+  }
+
+  const params = new URLSearchParams({
+    subscribed_fields: META_SUBSCRIBED_FIELDS.join(','),
+    access_token: accessToken,
+  })
+
+  const res = await graphRequest(
+    `/${encodeURIComponent(pageId)}/subscribed_apps?${params.toString()}`,
+    accessToken,
+    { method: 'POST' },
+  )
+  if (!res.ok) return res
+
+  if (res.data.success !== true) {
+    return {
+      ok: false,
+      status: 200,
+      error:
+        'Meta no confirmó la suscripción de la página al webhook. Revisa que el token tenga el permiso pages_manage_metadata.',
+    }
+  }
+
+  return {
+    ok: true,
+    data: { pageId, subscribedFields: META_SUBSCRIBED_FIELDS.slice() },
+  }
+}
+
+/**
+ * Lee qué campos tiene suscritos la página. Sirve para diagnosticar por
+ * qué no llegan los mensajes sin tener que reconectar.
+ */
+export async function fetchPageSubscriptions(
+  pageId: string,
+  accessToken: string,
+): Promise<MetaResult<{ apps: { name: string; subscribedFields: string[] }[] }>> {
+  const params = new URLSearchParams({
+    fields: 'name,subscribed_fields',
+    access_token: accessToken,
+  })
+
+  const res = await graphRequest(
+    `/${encodeURIComponent(pageId)}/subscribed_apps?${params.toString()}`,
+    accessToken,
+    { method: 'GET' },
+  )
+  if (!res.ok) return res
+
+  const list = Array.isArray(res.data.data) ? res.data.data : []
+  const apps = list.map((raw) => {
+    const item = (raw ?? {}) as Record<string, unknown>
+    return {
+      name: typeof item.name === 'string' ? item.name : '',
+      subscribedFields: Array.isArray(item.subscribed_fields)
+        ? item.subscribed_fields.filter((f): f is string => typeof f === 'string')
+        : [],
+    }
+  })
+
+  return { ok: true, data: { apps } }
+}
+
 // ---- OAuth de Facebook Login (Instagram/Facebook) --------------
 
 export interface MetaAccount {
