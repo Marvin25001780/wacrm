@@ -137,6 +137,17 @@ export default function ChannelsPage() {
     const meta = params.get('meta');
     const tiktok = params.get('tiktok');
     if (!meta && !tiktok) return;
+
+    // Vuelta de TikTok dentro del popup: avisa a la ventana principal y se cierra.
+    if (tiktok && window.opener && window.opener !== window) {
+      window.opener.postMessage(
+        { type: 'nexus:tiktok-oauth', status: tiktok, reason: params.get('reason') },
+        window.location.origin,
+      );
+      window.close();
+      return;
+    }
+
     const channel = params.get('channel');
 
     if (meta === 'connected') {
@@ -165,6 +176,27 @@ export default function ChannelsPage() {
     // Limpia el query para que el aviso no se repita al recargar.
     window.history.replaceState({}, '', '/channels');
     void load();
+  }, [load]);
+
+  // Resultado de TikTok llegado desde el popup de OAuth.
+  useEffect(() => {
+    function onMessage(event: MessageEvent) {
+      if (event.origin !== window.location.origin) return;
+      const data = event.data as
+        | { type?: string; status?: string; reason?: string | null }
+        | null;
+      if (!data || data.type !== 'nexus:tiktok-oauth') return;
+
+      if (data.status === 'connected') {
+        toast.success('TikTok conectado');
+      } else {
+        toast.error(tiktokErrorMessage(data.reason ?? null));
+      }
+      void load();
+    }
+
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
   }, [load]);
 
   function openChannel(key: ConnectableChannel) {

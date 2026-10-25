@@ -594,7 +594,18 @@ function TikTokConnectDialog({
       toast.error('Falta configurar la app de TikTok (NEXT_PUBLIC_TIKTOK_CLIENT_KEY).');
       return;
     }
-    window.location.href = '/api/channels/tiktok/oauth/start';
+    // Popup centrado: el resultado vuelve por postMessage a /channels.
+    // Si el navegador bloquea el popup, se usa la redirección normal.
+    const width = 600;
+    const height = 700;
+    const left = window.screenX + (window.outerWidth - width) / 2;
+    const top = window.screenY + (window.outerHeight - height) / 2;
+    const popup = window.open(
+      '/api/channels/tiktok/oauth/start',
+      'nexus-tiktok-oauth',
+      `popup=yes,width=${width},height=${height},left=${left},top=${top}`,
+    );
+    if (!popup) window.location.href = '/api/channels/tiktok/oauth/start';
   }
 
   async function disconnect() {
