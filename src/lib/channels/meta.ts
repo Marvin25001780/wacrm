@@ -114,12 +114,16 @@ async function graphRequest(
 /**
  * Valida un token consultando la página. Devuelve el nombre de la
  * página para mostrarlo en la UI.
+ *
+ * Usa `/me` en vez de `/{page-id}`: con un token de página, `/me` es la
+ * propia página y no exige `pages_read_engagement`, permiso que
+ * `/{page-id}` sí pide desde Graph v23.
  */
 export async function fetchPageProfile(
   pageId: string,
   accessToken: string,
 ): Promise<MetaResult<{ id: string; name: string | null }>> {
-  const path = `/${encodeURIComponent(pageId)}?fields=id,name&access_token=${encodeURIComponent(
+  const path = `/me?fields=id,name&access_token=${encodeURIComponent(
     accessToken,
   )}`
   const res = await graphRequest(path, accessToken, { method: 'GET' })

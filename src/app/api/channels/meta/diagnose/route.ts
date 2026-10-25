@@ -95,27 +95,27 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    const profile = await fetchPageProfile(pageId, accessToken)
-    if (!profile.ok) {
-      return NextResponse.json({
-        ...base,
-        ok: false,
-        problem: `Meta rechazó el token: ${profile.error}`,
-      })
-    }
-
     let subscribeError: string | null = null
     if (fix) {
       const sub = await subscribePageToApp(pageId, accessToken)
       if (!sub.ok) subscribeError = sub.error
     }
 
+    // La suscripción es lo que determina si llegan mensajes; se lee
+    // primero para no depender de permisos de lectura del perfil.
     const subs = await fetchPageSubscriptions(pageId, accessToken)
 
     const apps = subs.ok ? subs.data.apps : []
     const fields = [...new Set(apps.flatMap((app) => app.subscribedFields))]
 
+    // Perfil best-effort: si falla, es informativo, no bloquea.
+    const profile = await fetchPageProfile(pageId, accessToken)
+    const pageName = profile.ok ? profile.data.name : null
+    const pageIdMatches = profile.ok ? profile.data.id === pageId : null
+
     const problems: string[] = []
+    const warnings: string[] = []
+
     if (!subs.ok) {
       problems.push(`No se pudo leer la suscripción: ${subs.error}`)
     } else if (apps.length === 0) {
@@ -126,6 +126,14 @@ export async function GET(request: NextRequest) {
       problems.push('La suscripción no incluye el campo "messages".')
     }
 
+    if (pageIdMatches === false) {
+      problems.push(
+        'El token no corresponde a la página configurada. Vuelve a conectar el canal.',
+      )
+    }
+    if (!profile.ok) {
+      warnings.push(`No se pudo leer el perfil de la página: ${profile.error}`)
+    }
     if (storedSecretMatchesEnv === false) {
       problems.push(
         'El App Secret guardado no coincide con META_APP_SECRET. Las firmas de Meta fallarán con 401.',
@@ -138,11 +146,13 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       ...base,
       ok: problems.length === 0,
-      page_name: profile.data.name,
+      page_name: pageName,
+      page_id_matches: pageIdMatches,
       subscribed_apps: apps,
       subscribed_fields: fields,
       subscribe_error: subscribeError,
       problems,
+      warnings,
     })
   } catch (err) {
     return toErrorResponse(err)

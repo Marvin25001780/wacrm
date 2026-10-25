@@ -183,6 +183,7 @@ function MetaConnectDialog({
     page_id?: string | null;
     subscribed_fields?: string[];
     problems?: string[];
+    warnings?: string[];
     problem?: string;
     webhook_url?: string | null;
   } | null>(null);
@@ -456,6 +457,13 @@ function MetaConnectDialog({
                   </ul>
                 ) : diag.ok ? (
                   <p className="text-emerald-400">Todo correcto.</p>
+                ) : null}
+                {diag.warnings && diag.warnings.length > 0 ? (
+                  <ul className="list-disc space-y-0.5 pl-4 text-amber-400">
+                    {diag.warnings.map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
                 ) : null}
               </div>
             ) : null}
