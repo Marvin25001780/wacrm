@@ -69,6 +69,7 @@ export async function POST(request: Request) {
     const config: Record<string, unknown> = {
       ...existing,
       page_id: pageId,
+      page_name: typeof chosen.name === 'string' ? chosen.name : '',
       access_token: chosen.access_token,
       app_secret: appSecret ? encrypt(appSecret) : existing.app_secret,
       verify_token:

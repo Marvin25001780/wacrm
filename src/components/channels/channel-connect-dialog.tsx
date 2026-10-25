@@ -337,8 +337,16 @@ function MetaConnectDialog({
     try {
       const res = await fetch(`/api/channels/${channel}/test`, { method: 'POST' });
       const json = await res.json();
-      if (json.ok) toast.success('Conexión verificada con Meta');
-      else toast.error(json.error || 'Meta rechazó la conexión');
+      if (json.ok) {
+        toast.success(
+          json.page_name
+            ? `Conexión verificada con Meta: ${json.page_name}`
+            : 'Conexión verificada con Meta',
+        );
+        if (json.warning) toast.message(json.warning);
+      } else {
+        toast.error(json.error || 'Meta rechazó la conexión');
+      }
     } catch {
       toast.error('No se pudo probar la conexión');
     } finally {

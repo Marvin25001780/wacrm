@@ -40,8 +40,8 @@ const SECRET_FIELDS: Record<ChannelType, string[]> = {
 const PUBLIC_FIELDS: Record<ChannelType, string[]> = {
   evolution: ['base_url', 'instance'],
   chatwoot: ['base_url', 'account_id'],
-  instagram: ['page_id', 'verify_token'],
-  facebook: ['page_id', 'verify_token'],
+  instagram: ['page_id', 'page_name', 'verify_token'],
+  facebook: ['page_id', 'page_name', 'verify_token'],
   tiktok: ['open_id', 'display_name', 'username'],
 }
 

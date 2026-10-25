@@ -100,6 +100,7 @@ export async function POST(request: Request) {
       channel,
       {
         page_id: pageId,
+        page_name: profile.data.name ?? '',
         verify_token: verifyToken,
         ...(incomingToken ? { access_token: incomingToken } : {}),
         ...(incomingSecret ? { app_secret: incomingSecret } : {}),

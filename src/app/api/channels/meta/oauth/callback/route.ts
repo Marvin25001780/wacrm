@@ -125,6 +125,7 @@ export async function GET(request: NextRequest) {
     const config: Record<string, unknown> = {
       ...existingConfig,
       page_id: only.id,
+      page_name: only.name ?? '',
       access_token: encrypt(only.accessToken),
       app_secret: encrypt(appSecret),
       verify_token: existingVerify ?? `nexus_${randomUUID().replace(/-/g, '')}`,

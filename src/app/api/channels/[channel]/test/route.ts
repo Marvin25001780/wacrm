@@ -3,7 +3,7 @@ import { requireRole, toErrorResponse } from '@/lib/auth/account'
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit'
 import { decrypt } from '@/lib/whatsapp/encryption'
 import { isChannelType } from '@/lib/channels/config'
-import { fetchPageProfile } from '@/lib/channels/meta'
+import { fetchPageProfile, fetchPageSubscriptions } from '@/lib/channels/meta'
 
 /**
  * POST /api/channels/[channel]/test
@@ -40,7 +40,11 @@ export async function POST(
     const config = (row.config ?? {}) as Record<string, unknown>
 
     // Canales de Meta (Instagram / Facebook): validar el token contra
-    // la Graph API consultando la página.
+    // la Graph API. Leer el nombre de la página exige
+    // `pages_read_engagement`, que no siempre está concedido, así que
+    // la prueba se apoya también en `subscribed_apps`
+    // (`pages_manage_metadata`), que es lo que determina si llegan los
+    // mensajes.
     if (channel === 'instagram' || channel === 'facebook') {
       const pageId = String(config.page_id ?? '')
       const token =
@@ -51,12 +55,28 @@ export async function POST(
           { status: 400 },
         )
       }
-      const res = await fetchPageProfile(pageId, token)
+
+      const [profile, subs] = await Promise.all([
+        fetchPageProfile(pageId, token),
+        fetchPageSubscriptions(pageId, token),
+      ])
+
+      const ok = profile.ok || subs.ok
+      const storedName =
+        typeof config.page_name === 'string' ? config.page_name : undefined
+
       return NextResponse.json({
-        ok: res.ok,
-        status: res.ok ? 200 : res.status,
-        error: res.ok ? undefined : res.error,
-        page_name: res.ok ? res.data.name : undefined,
+        ok,
+        status: ok ? 200 : profile.ok ? subs.status : profile.status,
+        error: ok ? undefined : profile.error,
+        page_name: profile.ok ? profile.data.name : storedName,
+        subscribed_fields: subs.ok
+          ? [...new Set(subs.data.apps.flatMap((app) => app.subscribedFields))]
+          : undefined,
+        warning:
+          ok && !profile.ok
+            ? 'Token válido. Meta no permite leer el nombre de la página sin pages_read_engagement.'
+            : undefined,
       })
     }
 

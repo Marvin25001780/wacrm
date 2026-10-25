@@ -112,7 +112,11 @@ export async function GET(request: NextRequest) {
 
     // Perfil best-effort: si falla, es informativo, no bloquea.
     const profile = await fetchPageProfile(pageId, accessToken)
-    const pageName = profile.ok ? profile.data.name : null
+    const storedPageName =
+      typeof config.page_name === 'string' && config.page_name
+        ? config.page_name
+        : null
+    const pageName = profile.ok ? profile.data.name : storedPageName
     const pageIdMatches = profile.ok ? profile.data.id === pageId : null
 
     const problems: string[] = []
@@ -140,7 +144,7 @@ export async function GET(request: NextRequest) {
           .join(', ')}), no a la app del CRM (${envAppId}). Los mensajes se envían al webhook de esa otra app.`,
       )
     }
-    if (!profile.ok) {
+    if (!profile.ok && !storedPageName) {
       warnings.push(`No se pudo leer el perfil de la página: ${profile.error}`)
     }
     if (storedSecretMatchesEnv === false) {
