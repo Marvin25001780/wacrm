@@ -156,6 +156,23 @@ export async function GET(request: NextRequest) {
       problems.push('Falta el Verify Token; Meta no puede verificar el webhook.')
     }
 
+    // Evidencia de ingesta: si hay conversaciones recientes, los
+    // mensajes sí están llegando y el problema es de visualización.
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+    const { count: recentConversations } = await ctx.supabase
+      .from('conversations')
+      .select('id', { count: 'exact', head: true })
+      .eq('channel', channel)
+      .gte('updated_at', since)
+
+    const { data: lastConversation } = await ctx.supabase
+      .from('conversations')
+      .select('id, last_message_text, last_message_at')
+      .eq('channel', channel)
+      .order('last_message_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
     return NextResponse.json({
       ...base,
       ok: problems.length === 0,
@@ -165,6 +182,13 @@ export async function GET(request: NextRequest) {
       subscribed_apps: apps,
       subscribed_fields: fields,
       subscribe_error: subscribeError,
+      recent_conversations: recentConversations ?? 0,
+      last_message: lastConversation
+        ? {
+            text: lastConversation.last_message_text ?? null,
+            at: lastConversation.last_message_at ?? null,
+          }
+        : null,
       problems,
       warnings,
     })

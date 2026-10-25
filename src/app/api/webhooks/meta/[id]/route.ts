@@ -170,6 +170,12 @@ export async function POST(
     return NextResponse.json({ status: 'ok', handled: 0 })
   }
 
+  console.info('[meta-webhook] received', {
+    config: id,
+    object: (payload as { object?: string })?.object ?? null,
+    events: events.length,
+  })
+
   const accountId = cfg.account_id as string
   const ownerUserId = await resolveOwnerUserId(admin, accountId)
   if (!ownerUserId) {

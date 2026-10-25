@@ -184,6 +184,8 @@ function MetaConnectDialog({
     subscribed_fields?: string[];
     subscribed_apps?: { id: string; name: string }[];
     app_id?: string | null;
+    recent_conversations?: number;
+    last_message?: { text: string | null; at: string | null } | null;
     problems?: string[];
     warnings?: string[];
     problem?: string;
@@ -470,6 +472,15 @@ function MetaConnectDialog({
                 {diag.app_id ? (
                   <p className="text-muted-foreground">
                     App del CRM: {diag.app_id}
+                  </p>
+                ) : null}
+                <p className="text-muted-foreground">
+                  Conversaciones (24 h): {diag.recent_conversations ?? 0}
+                </p>
+                {diag.last_message?.at ? (
+                  <p className="text-muted-foreground">
+                    Último mensaje: {diag.last_message.text || '—'} ·{' '}
+                    {new Date(diag.last_message.at).toLocaleString('es-VE')}
                   </p>
                 ) : null}
                 {diag.problem ? (
