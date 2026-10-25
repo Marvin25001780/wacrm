@@ -80,6 +80,37 @@ Si quieres usar un **Configuration ID** en vez de pedir scopes sueltos:
   `pages_messaging`, `pages_manage_metadata`, `instagram_basic`,
   `instagram_manage_messages`, `business_management`.
 
+### A.7 Configurar los webhooks (crítico)
+
+Conectar la página por OAuth **no** activa la entrega de mensajes. Faltan
+dos cosas, y sin ellas el canal aparece "conectado" pero no llega nada.
+
+1. **En el CRM**: `Canales → Facebook → Activar entrega`. Eso suscribe la
+   página a la app (`POST /{page-id}/subscribed_apps`). El botón
+   `Diagnóstico` debe mostrar `messages` en "Campos suscritos" y la misma
+   app en "Apps suscritas" y "App del CRM".
+2. **En Meta**: `Casos de uso → Configuración de la API de Messenger →
+   1. Configurar webhooks`. Pega la **Callback URL** y el **Verify Token**
+   que muestra el diálogo del canal y pulsa **Verificar y guardar**.
+   Después, en **Campos del webhook**, pulsa **Suscribirse** en:
+   - `messages`
+   - `messaging_postbacks`
+   - `message_reactions`
+   - `messaging_optins`
+
+Sin el paso 2 todos los campos aparecen como "No suscritos" y Meta no
+envía ningún evento, aunque la verificación de la URL sea correcta.
+
+**Probar que quedó bien:** en la fila `messages` pulsa **Probar → Enviar a
+mi servidor**. Meta debe responder "Se probó correctamente"; en Vercel
+aparece `[meta-webhook] sample received`. Luego envía un mensaje real
+desde otra cuenta.
+
+**Modo de la app:** en **Desarrollo**, o publicada pero sin la revisión
+aprobada, solo se entregan mensajes de personas con rol en la app
+(administradores, desarrolladores, testers). Para clientes reales hay que
+aprobar `pages_messaging`.
+
 ---
 
 ## Parte B — TikTok (Login Kit)
