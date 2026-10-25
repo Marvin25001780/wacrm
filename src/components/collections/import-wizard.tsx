@@ -29,6 +29,8 @@ import {
 import { exportToCsv } from "@/lib/export/csv";
 import {
   CANONICAL_FIELDS,
+  TEMPLATE_EXAMPLE,
+  TEMPLATE_FIELDS,
   missingRequiredFields,
   type CanonicalField,
 } from "@/lib/collections/import/columns";
@@ -65,6 +67,16 @@ interface ValidateResult {
 const selectClass =
   "h-9 w-full rounded-lg border border-border bg-muted px-2.5 text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50";
 
+/** Campos de la plantilla, en el mismo orden en que se descargan. */
+const PRIMARY_FIELDS = TEMPLATE_FIELDS.map((template) =>
+  CANONICAL_FIELDS.find((field) => field.key === template.key),
+).filter((field): field is CanonicalField => Boolean(field));
+
+/** Campos que se aceptan pero no forman parte de la plantilla. */
+const OPTIONAL_FIELDS = CANONICAL_FIELDS.filter(
+  (field) => !TEMPLATE_FIELDS.some((template) => template.key === field.key),
+);
+
 export function ImportWizard() {
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -79,6 +91,8 @@ export function ImportWizard() {
   const [mapping, setMapping] = useState<ImportColumnMapping>({});
   const [sample, setSample] = useState<Record<string, unknown>[]>([]);
   const [rowCount, setRowCount] = useState(0);
+  const [portfolioId, setPortfolioId] = useState<string | null>(null);
+  const [showOptional, setShowOptional] = useState(false);
 
   const [preview, setPreview] = useState<ValidateResult | null>(null);
   const [commitSummary, setCommitSummary] = useState<CollectionImportSummary | null>(null);
@@ -96,6 +110,8 @@ export function ImportWizard() {
     setMapping({});
     setSample([]);
     setRowCount(0);
+    setPortfolioId(null);
+    setShowOptional(false);
     setPreview(null);
     setCommitSummary(null);
     if (fileRef.current) fileRef.current.value = "";
@@ -125,6 +141,7 @@ export function ImportWizard() {
       if (!response.ok) throw new Error(json.error ?? "No se pudo leer el archivo.");
 
       setBatchId(json.batchId ?? null);
+      setPortfolioId(json.portfolioId ?? null);
       setHeaders(json.headers ?? []);
       setMapping(json.mapping ?? {});
       setSample(json.sample ?? []);
@@ -206,28 +223,14 @@ export function ImportWizard() {
   }
 
   function downloadTemplate() {
-    const headers = CANONICAL_FIELDS.map((field) => field.label);
-    exportToCsv("plantilla-cobranza.csv", headers, [
-      [
-        "V-12345678",
-        "cedula",
-        "Juan Pérez",
-        "+58 414 1234567",
-        "",
-        "juan@example.com",
-        "Av. Libertador",
-        "Caracas",
-        "CR-001",
-        "Préstamo personal",
-        "1",
-        "2026-11-15",
-        "500",
-        "50",
-        "0",
-        "550",
-        "",
-      ],
-    ]);
+    exportToCsv(
+      "plantilla-cobranza.csv",
+      TEMPLATE_FIELDS.map((field) => field.label),
+      [TEMPLATE_EXAMPLE],
+      // Excel en español abre el archivo en columnas con `;`, y el
+      // BOM evita que los acentos se vean como "TelÃ©fono".
+      { delimiter: ";", bom: true },
+    );
   }
 
   return (
@@ -251,9 +254,19 @@ export function ImportWizard() {
               <h2 className="text-sm font-semibold text-foreground">Sube la cartera</h2>
               <p className="mt-1 text-sm text-muted-foreground">
                 Excel (.xlsx) o CSV (.csv) de hasta 10 MB. La primera fila debe tener los
-                encabezados. Cada fila representa una cuota.
+                encabezados.
+              </p>
+              <p className="mt-2 text-xs text-muted-foreground">
+                <span className="font-medium text-foreground">Cada fila es una cuota</span>, no un
+                crédito completo. Un crédito con 12 cuotas ocupa 12 filas con el mismo folio y
+                número de cuota del 1 al 12. Si solo cargas las vencidas, sube solo esas.
               </p>
             </div>
+          </div>
+
+          <div className="mt-4 rounded-lg border border-border bg-muted/40 px-3 py-2.5 text-xs text-muted-foreground">
+            La plantilla trae {TEMPLATE_FIELDS.length} columnas:{" "}
+            {TEMPLATE_FIELDS.map((field) => field.label).join(" · ")}.
           </div>
 
           <div className="mt-5 grid gap-4 sm:grid-cols-2">
@@ -276,7 +289,7 @@ export function ImportWizard() {
                 id="portfolio-file"
                 ref={fileRef}
                 type="file"
-                accept=".xlsx,.xls,.csv,.txt"
+                accept=".xlsx,.csv,.txt"
                 onChange={(event) => setFile(event.target.files?.[0] ?? null)}
                 className="cursor-pointer file:mr-3 file:rounded-md file:border-0 file:bg-muted file:px-2 file:py-1 file:text-xs file:text-foreground"
               />
@@ -318,7 +331,7 @@ export function ImportWizard() {
             </div>
 
             <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {CANONICAL_FIELDS.map((field) => (
+              {PRIMARY_FIELDS.map((field) => (
                 <MappingField
                   key={field.key}
                   field={field}
@@ -330,6 +343,35 @@ export function ImportWizard() {
                 />
               ))}
             </div>
+
+            {OPTIONAL_FIELDS.length > 0 ? (
+              <div className="mt-4">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowOptional((value) => !value)}
+                >
+                  {showOptional ? "Ocultar" : "Mostrar"} campos opcionales (
+                  {OPTIONAL_FIELDS.length})
+                </Button>
+                {showOptional ? (
+                  <div className="mt-3 grid gap-3 rounded-lg border border-dashed border-border p-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {OPTIONAL_FIELDS.map((field) => (
+                      <MappingField
+                        key={field.key}
+                        field={field}
+                        headers={headers}
+                        value={mapping[field.key] ?? ""}
+                        onChange={(value) =>
+                          setMapping((current) => ({ ...current, [field.key]: value || null }))
+                        }
+                      />
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
 
             {missing.length > 0 ? (
               <div className="mt-4 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
@@ -443,7 +485,7 @@ export function ImportWizard() {
                     <TableHead>Folio</TableHead>
                     <TableHead>Cuota</TableHead>
                     <TableHead>Vence</TableHead>
-                    <TableHead className="text-right">Capital</TableHead>
+                    <TableHead className="text-right">Total</TableHead>
                     <TableHead>Observaciones</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -496,8 +538,25 @@ export function ImportWizard() {
             <SummaryCard label="Filas confirmadas" value={commitSummary?.committed_rows ?? 0} />
           </div>
 
+          {commitSummary && commitSummary.committed_rows === 0 ? (
+            <div className="mt-4 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>
+                No se guardó ninguna fila. Revisa que las filas válidas tengan documento, folio,
+                número de cuota, fecha y total, y vuelve a importar.
+              </span>
+            </div>
+          ) : null}
+
+          {commitSummary && (commitSummary.errors ?? 0) > 0 ? (
+            <p className="mt-3 text-xs text-muted-foreground">
+              {commitSummary.errors} fila(s) no se pudieron guardar. El resto sí quedó en la
+              cartera.
+            </p>
+          ) : null}
+
           <div className="mt-6 flex flex-wrap gap-2">
-            <Link href="/cobranza/cartera">
+            <Link href={portfolioId ? `/cobranza/cartera?portfolio=${portfolioId}` : "/cobranza/cartera"}>
               <Button type="button">
                 Ver cartera
                 <ArrowRight className="ml-2 h-4 w-4" />
@@ -636,7 +695,9 @@ function PreviewRow({
       <TableCell className="tabular-nums">{value("installment_number")}</TableCell>
       <TableCell>{value("due_date")}</TableCell>
       <TableCell className="text-right tabular-nums">
-        {row.normalized ? formatUsd(row.normalized.principal) : value("principal") || "—"}
+        {row.normalized
+          ? formatUsd(row.normalized.principal + row.normalized.interest + row.normalized.late_fee)
+          : value("total") || value("principal") || "—"}
       </TableCell>
       <TableCell className="max-w-72 whitespace-normal text-xs text-muted-foreground">
         {messages.length > 0 ? messages.join(" · ") : "—"}

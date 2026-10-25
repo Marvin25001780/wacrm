@@ -559,3 +559,60 @@ export interface ImportPreview {
     error: number;
   };
 }
+
+// ------------------------------------------------------------
+// Importación masiva de pagos
+// ------------------------------------------------------------
+export interface PaymentImportColumnMapping {
+  /** Campo canónico -> encabezado original del archivo. */
+  [canonical: string]: string | null;
+}
+
+export interface CollectionPaymentNormalizedRow {
+  document_number?: string | null;
+  folio: string;
+  installment_number: number;
+  amount: number;
+  paid_at: string;
+  method?: CollectionPaymentMethod | null;
+  reference?: string | null;
+  notes?: string | null;
+  /** Resueltos al validar contra la base. */
+  installment_id?: string | null;
+  credit_id?: string | null;
+  debtor_id?: string | null;
+  debtor_name?: string | null;
+  balance?: number | null;
+}
+
+export interface PaymentImportPreviewRow {
+  rowNumber: number;
+  raw: Record<string, unknown>;
+  normalized: CollectionPaymentNormalizedRow | null;
+  status: "valid" | "warning" | "error";
+  errors: string[];
+  warnings: string[];
+}
+
+export interface PaymentImportPreview {
+  headers: string[];
+  mapping: PaymentImportColumnMapping;
+  rows: PaymentImportPreviewRow[];
+  summary: {
+    total: number;
+    valid: number;
+    warning: number;
+    error: number;
+  };
+}
+
+export interface CollectionPaymentImportSummary {
+  created_payments?: number;
+  total_amount?: number;
+  errors?: number;
+  committed_rows?: number;
+  total_rows?: number;
+  valid_rows?: number;
+  warning_rows?: number;
+  error_rows?: number;
+}

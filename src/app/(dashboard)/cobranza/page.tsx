@@ -194,6 +194,12 @@ export default function CobranzaPage() {
             </Button>
           ) : null}
           {canImport ? (
+            <Button variant="outline" render={<Link href="/cobranza/pagos" />}>
+              <Wallet className="mr-2 h-4 w-4" />
+              Carga de pagos
+            </Button>
+          ) : null}
+          {canImport ? (
             <Button render={<Link href="/cobranza/importar" />}>
               <Upload className="mr-2 h-4 w-4" />
               Carga masiva
@@ -352,6 +358,14 @@ export default function CobranzaPage() {
           title="Cartera"
           description="Filtra, prioriza y abre la ficha 360."
         />
+        {canImport ? (
+          <QuickLink
+            href="/cobranza/pagos"
+            icon={Wallet}
+            title="Carga de pagos"
+            description="Aplica pagos masivos a las cuotas."
+          />
+        ) : null}
         {canImport ? (
           <QuickLink
             href="/cobranza/importar"

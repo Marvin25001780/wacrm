@@ -40,6 +40,7 @@ import {
   TrendingUp,
   Upload,
   Users,
+  Wallet,
   Workflow,
   Zap,
 } from "lucide-react";
@@ -157,6 +158,7 @@ const cobranzaNav: NavItem = {
   children: [
     { href: "/cobranza", label: "Panel", icon: LayoutDashboard, minRole: "agent" },
     { href: "/cobranza/cartera", label: "Cartera", icon: Users, minRole: "agent" },
+    { href: "/cobranza/pagos", label: "Carga de pagos", icon: Wallet, minRole: "admin" },
     { href: "/cobranza/importar", label: "Carga masiva", icon: Upload, minRole: "admin" },
     { href: "/cobranza/reportes", label: "Reportes", icon: BarChart3, minRole: "admin" },
     { href: "/cobranza/configuracion", label: "Políticas", icon: Settings, minRole: "admin" },

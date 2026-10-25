@@ -348,3 +348,8 @@ GRANT SELECT ON v_collection_promise_stats TO service_role;
 GRANT SELECT ON v_collection_daily_recovery TO service_role;
 GRANT SELECT ON v_collection_agent_performance TO service_role;
 GRANT SELECT ON v_collection_commissions TO service_role;
+
+-- Sin esto PostgREST sigue sirviendo su caché anterior y las vistas
+-- responden 404 ("Could not find the table ... in the schema cache")
+-- aunque existan en Postgres.
+NOTIFY pgrst, 'reload schema';

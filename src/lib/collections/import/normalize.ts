@@ -180,8 +180,23 @@ export function normalizeImportRow(
   const lateFee = parseAmountValue(get("late_fee")) ?? 0;
 
   if (principal == null && total != null) {
-    principal = total;
-    warnings.push("Sin desglose de capital: se usó el total como capital.");
+    // El total es la fuente de verdad: el capital es lo que queda
+    // después de intereses y mora. Evita que una cuota con mora se
+    // importe por (total + mora).
+    const derived = Number((total - interest - lateFee).toFixed(2));
+    if (derived < 0) {
+      principal = 0;
+      warnings.push(
+        "El total de la cuota es menor que la suma de interés y mora; revisa el archivo.",
+      );
+    } else {
+      principal = derived;
+    }
+    // Solo es una advertencia si el archivo trae columna de capital
+    // pero la dejó vacía; si no desglosa capital, es lo esperado.
+    if (mapping.principal) {
+      warnings.push("Sin desglose de capital: se calculó restando interés y mora al total.");
+    }
   }
 
   if (!name) errors.push("Falta el nombre del deudor.");

@@ -177,6 +177,56 @@ export const CANONICAL_FIELDS: CanonicalField[] = [
   },
 ];
 
+/**
+ * Columnas de la plantilla descargable, en el orden en que se
+ * muestran. Es la lista corta que usa el equipo de cobranza: los
+ * campos que no aparecen aquí (tipo de documento, dirección, ciudad,
+ * producto, capital e interés) siguen aceptándose al mapear un
+ * archivo de otro sistema, pero no forman parte de la plantilla.
+ */
+export const TEMPLATE_FIELDS: { key: string; label: string }[] = [
+  { key: "document_number", label: "Documento" },
+  { key: "name", label: "Nombre del deudor" },
+  { key: "phone_primary", label: "Teléfono principal" },
+  { key: "phone_secondary", label: "Teléfono secundario" },
+  { key: "email", label: "Email" },
+  { key: "folio", label: "Folio del crédito" },
+  { key: "installment_number", label: "Número de cuota" },
+  { key: "due_date", label: "Fecha de vencimiento" },
+  { key: "late_fee", label: "Mora / recargo" },
+  { key: "total", label: "Total de la cuota" },
+  { key: "notes", label: "Notas" },
+];
+
+/** Fila de ejemplo de la plantilla, alineada con TEMPLATE_FIELDS. */
+export const TEMPLATE_EXAMPLE: string[] = [
+  "V-12345678",
+  "Juan Pérez",
+  "+58 414 1234567",
+  "",
+  "juan@example.com",
+  "CR-001",
+  "1",
+  "2026-11-15",
+  "0",
+  "550.00",
+  "",
+];
+
+/** Campos que no van en la plantilla pero se aceptan al mapear. */
+export const OPTIONAL_IMPORT_KEYS = new Set([
+  "document_type",
+  "address",
+  "city",
+  "product",
+  "principal",
+  "interest",
+]);
+
+export function canonicalFieldLabel(key: string): string {
+  return CANONICAL_FIELDS.find((field) => field.key === key)?.label ?? key;
+}
+
 export function normalizeHeader(value: string): string {
   return value
     .normalize("NFD")
@@ -200,11 +250,10 @@ function scoreHeader(header: string, alias: string): number {
   return 0;
 }
 
-/**
- * Auto-mapeo por nombre de encabezado. Cada encabezado se usa una
- * sola vez; si dos campos compiten, gana el de mayor score.
- */
-export function autoMapColumns(headers: string[]): ImportColumnMapping {
+export function autoMapFields(
+  headers: string[],
+  fields: CanonicalField[],
+): ImportColumnMapping {
   const mapping: ImportColumnMapping = {};
   const used = new Set<string>();
   const normalized = headers.map((header) => ({
@@ -212,7 +261,7 @@ export function autoMapColumns(headers: string[]): ImportColumnMapping {
     norm: normalizeHeader(header),
   }));
 
-  for (const field of CANONICAL_FIELDS) {
+  for (const field of fields) {
     let best: { header: string; score: number } | null = null;
 
     for (const header of normalized) {
@@ -234,6 +283,14 @@ export function autoMapColumns(headers: string[]): ImportColumnMapping {
   }
 
   return mapping;
+}
+
+/**
+ * Auto-mapeo por nombre de encabezado. Cada encabezado se usa una
+ * sola vez; si dos campos compiten, gana el de mayor score.
+ */
+export function autoMapColumns(headers: string[]): ImportColumnMapping {
+  return autoMapFields(headers, CANONICAL_FIELDS);
 }
 
 export function missingRequiredFields(mapping: ImportColumnMapping): string[] {
