@@ -23,6 +23,7 @@ import { AuthProvider, useAuth } from "@/hooks/use-auth";
 import { createClient } from "@/lib/supabase/client";
 import { isModuleEnabled } from "@/lib/modules";
 import { PosRateProvider, usePosRate } from "@/components/pos/rate-context";
+import { PosSettingsDialog } from "@/components/pos/settings-dialog";
 import { formatBs, formatUsd } from "@/lib/pos/money";
 
 const ACCENT = "#3f3fd8";
@@ -75,7 +76,9 @@ export function PosShell({ children }: { children: ReactNode }) {
 
 function PosFrame({ children }: { children: ReactNode }) {
   const { user, loading, account, enabledModules, signOut } = useAuth();
+  const { rate, refresh } = usePosRate();
   const [rateOpen, setRateOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const router = useRouter();
 
   useEffect(() => {
@@ -137,14 +140,21 @@ function PosFrame({ children }: { children: ReactNode }) {
       </header>
 
       <div className="mx-auto flex w-full max-w-[1600px] gap-4 px-3 py-4 sm:px-5">
-        <Sidebar />
+        <Sidebar onOpenSettings={() => setSettingsOpen(true)} />
         <main className="min-w-0 flex-1">{children}</main>
       </div>
+
+      <PosSettingsDialog
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        currentRate={rate}
+        onRateSaved={() => void refresh()}
+      />
     </div>
   );
 }
 
-function Sidebar() {
+function Sidebar({ onOpenSettings }: { onOpenSettings: () => void }) {
   const pathname = usePathname();
   const [openSales, setOpenSales] = useState(
     pathname.startsWith("/pos/vender") || pathname.startsWith("/pos/ventas"),
@@ -238,13 +248,14 @@ function Sidebar() {
         </nav>
 
         <div className="mt-3 border-t border-slate-100 pt-2">
-          <Link
-            href="/settings"
-            className="flex items-center gap-2.5 rounded-xl px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
+          <button
+            type="button"
+            onClick={onOpenSettings}
+            className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
           >
             <Settings className="h-4 w-4" />
             Ajustes
-          </Link>
+          </button>
         </div>
       </div>
     </aside>
