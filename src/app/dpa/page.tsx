@@ -57,8 +57,8 @@ const SECTIONS: LegalSection[] = [
       "Aislamiento por organización mediante políticas de seguridad a nivel de fila.",
       "Control de acceso por roles y mínimo privilegio.",
       "Registro de eventos y auditoría de acciones administrativas.",
-      "Copias de seguridad gestionadas y procedimiento de restauración.",
-      "Gestión de incidentes con notificación al Responsable.",
+      "Copias de seguridad gestionadas por el proveedor de infraestructura, según el plan contratado.",
+      "Gestión de incidentes con notificación al Responsable en un plazo máximo de 72 horas.",
     ],
   },
   {
