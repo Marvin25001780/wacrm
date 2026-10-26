@@ -15,6 +15,7 @@ const LEGAL_LINKS = [
   { href: "/cumplimiento", label: "Cumplimiento" },
   { href: "/seguridad", label: "Seguridad" },
   { href: "/eliminacion-de-datos", label: "Eliminación de datos" },
+  { href: "/dpa", label: "DPA" },
   { href: "/estado-del-sistema", label: "Estado" },
 ];
 
@@ -22,7 +23,7 @@ export function LegalNav({ current }: { current?: string }) {
   return (
     <nav
       aria-label="Documentos legales"
-      className="mb-10 flex flex-wrap gap-2 border-b border-border pb-5"
+      className="mb-10 flex flex-wrap gap-2 border-b border-border pb-5 no-print"
     >
       {LEGAL_LINKS.map((link) => {
         const active = link.href === current;
@@ -126,7 +127,7 @@ export function LegalShell({
 
         {children}
 
-        <footer className="mt-14 border-t border-border pt-6 text-xs text-muted-foreground">
+        <footer className="mt-14 border-t border-border pt-6 text-xs text-muted-foreground no-print">
           <p>
             <strong className="text-foreground">
               REPRESENTACIONES J.J.D.C, CA

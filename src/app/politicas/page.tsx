@@ -34,6 +34,12 @@ const DOCS = [
       "Cifrado, control de acceso, auditoría, copias de seguridad y respuesta a incidentes.",
   },
   {
+    href: "/dpa",
+    title: "Acuerdo de tratamiento de datos (DPA)",
+    description:
+      "Modelo de encargo de tratamiento para clientes corporativos, descargable en PDF.",
+  },
+  {
     href: "/eliminacion-de-datos",
     title: "Eliminación de datos",
     description:

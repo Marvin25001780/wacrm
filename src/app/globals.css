@@ -71,6 +71,35 @@
 }
 
 /* ============================================================
+ * Impresión de documentos legales (DPA, términos, privacidad).
+ * Fuerza fondo blanco y texto oscuro para que el PDF salga legible
+ * aunque la app esté en modo oscuro.
+ * ============================================================ */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  main,
+  main * {
+    background: transparent !important;
+    color: #111827 !important;
+    box-shadow: none !important;
+  }
+  main {
+    background: #ffffff !important;
+  }
+  main h1,
+  main h2,
+  main strong {
+    color: #000000 !important;
+  }
+  main a {
+    color: #111827 !important;
+    text-decoration: none !important;
+  }
+}
+
+/* ============================================================
  * THEMING — two orthogonal dimensions
  *
  *   1. MODE   (light / dark)  → neutral surfaces. Selected with

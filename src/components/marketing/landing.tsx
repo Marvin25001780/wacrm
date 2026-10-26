@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 
+import { ContactForm } from "@/components/marketing/contact-form";
+
 // ============================================================
 // Landing pública de NEXUS CRM.
 //
@@ -347,42 +349,26 @@ export function Landing() {
         </div>
       </section>
 
-      {/* ---------------- Métricas ---------------- */}
+      {/* ---------------- Beneficios ---------------- */}
       <section className="border-y border-slate-800 bg-slate-900 py-10 text-white">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <div className="grid grid-cols-2 gap-8 text-center divide-y divide-slate-800 md:grid-cols-4 md:divide-x md:divide-y-0">
-            <div className="pt-4 md:pt-0">
-              <p className="text-3xl font-black tracking-tight text-brand-purple sm:text-4xl">
-                +10,000
-              </p>
-              <p className="mt-1 text-xs font-medium text-slate-400 sm:text-sm">
-                Conversaciones al día
-              </p>
-            </div>
-            <div className="pt-4 md:pt-0">
-              <p className="text-3xl font-black tracking-tight text-emerald-400 sm:text-4xl">
-                99.8%
-              </p>
-              <p className="mt-1 text-xs font-medium text-slate-400 sm:text-sm">
-                Tasa de respuesta inmediata
-              </p>
-            </div>
-            <div className="pt-4 md:pt-0">
-              <p className="text-3xl font-black tracking-tight text-amber-400 sm:text-4xl">
-                3X
-              </p>
-              <p className="mt-1 text-xs font-medium text-slate-400 sm:text-sm">
-                Aumento en cierre de ventas
-              </p>
-            </div>
-            <div className="pt-4 md:pt-0">
-              <p className="text-3xl font-black tracking-tight text-cyan-400 sm:text-4xl">
-                &lt; 2 min
-              </p>
-              <p className="mt-1 text-xs font-medium text-slate-400 sm:text-sm">
-                Conexión QR sin programar
-              </p>
-            </div>
+          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
+            <Benefit
+              title="Todo en una bandeja"
+              description="WhatsApp, Instagram, Messenger y TikTok sin cambiar de pestaña."
+            />
+            <Benefit
+              title="IA que responde"
+              description="Agentes entrenados con tu información, disponibles a toda hora."
+            />
+            <Benefit
+              title="Cobranza ordenada"
+              description="Cartera, cuotas y pagos con recordatorios y reportes."
+            />
+            <Benefit
+              title="Conecta en minutos"
+              description="Cada canal se activa con su flujo oficial, sin programar."
+            />
           </div>
         </div>
       </section>
@@ -915,6 +901,54 @@ export function Landing() {
         </div>
       </section>
 
+      {/* ---------------- Contacto ---------------- */}
+      <section className="bg-white py-24" id="contacto">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <div className="grid gap-12 lg:grid-cols-2 lg:items-center">
+            <div className="space-y-5">
+              <span className="inline-block rounded-full border border-purple-200 bg-purple-50 px-3.5 py-1 text-xs font-extrabold uppercase tracking-widest text-brand-purple">
+                Hablemos
+              </span>
+              <h2 className="text-3xl font-black leading-tight tracking-tight text-slate-900 sm:text-4xl">
+                Cuéntanos qué necesitas y te mostramos el CRM con tus canales
+              </h2>
+              <p className="max-w-xl text-base text-slate-600">
+                Déjanos tus datos y coordinamos una demostración con tu equipo.
+                Revisamos cómo usas WhatsApp hoy, qué quieres automatizar y qué
+                módulos te convienen.
+              </p>
+
+              <ul className="space-y-2 text-sm font-medium text-slate-700">
+                <li className="flex items-center gap-2">
+                  <Check /> Demostración guiada, sin compromiso
+                </li>
+                <li className="flex items-center gap-2">
+                  <Check /> Configuración de módulos según tu operación
+                </li>
+                <li className="flex items-center gap-2">
+                  <Check /> Te contactamos en horario laborable
+                </li>
+              </ul>
+
+              <div className="space-y-1 pt-2 text-sm text-slate-600">
+                <p>
+                  Correo:{" "}
+                  <a
+                    className="font-semibold text-brand-purple underline"
+                    href="mailto:contacto@nexusbpo.space"
+                  >
+                    contacto@nexusbpo.space
+                  </a>
+                </p>
+                <p>Teléfono: 0422 2433946</p>
+              </div>
+            </div>
+
+            <ContactForm />
+          </div>
+        </div>
+      </section>
+
       {/* ---------------- Precios / CTA ---------------- */}
       <section
         className="relative overflow-hidden bg-slate-900 py-20 text-white"
@@ -1136,6 +1170,40 @@ export function Landing() {
       </footer>
 
       {/* Tailwind compilado: no se carga ningún CDN. */}
+    </div>
+  );
+}
+
+function Benefit({
+  title,
+  description,
+}: {
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="flex items-start gap-3">
+      <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/10 text-brand-purple">
+        <svg
+          className="h-4 w-4"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            d="M5 13l4 4L19 7"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth="2.5"
+          />
+        </svg>
+      </span>
+      <div>
+        <p className="text-sm font-bold text-white">{title}</p>
+        <p className="mt-0.5 text-xs leading-relaxed text-slate-400">
+          {description}
+        </p>
+      </div>
     </div>
   );
 }
