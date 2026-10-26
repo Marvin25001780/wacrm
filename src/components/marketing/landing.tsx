@@ -976,7 +976,7 @@ export function Landing() {
               </Link>
               <a
                 className="w-full rounded-full border border-slate-700 px-8 py-4 text-base font-bold text-slate-300 transition-all hover:border-slate-500 sm:w-auto"
-                href="mailto:contacto@nexusbpo.space?subject=Quiero%20una%20demo%20de%20Nexus%20CRM"
+                href="#contacto"
               >
                 Agendar una videollamada guiada
               </a>
