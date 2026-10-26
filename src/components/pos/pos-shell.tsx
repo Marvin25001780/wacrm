@@ -21,6 +21,7 @@ import {
 
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
 import { createClient } from "@/lib/supabase/client";
+import { isModuleEnabled } from "@/lib/modules";
 import { PosRateProvider, usePosRate } from "@/components/pos/rate-context";
 import { formatBs, formatUsd } from "@/lib/pos/money";
 
@@ -73,13 +74,21 @@ export function PosShell({ children }: { children: ReactNode }) {
 }
 
 function PosFrame({ children }: { children: ReactNode }) {
-  const { user, loading, account, signOut } = useAuth();
+  const { user, loading, account, enabledModules, signOut } = useAuth();
   const [rateOpen, setRateOpen] = useState(false);
   const router = useRouter();
 
   useEffect(() => {
     if (!loading && !user) router.replace("/login");
   }, [loading, user, router]);
+
+  // El POS respeta los módulos del negocio: si se desactiva, no se
+  // puede entrar ni por URL directa.
+  useEffect(() => {
+    if (!loading && user && !isModuleEnabled(enabledModules, "pos")) {
+      router.replace("/inbox");
+    }
+  }, [loading, user, enabledModules, router]);
 
   if (loading) {
     return (
