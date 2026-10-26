@@ -8,14 +8,47 @@ import { Header } from "@/components/layout/header";
 import { OnboardingWizard, isOnboardingPending } from "@/components/onboarding/onboarding-wizard";
 import { PresenceHeartbeat } from "@/components/presence/presence-heartbeat";
 import { minRoleForPath } from "@/lib/nav";
-import { hasMinRole } from "@/lib/auth/roles";
+import { hasMinRole, type AccountRole } from "@/lib/auth/roles";
+import {
+  MODULE_CATALOG,
+  isModuleEnabled,
+  moduleKeyForPath,
+} from "@/lib/modules";
+
+/**
+ * Primera ruta permitida por módulos Y por rol. Evita el bucle entre
+ * el guardia de módulos y el de roles (p. ej. un agente con solo
+ * "Analítica" habilitada, que es admin-only).
+ */
+function safeFallback(
+  enabled: readonly string[],
+  role: AccountRole | null,
+): string {
+  for (const module of MODULE_CATALOG) {
+    if (!isModuleEnabled(enabled, module.key)) continue;
+    const href = module.hrefs[0];
+    const required = minRoleForPath(href);
+    if (!required) return href;
+    if (role === "viewer") return href;
+    if (role && hasMinRole(role, required)) return href;
+  }
+  return "/settings";
+}
 
 // Auth-gated dashboard shell. Extracted from the layout so the layout
 // itself can stay a server component and export metadata (noindex) —
 // client components can't export Next's metadata object.
 
 function DashboardShellInner({ children }: { children: React.ReactNode }) {
-  const { user, loading, accountRole, account, profile, canEditSettings } = useAuth();
+  const {
+    user,
+    loading,
+    accountRole,
+    account,
+    profile,
+    canEditSettings,
+    enabledModules,
+  } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
 
@@ -38,9 +71,19 @@ function DashboardShellInner({ children }: { children: React.ReactNode }) {
       const requiredRole = minRoleForPath(pathname);
       if (requiredRole && !hasMinRole(accountRole, requiredRole)) {
         router.replace("/inbox");
+        return;
       }
     }
-  }, [user, loading, accountRole, pathname, router]);
+
+    // Guardia por módulos: si el negocio no tiene habilitada la
+    // sección, redirige a la primera disponible.
+    if (!loading && user && account && pathname) {
+      const key = moduleKeyForPath(pathname);
+      if (key && !isModuleEnabled(enabledModules, key)) {
+        router.replace(safeFallback(enabledModules, accountRole));
+      }
+    }
+  }, [user, loading, accountRole, account, pathname, router, enabledModules]);
 
   if (loading) {
     return (

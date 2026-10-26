@@ -20,6 +20,7 @@ import { NextResponse } from "next/server";
 import type { PostgrestError } from "@supabase/supabase-js";
 
 import { requireRole, toErrorResponse } from "@/lib/auth/account";
+import { allModuleKeys, normalizeModules } from "@/lib/modules";
 import {
   checkRateLimit,
   rateLimitResponse,
@@ -61,7 +62,7 @@ export async function POST(request: Request) {
     if (!limit.success) return rateLimitResponse(limit);
 
     const body = (await request.json().catch(() => null)) as
-      | { name?: unknown }
+      | { name?: unknown; modules?: unknown }
       | null;
     const rawName = body?.name;
 
@@ -91,6 +92,25 @@ export async function POST(request: Request) {
     });
 
     if (error) return rpcErrorToResponse(error);
+
+    // Módulos elegidos al crear. `create_workspace` ya deja al caller
+    // como dueño del negocio nuevo, así que la RLS de `accounts`
+    // permite este UPDATE. Si la columna aún no existe (080 sin
+    // aplicar) no rompemos la creación: solo se queda sin restricción.
+    const modules = normalizeModules(body?.modules);
+    const all = allModuleKeys();
+    if (modules.length > 0 && modules.length < all.length) {
+      const { error: modulesError } = await ctx.supabase
+        .from("accounts")
+        .update({ enabled_modules: modules })
+        .eq("id", data);
+      if (modulesError) {
+        console.error(
+          "[POST /api/account/workspaces] enabled_modules update failed:",
+          modulesError,
+        );
+      }
+    }
 
     return NextResponse.json({ ok: true, accountId: data });
   } catch (err) {

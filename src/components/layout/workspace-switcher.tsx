@@ -36,9 +36,11 @@ import {
   Loader2,
   Pencil,
   Plus,
+  Settings2,
 } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
+import { MODULE_CATALOG, allModuleKeys } from "@/lib/modules";
 import type { WorkspaceMembership } from "@/types";
 import { cn } from "@/lib/utils";
 import { RoleChip } from "@/components/layout/role-chip";
@@ -83,11 +85,18 @@ const MAX_NAME_LEN = 80;
 // can't strand anyone on a page their new role can't see.
 const LANDING_PATH = "/inbox";
 
-type NameDialogMode = "create" | "rename";
+type NameDialogMode = "create" | "rename" | "modules";
 
 export function WorkspaceSwitcher() {
-  const { user, profileLoading, account, accountRole, canEditSettings, refreshProfile } =
-    useAuth();
+  const {
+    user,
+    profileLoading,
+    account,
+    accountRole,
+    canEditSettings,
+    enabledModules,
+    refreshProfile,
+  } = useAuth();
 
   const [workspaces, setWorkspaces] = useState<
     { userId: string; list: WorkspaceMembership[] } | null
@@ -95,6 +104,7 @@ export function WorkspaceSwitcher() {
   const [switchingTo, setSwitchingTo] = useState<string | null>(null);
   const [dialogMode, setDialogMode] = useState<NameDialogMode | null>(null);
   const [name, setName] = useState("");
+  const [modules, setModules] = useState<string[]>(allModuleKeys());
   const [saving, setSaving] = useState(false);
 
   const activeId = account?.id ?? null;
@@ -175,28 +185,49 @@ export function WorkspaceSwitcher() {
   );
 
   async function submitName() {
+    if (!dialogMode || !user) return;
+
+    const isModules = dialogMode === "modules";
     const trimmed = name.trim();
-    if (!trimmed || !dialogMode || !user) return;
+    if (!isModules && !trimmed) return;
+
+    if (modules.length === 0) {
+      toast.error("Selecciona al menos un módulo.");
+      return;
+    }
 
     setSaving(true);
     try {
       const isCreate = dialogMode === "create";
-      const res = await fetch(
-        isCreate ? "/api/account/workspaces" : "/api/account",
-        {
-          method: isCreate ? "POST" : "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name: trimmed }),
-        },
-      );
+
+      let url = "/api/account";
+      let method: "POST" | "PATCH" = "PATCH";
+      let payload: Record<string, unknown> = { name: trimmed };
+
+      if (isCreate) {
+        url = "/api/account/workspaces";
+        method = "POST";
+        payload = { name: trimmed, modules };
+      } else if (isModules) {
+        url = "/api/account/modules";
+        payload = { modules };
+      }
+
+      const res = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
 
       if (!res.ok) {
-        const payload = await res.json().catch(() => ({}));
+        const body = await res.json().catch(() => ({}));
         toast.error(
-          payload.error ||
+          body.error ||
             (isCreate
               ? "Error al crear el negocio"
-              : "Error al renombrar el negocio"),
+              : isModules
+                ? "Error al guardar los módulos"
+                : "Error al renombrar el negocio"),
         );
         return;
       }
@@ -208,6 +239,14 @@ export function WorkspaceSwitcher() {
         // `location.replace` (not `assign`): the previous entry is
         // discarded, so "Back" can't land the user on a page rendered
         // for the workspace they just left.
+        window.location.replace(LANDING_PATH);
+        return;
+      }
+
+      if (isModules) {
+        // El menú y los guardias se calculan al cargar: recargamos para
+        // que el cambio se aplique de inmediato.
+        toast.success("Módulos actualizados");
         window.location.replace(LANDING_PATH);
         return;
       }
@@ -315,7 +354,21 @@ export function WorkspaceSwitcher() {
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={() => {
+                  setModules(
+                    enabledModules.length > 0
+                      ? enabledModules.slice()
+                      : allModuleKeys(),
+                  );
+                  setDialogMode("modules");
+                }}
+              >
+                <Settings2 />
+                Módulos de este negocio
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => {
                   setName("");
+                  setModules(allModuleKeys());
                   setDialogMode("create");
                 }}
               >
@@ -338,34 +391,72 @@ export function WorkspaceSwitcher() {
             <DialogTitle>
               {dialogMode === "create"
                 ? "Crear negocio"
-                : "Renombrar negocio"}
+                : dialogMode === "modules"
+                  ? "Módulos del negocio"
+                  : "Renombrar negocio"}
             </DialogTitle>
             <DialogDescription>
               {dialogMode === "create"
-                ? "Tendrás el rol de Dueño en el negocio nuevo y pasarás a trabajar en él. Podrás invitar a tu equipo y conectar sus propios canales."
-                : `El nombre es visible para todo el equipo de este ${WORKSPACE_LABEL}.`}
+                ? "Tendrás el rol de Dueño en el negocio nuevo y pasarás a trabajar en él. Elige qué secciones verá su equipo."
+                : dialogMode === "modules"
+                  ? "Marca las secciones disponibles. El equipo de este negocio solo verá las que dejes activas."
+                  : `El nombre es visible para todo el equipo de este ${WORKSPACE_LABEL}.`}
             </DialogDescription>
           </DialogHeader>
 
+          {dialogMode !== "modules" ? (
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="workspace-name">
+                Nombre del {WORKSPACE_LABEL}
+              </Label>
+              <Input
+                id="workspace-name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                maxLength={MAX_NAME_LEN}
+                placeholder="Ej. Clínica Los Robles"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    void submitName();
+                  }
+                }}
+                className="border-border bg-card text-foreground"
+              />
+            </div>
+          ) : null}
+
           <div className="flex flex-col gap-2">
-            <Label htmlFor="workspace-name">
-              Nombre del {WORKSPACE_LABEL}
-            </Label>
-            <Input
-              id="workspace-name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              maxLength={MAX_NAME_LEN}
-              placeholder="Ej. Clínica Los Robles"
-              autoFocus
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  void submitName();
-                }
-              }}
-              className="border-border bg-card text-foreground"
-            />
+            <Label>Módulos habilitados</Label>
+            <div className="max-h-56 space-y-0.5 overflow-y-auto rounded-lg border border-border bg-card p-2">
+              {MODULE_CATALOG.map((module) => {
+                const checked = modules.includes(module.key);
+                return (
+                  <label
+                    key={module.key}
+                    className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-muted/60"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() =>
+                        setModules((current) =>
+                          checked
+                            ? current.filter((key) => key !== module.key)
+                            : [...current, module.key],
+                        )
+                      }
+                      className="size-4 accent-primary"
+                    />
+                    <span className="text-foreground">{module.label}</span>
+                  </label>
+                );
+              })}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {modules.length} de {MODULE_CATALOG.length} seleccionados
+            </p>
           </div>
 
           <DialogFooter>
@@ -378,10 +469,18 @@ export function WorkspaceSwitcher() {
             </Button>
             <Button
               onClick={() => void submitName()}
-              disabled={saving || name.trim().length === 0}
+              disabled={
+                saving ||
+                modules.length === 0 ||
+                (dialogMode !== "modules" && name.trim().length === 0)
+              }
             >
               {saving ? <Loader2 className="size-4 animate-spin" /> : null}
-              {dialogMode === "create" ? "Crear" : "Guardar"}
+              {dialogMode === "create"
+                ? "Crear"
+                : dialogMode === "modules"
+                  ? "Guardar módulos"
+                  : "Guardar"}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -49,6 +49,8 @@ interface AccountSummary {
   default_currency: string;
   /** Sello del wizard corto por negocio (069). NULL = pendiente. */
   onboarding_completed_at: string | null;
+  /** Módulos habilitados (080). Vacío o null = todos. */
+  enabled_modules: string[] | null;
 }
 
 interface AuthContextValue {
@@ -108,6 +110,11 @@ interface AuthContextValue {
   canEditSettings: boolean;
   /** True if the caller can send messages and edit operational data (agent+). */
   canSendMessages: boolean;
+  /**
+   * Módulos habilitados para el negocio activo. Arreglo vacío = todos
+   * (comportamiento previo a la migración 080).
+   */
+  enabledModules: string[];
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -173,13 +180,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // account name lookup itself can't.
         let accountRow: AccountSummary | null = null;
         if (data.account_id) {
-          const { data: account, error: accountErr } = await supabase
+          // La columna `enabled_modules` llega con la migración 080.
+          // Si aún no está aplicada, reintentamos sin ella en vez de
+          // dejar el contexto de cuenta en null (que rompería toda la
+          // app).
+          const baseColumns =
+            "id, name, default_currency, onboarding_completed_at";
+          let account: Record<string, unknown> | null = null;
+          let accountErr: {
+            message: string;
+            details?: string | null;
+            hint?: string | null;
+            code?: string;
+          } | null = null;
+
+          const first = await supabase
             .from("accounts")
-            // default_currency added in migration 021; narrowed to the
-            // USD fallback below for older schemas where it reads null.
-            .select("id, name, default_currency, onboarding_completed_at")
+            .select(`${baseColumns}, enabled_modules`)
             .eq("id", data.account_id)
             .maybeSingle();
+          account = first.data as Record<string, unknown> | null;
+          accountErr = first.error;
+
+          if (accountErr?.code === "42703") {
+            const retry = await supabase
+              .from("accounts")
+              .select(baseColumns)
+              .eq("id", data.account_id)
+              .maybeSingle();
+            account = retry.data as Record<string, unknown> | null;
+            accountErr = retry.error;
+          }
+
           if (accountErr) {
             console.error("[AuthProvider] fetchAccount error:", {
               message: accountErr.message,
@@ -189,10 +221,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             });
           } else if (account) {
             accountRow = {
-              id: account.id,
-              name: account.name,
-              default_currency: account.default_currency ?? DEFAULT_CURRENCY,
-              onboarding_completed_at: account.onboarding_completed_at ?? null,
+              id: account.id as string,
+              name: account.name as string,
+              default_currency:
+                (account.default_currency as string | null) ?? DEFAULT_CURRENCY,
+              onboarding_completed_at:
+                (account.onboarding_completed_at as string | null) ?? null,
+              enabled_modules: Array.isArray(account.enabled_modules)
+                ? ((account.enabled_modules as string[]) ?? null)
+                : null,
             };
           }
         }
@@ -356,6 +393,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         refreshProfile,
         account,
         defaultCurrency: account?.default_currency ?? DEFAULT_CURRENCY,
+        enabledModules: account?.enabled_modules ?? [],
         ...derived,
       }}
     >
@@ -395,6 +433,7 @@ export function useAuth(): AuthContextValue {
       canManageMembers: false,
       canEditSettings: false,
       canSendMessages: false,
+      enabledModules: [],
     };
   }
   return ctx;

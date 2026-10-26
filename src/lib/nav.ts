@@ -186,6 +186,7 @@ export const bottomNavItems: NavItem[] = [
 // ------------------------------------------------------------
 
 import { hasMinRole } from "@/lib/auth/roles";
+import { isModuleEnabled, moduleKeyForPath } from "@/lib/modules";
 
 /**
  * Returns true if `role` satisfies the item's `minRole` requirement.
@@ -196,16 +197,29 @@ function isNavItemVisible(item: NavItem, role: AccountRole): boolean {
 }
 
 /**
- * Recursively filter nav items by role. Groups whose `minRole` is not met
- * are dropped entirely; children are filtered independently so a group
- * can be visible while some of its children are hidden.
+ * Recursively filter nav items by role and enabled modules. Groups
+ * whose `minRole` is not met — or whose module is disabled for the
+ * workspace — are dropped entirely; children are filtered
+ * independently so a group can be visible while some of its children
+ * are hidden.
  */
-function filterNavItems(items: NavItem[], role: AccountRole): NavItem[] {
+function filterNavItems(
+  items: NavItem[],
+  role: AccountRole,
+  enabledModules?: readonly string[] | null,
+): NavItem[] {
   return items
-    .filter((item) => isNavItemVisible(item, role))
+    .filter(
+      (item) =>
+        isNavItemVisible(item, role) &&
+        isModuleEnabled(enabledModules, moduleKeyForPath(item.href)),
+    )
     .map((item) =>
       item.children
-        ? { ...item, children: filterNavItems(item.children, role) }
+        ? {
+            ...item,
+            children: filterNavItems(item.children, role, enabledModules),
+          }
         : item,
     );
 }
@@ -213,17 +227,25 @@ function filterNavItems(items: NavItem[], role: AccountRole): NavItem[] {
 /** Main nav items visible to the given role.
  *  Viewers see the full navigation (read-only browsing).
  */
-export function navItemsForRole(role: AccountRole): NavItem[] {
-  if (role === "viewer") return navItems;
-  return filterNavItems(navItems, role);
+export function navItemsForRole(
+  role: AccountRole,
+  enabledModules?: readonly string[] | null,
+): NavItem[] {
+  if (role === "viewer")
+    return filterNavItems(navItems, "viewer", enabledModules);
+  return filterNavItems(navItems, role, enabledModules);
 }
 
 /** Bottom nav items visible to the given role.
  *  Viewers see the full navigation (read-only browsing).
  */
-export function bottomNavItemsForRole(role: AccountRole): NavItem[] {
-  if (role === "viewer") return bottomNavItems;
-  return filterNavItems(bottomNavItems, role);
+export function bottomNavItemsForRole(
+  role: AccountRole,
+  enabledModules?: readonly string[] | null,
+): NavItem[] {
+  if (role === "viewer")
+    return filterNavItems(bottomNavItems, "viewer", enabledModules);
+  return filterNavItems(bottomNavItems, role, enabledModules);
 }
 
 /**

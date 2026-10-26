@@ -280,15 +280,16 @@ function NavGroup({
 
 export function Sidebar({ open = false, onClose }: SidebarProps) {
   const pathname = usePathname();
-  const { profile, profileLoading, accountRole, signOut } = useAuth();
+  const { profile, profileLoading, accountRole, enabledModules, signOut } =
+    useAuth();
   const totalUnread = useTotalUnread();
   const unreadNotifications = useUnreadNotifications();
 
   const visibleNavItems = accountRole
-    ? navItemsForRole(accountRole)
+    ? navItemsForRole(accountRole, enabledModules)
     : [];
   const visibleBottomItems = accountRole
-    ? bottomNavItemsForRole(accountRole)
+    ? bottomNavItemsForRole(accountRole, enabledModules)
     : [];
   const [collapsed, setCollapsed] = useState(() => {
     if (typeof window === "undefined") return false;
