@@ -1,3 +1,5 @@
+import { LegalNav } from "@/components/legal/legal-shell";
+
 export const metadata = {
   title: 'Eliminación de datos — NEXUS BPO',
   description:
@@ -8,6 +10,7 @@ export default function EliminacionDeDatosPage() {
   return (
     <main className="min-h-screen bg-surface px-6 py-16 text-on-surface">
       <div className="mx-auto max-w-3xl">
+        <LegalNav current="/eliminacion-de-datos" />
         <h1 className="mb-6 text-3xl font-bold">Eliminación de datos</h1>
         <p className="mb-4 text-sm text-on-surface-variant">
           Última actualización: 25 de octubre de 2026.

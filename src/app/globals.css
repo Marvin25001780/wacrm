@@ -58,6 +58,19 @@
 }
 
 /* ============================================================
+ * Colores de marca de la landing pública.
+ *
+ * Viven aquí (y no en un CDN) para que la landing use el Tailwind
+ * compilado: sin parpadeo, sin script externo y sin depender de la
+ * red de un tercero.
+ * ============================================================ */
+@theme {
+  --color-brand-purple: #6d28d9;
+  --color-brand-whatsapp: #25d366;
+  --color-brand-instagram: #e1306c;
+}
+
+/* ============================================================
  * THEMING — two orthogonal dimensions
  *
  *   1. MODE   (light / dark)  → neutral surfaces. Selected with
