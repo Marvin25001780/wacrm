@@ -4,28 +4,31 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ArrowDownToLine,
   ArrowUpFromLine,
+  Boxes,
   Loader2,
   Package,
   Search,
   SlidersHorizontal,
-  X,
 } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
 import { usePosRate } from "@/components/pos/rate-context";
 import { PosButton, PosPageHeader } from "@/components/pos/pos-shell";
+import {
+  AdjustmentDialog,
+  PurchaseDialog,
+  ReturnDialog,
+  type DialogAccount,
+  type DialogProduct,
+} from "@/components/pos/inventory-dialogs";
 import { createClient } from "@/lib/supabase/client";
 import { formatBs, formatUsd, toNumber, usdToBs } from "@/lib/pos/money";
 
-interface Product {
-  id: string;
-  name: string;
+interface Product extends DialogProduct {
   sku: string | null;
-  kind: "product" | "supply" | "service";
-  unit: string;
-  cost_usd: number | string;
   price_usd: number | string;
-  stock: number | string;
+  min_stock: number | string;
+  category_id: string | null;
 }
 
 interface Movement {
@@ -36,63 +39,117 @@ interface Movement {
   unit_cost_usd: number | string;
   note: string | null;
   created_at: string;
+  created_by: string | null;
+  sale_id: string | null;
+  doc_id: string | null;
   product?: { name: string } | null;
+  sale?: { number: number } | null;
+  doc?: { kind: string; invoice_number: string | null; adjustment_type: string | null } | null;
 }
 
-type Mode = "purchase" | "adjust" | "loss";
-type Tab = "existencias" | "movimientos";
+interface Doc {
+  id: string;
+  kind: "purchase" | "return" | "adjustment";
+  adjustment_type: "count" | "loss" | null;
+  doc_date: string;
+  invoice_number: string | null;
+  note: string | null;
+  total_usd: number | string;
+  created_at: string;
+  created_by: string | null;
+  items?: { count: number }[];
+}
 
-const KIND_LABEL: Record<Movement["kind"], string> = {
-  purchase: "Compra",
-  sale: "Venta",
-  return: "Devolución",
-  adjustment: "Ajuste",
-  loss: "Merma",
-};
+type Tab = "existencias" | "movimientos" | "compras" | "devoluciones" | "ajustes";
+type DialogState =
+  | { mode: "purchase" }
+  | { mode: "return" }
+  | { mode: "count" }
+  | { mode: "loss"; productId?: string }
+  | null;
 
-const KIND_STYLE: Record<Movement["kind"], string> = {
-  purchase: "bg-emerald-50 text-emerald-700",
-  sale: "bg-indigo-50 text-indigo-700",
-  return: "bg-blue-50 text-blue-700",
-  adjustment: "bg-amber-50 text-amber-700",
-  loss: "bg-red-50 text-red-700",
-};
+const TABS: { key: Tab; label: string }[] = [
+  { key: "existencias", label: "Existencias" },
+  { key: "movimientos", label: "Movimientos" },
+  { key: "compras", label: "Compras" },
+  { key: "devoluciones", label: "Devoluciones" },
+  { key: "ajustes", label: "Ajustes de inventario" },
+];
 
 export default function InventarioPage() {
   const { accountId } = useAuth();
   const { rate } = usePosRate();
 
-  const [products, setProducts] = useState<Product[]>([]);
-  const [movements, setMovements] = useState<Movement[]>([]);
   const [tab, setTab] = useState<Tab>("existencias");
   const [search, setSearch] = useState("");
+  const [products, setProducts] = useState<Product[]>([]);
+  const [categories, setCategories] = useState<{ id: string; name: string }[]>([]);
+  const [movements, setMovements] = useState<Movement[]>([]);
+  const [docs, setDocs] = useState<Doc[]>([]);
+  const [accounts, setAccounts] = useState<DialogAccount[]>([]);
+  const [team, setTeam] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
-  const [mode, setMode] = useState<Mode | null>(null);
+  const [dialog, setDialog] = useState<DialogState>(null);
 
   const load = useCallback(async () => {
     if (!accountId) return;
     const supabase = createClient();
     setLoading(true);
 
-    const [productsRes, movementsRes] = await Promise.all([
-      supabase
-        .from("pos_products")
-        .select("id, name, sku, kind, unit, cost_usd, price_usd, stock")
-        .eq("account_id", accountId)
-        .eq("active", true)
-        .order("name"),
-      supabase
-        .from("pos_inventory_movements")
-        .select(
-          "id, product_id, kind, quantity, unit_cost_usd, note, created_at, product:pos_products(name)",
-        )
-        .eq("account_id", accountId)
-        .order("created_at", { ascending: false })
-        .limit(200),
-    ]);
+    const [productsRes, categoriesRes, movementsRes, docsRes, accountsRes, teamRes] =
+      await Promise.all([
+        supabase
+          .from("pos_products")
+          .select(
+            "id, name, sku, kind, unit, cost_usd, price_usd, stock, min_stock, category_id",
+          )
+          .eq("account_id", accountId)
+          .eq("active", true)
+          .order("name"),
+        supabase
+          .from("pos_categories")
+          .select("id, name")
+          .eq("account_id", accountId),
+        supabase
+          .from("pos_inventory_movements")
+          .select(
+            "id, product_id, kind, quantity, unit_cost_usd, note, created_at, created_by, sale_id, doc_id, product:pos_products(name), sale:pos_sales(number), doc:pos_inventory_docs(kind, invoice_number, adjustment_type)",
+          )
+          .eq("account_id", accountId)
+          .order("created_at", { ascending: false })
+          .limit(200),
+        supabase
+          .from("pos_inventory_docs")
+          .select(
+            "id, kind, adjustment_type, doc_date, invoice_number, note, total_usd, created_at, created_by, items:pos_inventory_doc_items(count)",
+          )
+          .eq("account_id", accountId)
+          .order("created_at", { ascending: false })
+          .limit(200),
+        supabase
+          .from("pos_accounts")
+          .select("id, name, currency")
+          .eq("account_id", accountId)
+          .eq("active", true)
+          .order("name"),
+        supabase
+          .from("profiles")
+          .select("user_id, full_name")
+          .eq("account_id", accountId),
+      ]);
 
-    setProducts((productsRes.data ?? []) as Product[]);
+    setProducts((productsRes.data ?? []) as unknown as Product[]);
+    setCategories((categoriesRes.data ?? []) as { id: string; name: string }[]);
     setMovements((movementsRes.data ?? []) as unknown as Movement[]);
+    setDocs((docsRes.data ?? []) as unknown as Doc[]);
+    setAccounts((accountsRes.data ?? []) as DialogAccount[]);
+    setTeam(
+      Object.fromEntries(
+        ((teamRes.data ?? []) as { user_id: string; full_name: string | null }[]).map(
+          (row) => [row.user_id, row.full_name ?? "—"],
+        ),
+      ),
+    );
     setLoading(false);
   }, [accountId]);
 
@@ -112,6 +169,11 @@ export default function InventarioPage() {
     return { cost, sale };
   }, [products]);
 
+  const categoriesById = useMemo(
+    () => new Map(categories.map((category) => [category.id, category.name])),
+    [categories],
+  );
+
   const term = search.trim().toLowerCase();
 
   const filteredProducts = useMemo(() => {
@@ -125,263 +187,460 @@ export default function InventarioPage() {
 
   const filteredMovements = useMemo(() => {
     if (!term) return movements;
-    return movements.filter((movement) => {
-      const name = movement.product?.name ?? "";
-      return (
-        name.toLowerCase().includes(term) ||
-        KIND_LABEL[movement.kind].toLowerCase().includes(term)
-      );
-    });
+    return movements.filter((movement) =>
+      (movement.product?.name ?? "").toLowerCase().includes(term),
+    );
   }, [movements, term]);
+
+  const docList = useCallback(
+    (kind: Doc["kind"]) => {
+      const list = docs.filter((doc) => doc.kind === kind);
+      if (!term) return list;
+      return list.filter(
+        (doc) =>
+          (doc.invoice_number ?? "").toLowerCase().includes(term) ||
+          (doc.note ?? "").toLowerCase().includes(term),
+      );
+    },
+    [docs, term],
+  );
+
+  const dialogProducts = products.filter(
+    (product) => product.kind !== "service",
+  );
 
   return (
     <div>
       <PosPageHeader
         title="Inventario"
-        subtitle="Consulta lo disponible por producto y ubica cada movimiento."
+        subtitle="Consulta lo disponible, registra compras y corrige diferencias."
         actions={
           <>
-            <PosButton variant="outline" onClick={() => setMode("adjust")}>
-              <SlidersHorizontal className="h-4 w-4" />
-              Nuevo ajuste
-            </PosButton>
-            <PosButton variant="outline" onClick={() => setMode("loss")}>
+            <PosButton
+              variant="outline"
+              onClick={() => setDialog({ mode: "loss" })}
+            >
               <ArrowUpFromLine className="h-4 w-4" />
               Nueva salida
             </PosButton>
-            <PosButton onClick={() => setMode("purchase")}>
-              <ArrowDownToLine className="h-4 w-4" />
-              Registrar compra
+            <PosButton onClick={() => setDialog({ mode: "count" })}>
+              <SlidersHorizontal className="h-4 w-4" />
+              Nuevo ajuste
             </PosButton>
           </>
         }
       />
 
-      <div className="mb-4 grid gap-4 sm:grid-cols-2">
-        <div className="rounded-xl border border-slate-200 bg-white p-4">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-            Valor en inventario (costo)
-          </p>
-          <p className="mt-1 text-2xl font-black text-slate-900">
-            {formatUsd(totals.cost)}
-          </p>
-          <p className="text-[11px] text-slate-500">
-            {formatBs(usdToBs(totals.cost, rate))}
-          </p>
-        </div>
-        <div className="rounded-xl border border-slate-200 bg-white p-4">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-            Valor a precio de venta
-          </p>
-          <p className="mt-1 text-2xl font-black text-slate-900">
-            {formatUsd(totals.sale)}
-          </p>
-          <p className="text-[11px] text-slate-500">
-            {formatBs(usdToBs(totals.sale, rate))}
-          </p>
-        </div>
+      <div className="mb-4 flex flex-wrap items-center gap-1 rounded-xl border border-slate-200 bg-white p-1">
+        {TABS.map((item) => (
+          <button
+            key={item.key}
+            type="button"
+            onClick={() => {
+              setTab(item.key);
+              setSearch("");
+            }}
+            className={`rounded-lg px-3 py-2 text-xs font-bold transition-colors ${
+              tab === item.key
+                ? "bg-indigo-50 text-[#3f3fd8]"
+                : "text-slate-500 hover:bg-slate-50"
+            }`}
+          >
+            {item.label}
+          </button>
+        ))}
       </div>
 
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <div className="flex rounded-xl border border-slate-200 bg-white p-1">
-          <button
-            type="button"
-            onClick={() => setTab("existencias")}
-            className={`rounded-lg px-3 py-1.5 text-xs font-bold transition-colors ${
-              tab === "existencias"
-                ? "bg-indigo-50 text-[#3f3fd8]"
-                : "text-slate-500 hover:bg-slate-50"
-            }`}
-          >
-            Existencias
-          </button>
-          <button
-            type="button"
-            onClick={() => setTab("movimientos")}
-            className={`rounded-lg px-3 py-1.5 text-xs font-bold transition-colors ${
-              tab === "movimientos"
-                ? "bg-indigo-50 text-[#3f3fd8]"
-                : "text-slate-500 hover:bg-slate-50"
-            }`}
-          >
-            Movimientos
-          </button>
-        </div>
+      <div className="mb-4 grid gap-4 sm:grid-cols-2">
+        <Metric
+          label="Valor en inventario (costo)"
+          usd={totals.cost}
+          bs={formatBs(usdToBs(totals.cost, rate))}
+        />
+        <Metric
+          label="Valor a precio de venta"
+          usd={totals.sale}
+          bs={formatBs(usdToBs(totals.sale, rate))}
+        />
+      </div>
 
-        <div className="flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2">
-          <Search className="h-4 w-4 shrink-0 text-slate-400" />
+      {tab !== "existencias" ? (
+        <div className="mb-3 flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2">
+          <Search className="h-4 w-4 text-slate-400" />
           <input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             placeholder={
-              tab === "existencias"
-                ? "Buscar por producto o SKU"
-                : "Buscar por producto o tipo de movimiento"
+              tab === "movimientos"
+                ? "Buscar por producto"
+                : "Buscar por factura o motivo"
             }
             className="w-full bg-transparent text-sm outline-none placeholder:text-slate-400"
           />
         </div>
-      </div>
+      ) : null}
 
       {loading ? (
         <div className="flex justify-center py-16">
           <Loader2 className="h-5 w-5 animate-spin text-[#3f3fd8]" />
         </div>
-      ) : tab === "existencias" ? (
-        filteredProducts.length === 0 ? (
-          <EmptyState
-            title={
-              products.length === 0
-                ? "Todavía no hay existencias"
-                : "Sin resultados"
-            }
-            description={
-              products.length === 0
-                ? "Las existencias aparecen aquí cuando registras una compra."
-                : "Prueba con otro nombre o SKU."
-            }
-            action={
-              products.length === 0 ? (
-                <PosButton onClick={() => setMode("purchase")}>
-                  Registrar una compra
-                </PosButton>
-              ) : null
-            }
-          />
-        ) : (
-          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
-            <table className="w-full text-sm">
-              <thead className="bg-slate-50 text-left text-[11px] uppercase tracking-wide text-slate-500">
-                <tr>
-                  <th className="px-4 py-2.5 font-semibold">Producto</th>
-                  <th className="px-4 py-2.5 font-semibold">SKU</th>
-                  <th className="px-4 py-2.5 text-right font-semibold">
-                    Existencia
-                  </th>
-                  <th className="px-4 py-2.5 text-right font-semibold">
-                    Costo
-                  </th>
-                  <th className="px-4 py-2.5 text-right font-semibold">
-                    Valor costo
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {filteredProducts.map((product) => {
-                  const stock = toNumber(product.stock);
-                  const cost = toNumber(product.cost_usd);
-                  return (
-                    <tr key={product.id} className="hover:bg-slate-50/60">
-                      <td className="px-4 py-3">
-                        <p className="font-semibold text-slate-800">
-                          {product.name}
-                        </p>
-                        <p className="text-[11px] text-slate-400">
-                          {product.kind === "service"
-                            ? "Servicio"
-                            : product.unit}
-                        </p>
-                      </td>
-                      <td className="px-4 py-3 text-slate-500">
-                        {product.sku ?? "—"}
-                      </td>
-                      <td className="px-4 py-3 text-right font-semibold text-slate-800">
-                        {product.kind === "service"
-                          ? "—"
-                          : `${stock} ${product.unit}`}
-                      </td>
-                      <td className="px-4 py-3 text-right text-slate-500">
-                        {formatUsd(cost)}
-                      </td>
-                      <td className="px-4 py-3 text-right text-slate-700">
-                        {product.kind === "service"
-                          ? "—"
-                          : formatUsd(stock * cost)}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )
-      ) : filteredMovements.length === 0 ? (
-        <EmptyState
-          title="Todavía no hay movimientos"
-          description="Las compras, ventas, ajustes y mermas aparecen aquí."
-        />
       ) : (
-        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
-          <table className="w-full text-sm">
-            <thead className="bg-slate-50 text-left text-[11px] uppercase tracking-wide text-slate-500">
-              <tr>
-                <th className="px-4 py-2.5 font-semibold">Fecha</th>
-                <th className="px-4 py-2.5 font-semibold">Producto</th>
-                <th className="px-4 py-2.5 font-semibold">Tipo</th>
-                <th className="px-4 py-2.5 text-right font-semibold">
-                  Cantidad
-                </th>
-                <th className="px-4 py-2.5 text-right font-semibold">
-                  Costo unit.
-                </th>
-                <th className="px-4 py-2.5 font-semibold">Nota</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {filteredMovements.map((movement) => (
-                <tr key={movement.id} className="hover:bg-slate-50/60">
-                  <td className="px-4 py-3 text-slate-500">
-                    {new Intl.DateTimeFormat("es-VE", {
-                      day: "2-digit",
-                      month: "short",
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    }).format(new Date(movement.created_at))}
-                  </td>
-                  <td className="px-4 py-3 font-medium text-slate-800">
-                    {movement.product?.name ?? "—"}
-                  </td>
-                  <td className="px-4 py-3">
-                    <span
-                      className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${KIND_STYLE[movement.kind]}`}
-                    >
-                      {KIND_LABEL[movement.kind]}
-                    </span>
-                  </td>
-                  <td
-                    className={`px-4 py-3 text-right font-semibold ${
-                      toNumber(movement.quantity) < 0
-                        ? "text-red-600"
-                        : "text-emerald-700"
-                    }`}
+        <>
+          {tab === "existencias" ? (
+            <div className="rounded-2xl border border-slate-200 bg-white">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-3">
+                <div>
+                  <p className="text-sm font-bold text-slate-800">Existencias</p>
+                  <p className="text-xs text-slate-500">
+                    Consulta lo disponible por producto.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 rounded-lg border border-slate-200 px-2 py-1.5">
+                    <Search className="h-3.5 w-3.5 text-slate-400" />
+                    <input
+                      value={search}
+                      onChange={(event) => setSearch(event.target.value)}
+                      placeholder="Buscar por producto o SKU"
+                      className="w-48 bg-transparent text-xs outline-none placeholder:text-slate-400"
+                    />
+                  </div>
+                  <PosButton
+                    variant="outline"
+                    onClick={() => setDialog({ mode: "purchase" })}
                   >
-                    {toNumber(movement.quantity) > 0 ? "+" : ""}
-                    {toNumber(movement.quantity)}
-                  </td>
-                  <td className="px-4 py-3 text-right text-slate-500">
-                    {formatUsd(toNumber(movement.unit_cost_usd))}
-                  </td>
-                  <td className="max-w-56 truncate px-4 py-3 text-slate-500">
-                    {movement.note || "—"}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                    <ArrowDownToLine className="h-4 w-4" />
+                    Registrar compra
+                  </PosButton>
+                </div>
+              </div>
+
+              {filteredProducts.length === 0 ? (
+                <EmptyState
+                  title={
+                    products.length === 0
+                      ? "Todavía no hay existencias"
+                      : "Sin resultados"
+                  }
+                  description={
+                    products.length === 0
+                      ? "Las existencias aparecen aquí cuando registras una compra."
+                      : "Prueba con otro nombre o SKU."
+                  }
+                  action={
+                    products.length === 0 ? (
+                      <PosButton onClick={() => setDialog({ mode: "purchase" })}>
+                        Registrar una compra
+                      </PosButton>
+                    ) : null
+                  }
+                />
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-slate-50 text-left text-[10px] uppercase tracking-wide text-slate-500">
+                      <tr>
+                        <th className="px-4 py-2.5 font-semibold">Producto</th>
+                        <th className="px-4 py-2.5 font-semibold">SKU</th>
+                        <th className="px-4 py-2.5 font-semibold">Categoría</th>
+                        <th className="px-4 py-2.5 text-right font-semibold">Existencia</th>
+                        <th className="px-4 py-2.5 text-right font-semibold">Costo unit.</th>
+                        <th className="px-4 py-2.5 text-right font-semibold">Valor a costo</th>
+                        <th className="px-4 py-2.5 text-right font-semibold">Valor a venta</th>
+                        <th className="px-4 py-2.5 font-semibold">Estado</th>
+                        <th className="px-4 py-2.5 text-right font-semibold">Acción</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {filteredProducts.map((product) => {
+                        const stock = toNumber(product.stock);
+                        const cost = toNumber(product.cost_usd);
+                        const price = toNumber(product.price_usd);
+                        const isService = product.kind === "service";
+                        const status =
+                          isService
+                            ? ""
+                            : stock <= 0
+                              ? "Agotado"
+                              : stock <= toNumber(product.min_stock)
+                                ? "Bajo"
+                                : "";
+                        return (
+                          <tr key={product.id} className="hover:bg-slate-50/60">
+                            <td className="px-4 py-3 font-semibold text-slate-800">
+                              {product.name}
+                            </td>
+                            <td className="px-4 py-3 text-slate-500">
+                              {product.sku ?? "—"}
+                            </td>
+                            <td className="px-4 py-3 text-slate-500">
+                              {categoriesById.get(product.category_id ?? "") ?? "—"}
+                            </td>
+                            <td className="px-4 py-3 text-right font-semibold text-slate-800">
+                              {isService ? "—" : `${stock} ${product.unit}`}
+                            </td>
+                            <td className="px-4 py-3 text-right text-slate-500">
+                              {isService ? "—" : formatUsd(cost)}
+                            </td>
+                            <td className="px-4 py-3 text-right text-slate-700">
+                              {isService ? "—" : formatUsd(stock * cost)}
+                            </td>
+                            <td className="px-4 py-3 text-right text-slate-700">
+                              {isService ? "—" : formatUsd(stock * price)}
+                            </td>
+                            <td className="px-4 py-3">
+                              {status ? (
+                                <span
+                                  className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                                    status === "Agotado"
+                                      ? "bg-red-50 text-red-600"
+                                      : "bg-amber-50 text-amber-700"
+                                  }`}
+                                >
+                                  {status}
+                                </span>
+                              ) : (
+                                <span className="text-slate-300">—</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                              {isService ? null : (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setDialog({
+                                      mode: "loss",
+                                      productId: product.id,
+                                    })
+                                  }
+                                  className="text-xs font-bold text-[#3f3fd8] hover:underline"
+                                >
+                                  Salida
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          ) : null}
+
+          {tab === "movimientos" ? (
+            <div className="rounded-2xl border border-slate-200 bg-white">
+              <div className="border-b border-slate-100 px-4 py-3">
+                <p className="text-sm font-bold text-slate-800">Movimientos</p>
+                <p className="text-xs text-slate-500">
+                  Libro de entradas y salidas del inventario.
+                </p>
+              </div>
+              {filteredMovements.length === 0 ? (
+                <EmptyState
+                  title="Todavía no hay movimientos"
+                  description="Las compras, ventas, devoluciones y ajustes aparecen aquí."
+                />
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-slate-50 text-left text-[10px] uppercase tracking-wide text-slate-500">
+                      <tr>
+                        <th className="px-4 py-2.5 font-semibold">Fecha</th>
+                        <th className="px-4 py-2.5 font-semibold">Producto</th>
+                        <th className="px-4 py-2.5 font-semibold">Dirección</th>
+                        <th className="px-4 py-2.5 text-right font-semibold">Cantidad</th>
+                        <th className="px-4 py-2.5 text-right font-semibold">Costo unit.</th>
+                        <th className="px-4 py-2.5 font-semibold">Origen</th>
+                        <th className="px-4 py-2.5 font-semibold">Usuario</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {filteredMovements.map((movement) => {
+                        const value = toNumber(movement.quantity);
+                        return (
+                          <tr key={movement.id} className="hover:bg-slate-50/60">
+                            <td className="px-4 py-3 text-slate-500">
+                              {formatDate(movement.created_at)}
+                            </td>
+                            <td className="px-4 py-3 font-medium text-slate-800">
+                              {movement.product?.name ?? "—"}
+                            </td>
+                            <td className="px-4 py-3">
+                              <span
+                                className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                                  value >= 0
+                                    ? "bg-emerald-50 text-emerald-700"
+                                    : "bg-red-50 text-red-600"
+                                }`}
+                              >
+                                {value >= 0 ? "Entrada" : "Salida"}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-right font-semibold text-slate-700">
+                              {Math.abs(value)}
+                            </td>
+                            <td className="px-4 py-3 text-right text-slate-500">
+                              {formatUsd(toNumber(movement.unit_cost_usd))}
+                            </td>
+                            <td className="px-4 py-3 text-slate-500">
+                              {originOf(movement)}
+                            </td>
+                            <td className="px-4 py-3 text-slate-500">
+                              {movement.created_by
+                                ? team[movement.created_by] ?? "—"
+                                : "—"}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          ) : null}
+
+          {tab === "compras" ? (
+            <DocsTable
+              title="Compras"
+              subtitle="Registra la entrada de mercancía de tus proveedores."
+              docs={docList("purchase")}
+              team={team}
+              action={
+                <PosButton onClick={() => setDialog({ mode: "purchase" })}>
+                  <ArrowDownToLine className="h-4 w-4" />
+                  Nueva compra
+                </PosButton>
+              }
+              empty="Las compras que registres aparecerán aquí."
+              columns={["Fecha", "Factura", "Líneas", "Total", "Usuario"]}
+              row={(doc) => [
+                formatDate(doc.doc_date),
+                doc.invoice_number ?? "—",
+                String(doc.items?.[0]?.count ?? 0),
+                formatUsd(toNumber(doc.total_usd)),
+                doc.created_by ? team[doc.created_by] ?? "—" : "—",
+              ]}
+            />
+          ) : null}
+
+          {tab === "devoluciones" ? (
+            <DocsTable
+              title="Devoluciones"
+              subtitle="Devoluciones a proveedores."
+              docs={docList("return")}
+              team={team}
+              action={
+                <PosButton onClick={() => setDialog({ mode: "return" })}>
+                  <ArrowUpFromLine className="h-4 w-4" />
+                  Nueva devolución
+                </PosButton>
+              }
+              empty="Cuando devuelvas mercancía a un proveedor, aparecerá aquí."
+              columns={["Fecha", "Factura", "Líneas", "Total", "Usuario"]}
+              row={(doc) => [
+                formatDate(doc.doc_date),
+                doc.invoice_number ?? "—",
+                String(doc.items?.[0]?.count ?? 0),
+                formatUsd(toNumber(doc.total_usd)),
+                doc.created_by ? team[doc.created_by] ?? "—" : "—",
+              ]}
+            />
+          ) : null}
+
+          {tab === "ajustes" ? (
+            <DocsTable
+              title="Ajustes de inventario"
+              subtitle="Documentos de corrección de inventario."
+              docs={docList("adjustment")}
+              team={team}
+              action={
+                <div className="flex gap-2">
+                  <PosButton
+                    variant="outline"
+                    onClick={() => setDialog({ mode: "loss" })}
+                  >
+                    Nueva salida
+                  </PosButton>
+                  <PosButton onClick={() => setDialog({ mode: "count" })}>
+                    Nuevo ajuste
+                  </PosButton>
+                </div>
+              }
+              empty="Los conteos y mermas aparecerán aquí."
+              columns={["Fecha", "Tipo", "Motivo", "Líneas", "Usuario"]}
+              row={(doc) => [
+                formatDate(doc.doc_date),
+                doc.adjustment_type === "loss" ? "Merma" : "Conteo",
+                doc.note ?? "—",
+                String(doc.items?.[0]?.count ?? 0),
+                doc.created_by ? team[doc.created_by] ?? "—" : "—",
+              ]}
+            />
+          ) : null}
+        </>
       )}
 
-      {mode ? (
-        <MovementDialog
-          mode={mode}
-          products={products.filter((p) => p.kind !== "service")}
-          onClose={() => setMode(null)}
+      {dialog?.mode === "purchase" ? (
+        <PurchaseDialog
+          products={dialogProducts}
+          accounts={accounts}
+          onClose={() => setDialog(null)}
           onSaved={() => {
-            setMode(null);
+            setDialog(null);
             void load();
           }}
         />
       ) : null}
+
+      {dialog?.mode === "return" ? (
+        <ReturnDialog
+          products={dialogProducts}
+          rate={rate}
+          onClose={() => setDialog(null)}
+          onSaved={() => {
+            setDialog(null);
+            void load();
+          }}
+        />
+      ) : null}
+
+      {dialog?.mode === "count" || dialog?.mode === "loss" ? (
+        <AdjustmentDialog
+          products={dialogProducts}
+          initialType={dialog.mode}
+          initialProductId={
+            dialog.mode === "loss" ? dialog.productId : undefined
+          }
+          onClose={() => setDialog(null)}
+          onSaved={() => {
+            setDialog(null);
+            void load();
+          }}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function Metric({
+  label,
+  usd,
+  bs,
+}: {
+  label: string;
+  usd: number;
+  bs: string;
+}) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-4">
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+        {label}
+      </p>
+      <p className="mt-1 text-2xl font-black text-slate-900">{formatUsd(usd)}</p>
+      <p className="text-[11px] text-slate-500">{bs}</p>
     </div>
   );
 }
@@ -396,8 +655,8 @@ function EmptyState({
   action?: React.ReactNode;
 }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white px-6 py-16 text-center">
-      <Package className="mx-auto h-8 w-8 text-slate-300" />
+    <div className="px-6 py-16 text-center">
+      <Boxes className="mx-auto h-8 w-8 text-slate-300" />
       <p className="mt-3 text-sm font-bold text-slate-800">{title}</p>
       <p className="mx-auto mt-1 max-w-md text-sm text-slate-500">
         {description}
@@ -407,195 +666,92 @@ function EmptyState({
   );
 }
 
-function MovementDialog({
-  mode,
-  products,
-  onClose,
-  onSaved,
+function DocsTable({
+  title,
+  subtitle,
+  docs,
+  action,
+  empty,
+  columns,
+  row,
 }: {
-  mode: Mode;
-  products: Product[];
-  onClose: () => void;
-  onSaved: () => void;
+  title: string;
+  subtitle: string;
+  docs: Doc[];
+  team: Record<string, string>;
+  action: React.ReactNode;
+  empty: string;
+  columns: string[];
+  row: (doc: Doc) => string[];
 }) {
-  const [productId, setProductId] = useState(products[0]?.id ?? "");
-  const [quantity, setQuantity] = useState("");
-  const [unitCost, setUnitCost] = useState("");
-  const [note, setNote] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const selected = products.find((p) => p.id === productId);
-
-  const title =
-    mode === "purchase"
-      ? "Registrar compra"
-      : mode === "adjust"
-        ? "Nuevo ajuste de inventario"
-        : "Nueva salida de inventario";
-
-  const subtitle =
-    mode === "purchase"
-      ? "Suma existencias y recalcula el costo medio."
-      : mode === "adjust"
-        ? "Fija la existencia real después de un conteo."
-        : "Resta existencias por merma, daño o uso interno.";
-
-  useEffect(() => {
-    if (mode === "purchase" && selected) {
-      setUnitCost(String(toNumber(selected.cost_usd)));
-    }
-  }, [mode, selected]);
-
-  async function save() {
-    if (!productId) {
-      setError("Selecciona un producto.");
-      return;
-    }
-    const value = toNumber(quantity);
-    if (mode === "adjust" && value < 0) {
-      setError("La existencia contada no puede ser negativa.");
-      return;
-    }
-    if (mode !== "adjust" && value <= 0) {
-      setError("La cantidad debe ser mayor que cero.");
-      return;
-    }
-    if (mode === "purchase" && toNumber(unitCost) < 0) {
-      setError("El costo no puede ser negativo.");
-      return;
-    }
-
-    setSaving(true);
-    setError(null);
-    const supabase = createClient();
-
-    const rpc =
-      mode === "purchase"
-        ? supabase.rpc("pos_register_purchase", {
-            p_product_id: productId,
-            p_quantity: value,
-            p_unit_cost: toNumber(unitCost),
-            p_note: note.trim() || null,
-          })
-        : mode === "adjust"
-          ? supabase.rpc("pos_adjust_stock", {
-              p_product_id: productId,
-              p_counted: value,
-              p_note: note.trim() || null,
-            })
-          : supabase.rpc("pos_register_loss", {
-              p_product_id: productId,
-              p_quantity: value,
-              p_note: note.trim() || null,
-            });
-
-    const { error: rpcError } = await rpc;
-    setSaving(false);
-    if (rpcError) {
-      setError(rpcError.message);
-      return;
-    }
-    onSaved();
-  }
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-      <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl">
-        <div className="mb-4 flex items-start justify-between">
-          <div>
-            <h2 className="text-lg font-black text-slate-900">{title}</h2>
-            <p className="text-xs text-slate-500">{subtitle}</p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg p-1 text-slate-400 hover:bg-slate-100"
-          >
-            <X className="h-4 w-4" />
-          </button>
+    <div className="rounded-2xl border border-slate-200 bg-white">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-3">
+        <div>
+          <p className="text-sm font-bold text-slate-800">{title}</p>
+          <p className="text-xs text-slate-500">{subtitle}</p>
         </div>
-
-        <div className="space-y-3">
-          <label className="flex flex-col gap-1">
-            <span className="text-[11px] font-semibold text-slate-500">
-              Producto
-            </span>
-            <select
-              value={productId}
-              onChange={(event) => setProductId(event.target.value)}
-              className={inputClass}
-            >
-              {products.length === 0 ? (
-                <option value="">Sin productos con inventario</option>
-              ) : null}
-              {products.map((product) => (
-                <option key={product.id} value={product.id}>
-                  {product.name} · {toNumber(product.stock)} {product.unit}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="flex flex-col gap-1">
-            <span className="text-[11px] font-semibold text-slate-500">
-              {mode === "adjust" ? "Existencia contada" : "Cantidad"}
-            </span>
-            <input
-              value={quantity}
-              onChange={(event) => setQuantity(event.target.value)}
-              inputMode="decimal"
-              placeholder={mode === "adjust" ? "0" : "0"}
-              className={inputClass}
-            />
-          </label>
-
-          {mode === "purchase" ? (
-            <label className="flex flex-col gap-1">
-              <span className="text-[11px] font-semibold text-slate-500">
-                Costo unitario (USD)
-              </span>
-              <input
-                value={unitCost}
-                onChange={(event) => setUnitCost(event.target.value)}
-                inputMode="decimal"
-                className={inputClass}
-              />
-            </label>
-          ) : null}
-
-          <label className="flex flex-col gap-1">
-            <span className="text-[11px] font-semibold text-slate-500">
-              Nota (opcional)
-            </span>
-            <input
-              value={note}
-              onChange={(event) => setNote(event.target.value)}
-              placeholder="Proveedor, factura, motivo..."
-              className={inputClass}
-            />
-          </label>
-        </div>
-
-        {error ? (
-          <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">
-            {error}
-          </p>
-        ) : null}
-
-        <div className="mt-4 flex justify-end gap-2">
-          <PosButton variant="outline" onClick={onClose} disabled={saving}>
-            Cancelar
-          </PosButton>
-          <PosButton onClick={() => void save()} disabled={saving}>
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            Guardar
-          </PosButton>
-        </div>
+        {action}
       </div>
+
+      {docs.length === 0 ? (
+        <div className="px-6 py-16 text-center">
+          <Package className="mx-auto h-8 w-8 text-slate-300" />
+          <p className="mx-auto mt-3 max-w-md text-sm text-slate-500">{empty}</p>
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 text-left text-[10px] uppercase tracking-wide text-slate-500">
+              <tr>
+                {columns.map((column) => (
+                  <th key={column} className="px-4 py-2.5 font-semibold">
+                    {column}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {docs.map((doc) => (
+                <tr key={doc.id} className="hover:bg-slate-50/60">
+                  {row(doc).map((value, index) => (
+                    <td
+                      key={`${doc.id}-${index}`}
+                      className="px-4 py-3 text-slate-600 first:font-medium first:text-slate-800"
+                    >
+                      {value}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
 
-const inputClass =
-  "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-[#3f3fd8]";
+function formatDate(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("es-VE", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
+function originOf(movement: Movement): string {
+  if (movement.sale?.number != null) return `Venta #${movement.sale.number}`;
+  if (movement.doc?.kind === "purchase") return "Compra";
+  if (movement.doc?.kind === "return") return "Devolución";
+  if (movement.doc?.kind === "adjustment") {
+    return movement.doc.adjustment_type === "loss" ? "Merma" : "Ajuste";
+  }
+  if (movement.kind === "loss") return "Merma";
+  if (movement.kind === "adjustment") return "Ajuste";
+  return "—";
+}
