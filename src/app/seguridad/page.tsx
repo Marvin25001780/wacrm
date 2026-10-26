@@ -40,7 +40,7 @@ const SECTIONS: LegalSection[] = [
     title: "4. Registros y auditoría",
     paragraphs: [
       "Las acciones sensibles quedan registradas en `audit_logs` con la cuenta, el usuario, la tabla, la operación, el registro afectado y la diferencia de datos. El registro descarta automáticamente tokens, contraseñas y secretos.",
-      "Tablas auditadas: perfiles y roles, invitaciones, configuración de WhatsApp, canales de Meta y TikTok, agentes de IA, bots, segmentos, difusiones y todo el módulo de cobranza (deudores, créditos, cuotas, pagos, lotes de importación y políticas).",
+      "Tablas auditadas: contactos, leads, negocios, organizaciones, actividades, notas, adjuntos, espacios, pipelines, plantillas de mensajes, claves de API, webhooks, integraciones, perfiles y roles, invitaciones, configuración de WhatsApp y SMS, canales de Meta y TikTok, agentes de IA, bots, segmentos, difusiones y todo el módulo de cobranza (deudores, créditos, cuotas, pagos, lotes de importación y políticas).",
       "Los inicios de sesión los registra el proveedor de identidad y se consultan en su panel de autenticación.",
     ],
     note: "El historial de auditoría es de solo lectura para los clientes y se conserva mientras exista la cuenta.",
