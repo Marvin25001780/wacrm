@@ -34,6 +34,7 @@ import {
   ScrollText,
   Settings,
   Share2,
+  ShoppingCart,
   Smartphone,
   StickyNote,
   Target,
@@ -75,6 +76,7 @@ export interface NavItem {
 const principalNav: NavItem[] = [
   { href: "/dashboard", label: "Panel", icon: LayoutDashboard, minRole: "admin" },
   { href: "/inbox", label: "Bandeja de entrada", icon: MessageSquare },
+  { href: "/pos", label: "POS", icon: ShoppingCart, minRole: "agent" },
   { href: "/contacts", label: "Contactos", icon: Users },
   { href: "/organizations", label: "Empresas", icon: Building2, minRole: "admin" },
   { href: "/leads", label: "Leads", icon: Target },
