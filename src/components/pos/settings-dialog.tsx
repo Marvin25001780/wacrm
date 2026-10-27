@@ -6,8 +6,7 @@ import {
   History,
   Loader2,
   Percent,
-  Settings2,
-  ShoppingCart,
+  Search,
   Store,
   Users,
   X,
@@ -21,8 +20,6 @@ type Section =
   | "negocio"
   | "moneda"
   | "impuestos"
-  | "canales"
-  | "comportamiento"
   | "usuarios"
   | "bitacora";
 
@@ -85,6 +82,56 @@ const ROLE_LABEL: Record<string, string> = {
   viewer: "Visor",
 };
 
+const ROLE_CARDS: { role: string; label: string; description: string }[] = [
+  {
+    role: "owner",
+    label: "Dueño",
+    description:
+      "Administra todo el negocio, su configuración y los accesos del equipo.",
+  },
+  {
+    role: "admin",
+    label: "Administrador",
+    description:
+      "Opera y consulta el negocio. Puede ver Ajustes y gestionar al equipo.",
+  },
+  {
+    role: "agent",
+    label: "Agente",
+    description:
+      "Vende y atiende conversaciones. Sin acceso a costos ni configuración.",
+  },
+  {
+    role: "viewer",
+    label: "Visor",
+    description: "Consulta la información sin modificar nada.",
+  },
+];
+
+function initials(value: string): string {
+  const parts = value
+    .replace(/@.*/, "")
+    .split(/[\s._-]+/)
+    .filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+}
+
+function lastSeenLabel(
+  value?: { status: string; last_seen_at: string },
+): string {
+  if (!value?.last_seen_at) return "—";
+  const date = new Date(value.last_seen_at);
+  if (Number.isNaN(date.getTime())) return "—";
+  return new Intl.DateTimeFormat("es-VE", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
 const DEFAULT_FORM: SettingsForm = {
   legal_name: "",
   tax_id: "",
@@ -124,7 +171,7 @@ export function PosSettingsDialog({
   currentRate: number;
   onRateSaved: () => void;
 }) {
-  const { accountId, account } = useAuth();
+  const { accountId, account, user } = useAuth();
   const [section, setSection] = useState<Section>("negocio");
   const [form, setForm] = useState<SettingsForm>(DEFAULT_FORM);
   const [commercialName, setCommercialName] = useState("");
@@ -132,6 +179,11 @@ export function PosSettingsDialog({
   const [rates, setRates] = useState<RateRow[]>([]);
   const [team, setTeam] = useState<TeamRow[]>([]);
   const [logs, setLogs] = useState<LogRow[]>([]);
+  const [teamSearch, setTeamSearch] = useState("");
+  const [presence, setPresence] = useState<
+    Record<string, { status: string; last_seen_at: string }>
+  >({});
+  const [inviteOpen, setInviteOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -142,7 +194,8 @@ export function PosSettingsDialog({
     const supabase = createClient();
     setLoading(true);
 
-    const [settingsRes, ratesRes, teamRes, logsRes] = await Promise.all([
+    const [settingsRes, ratesRes, teamRes, logsRes, presenceRes] =
+      await Promise.all([
       supabase
         .from("pos_settings")
         .select(
@@ -167,6 +220,10 @@ export function PosSettingsDialog({
         .like("table_name", "pos_%")
         .order("created_at", { ascending: false })
         .limit(50),
+      supabase
+        .from("member_presence")
+        .select("user_id, status, last_seen_at")
+        .eq("account_id", accountId),
     ]);
 
     const row = settingsRes.data as Record<string, unknown> | null;
@@ -203,6 +260,20 @@ export function PosSettingsDialog({
     setRates((ratesRes.data ?? []) as RateRow[]);
     setTeam((teamRes.data ?? []) as TeamRow[]);
     setLogs((logsRes.data ?? []) as LogRow[]);
+    setPresence(
+      Object.fromEntries(
+        (
+          (presenceRes.data ?? []) as {
+            user_id: string;
+            status: string;
+            last_seen_at: string;
+          }[]
+        ).map((row) => [
+          row.user_id,
+          { status: row.status, last_seen_at: row.last_seen_at },
+        ]),
+      ),
+    );
     setLoading(false);
   }, [accountId, currentRate]);
 
@@ -230,6 +301,19 @@ export function PosSettingsDialog({
     }),
     [commercialName, form, manualRate],
   );
+
+  const filteredTeam = useMemo(() => {
+    const term = teamSearch.trim().toLowerCase();
+    if (!term) return team;
+    return team.filter((member) => {
+      const role = ROLE_LABEL[member.account_role ?? ""] ?? "";
+      return (
+        (member.full_name ?? "").toLowerCase().includes(term) ||
+        (member.email ?? "").toLowerCase().includes(term) ||
+        role.toLowerCase().includes(term)
+      );
+    });
+  }, [team, teamSearch]);
 
   async function save() {
     if (!accountId) return;
@@ -314,8 +398,6 @@ export function PosSettingsDialog({
     { key: "negocio", label: "Negocio", icon: Store },
     { key: "moneda", label: "Moneda", icon: DollarSign },
     { key: "impuestos", label: "Impuestos", icon: Percent },
-    { key: "canales", label: "Canales", icon: ShoppingCart },
-    { key: "comportamiento", label: "Comportamiento", icon: Settings2 },
     { key: "usuarios", label: "Usuarios y roles", icon: Users },
     { key: "bitacora", label: "Bitácora", icon: History },
   ];
@@ -763,78 +845,180 @@ export function PosSettingsDialog({
                   </div>
                 ) : null}
 
-                {section === "canales" || section === "comportamiento" ? (
-                  <div className="flex h-full flex-col items-center justify-center text-center">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-slate-100 text-slate-400">
-                      {section === "canales" ? (
-                        <ShoppingCart className="h-5 w-5" />
-                      ) : (
-                        <Settings2 className="h-5 w-5" />
-                      )}
-                    </div>
-                    <p className="mt-3 text-sm font-bold text-slate-800">
-                      {section === "canales"
-                        ? "Canales de venta"
-                        : "Comportamiento del POS"}
-                    </p>
-                    <p className="mt-1 max-w-sm text-xs text-slate-500">
-                      {section === "canales"
-                        ? "Los canales con precios propios (mostrador, delivery, mayorista) llegan en la próxima entrega."
-                        : "Opciones como pedir cliente en cada venta o permitir vender sin stock llegan en la próxima entrega."}
-                    </p>
-                  </div>
-                ) : null}
-
                 {section === "usuarios" ? (
-                  <div className="max-w-3xl space-y-4">
-                    <SectionTitle
-                      title="Usuarios y roles"
-                      subtitle="Organiza los accesos de tu equipo y sus permisos."
-                    />
-
-                    <div className="flex items-center justify-between">
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                        Equipo · {team.length}{" "}
-                        {team.length === 1 ? "persona" : "personas"}
-                      </p>
-                      <a
-                        href="/settings"
-                        className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-50"
+                  <div className="max-w-4xl space-y-5">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <SectionTitle
+                        title="Usuarios y roles"
+                        subtitle="Organiza los accesos de tu equipo y sus permisos."
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setInviteOpen(true)}
+                        className="rounded-xl bg-[#3f3fd8] px-4 py-2 text-sm font-bold text-white hover:bg-[#3535c4]"
                       >
-                        Gestionar en el CRM
-                      </a>
+                        Invitar usuario
+                      </button>
                     </div>
 
-                    <div className="overflow-hidden rounded-xl border border-slate-200">
-                      <table className="w-full text-xs">
-                        <tbody className="divide-y divide-slate-100">
-                          {team.map((member) => (
-                            <tr key={member.user_id}>
-                              <td className="px-4 py-3">
-                                <p className="font-semibold text-slate-800">
+                    <div className="flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2">
+                      <Search className="h-4 w-4 text-slate-400" />
+                      <input
+                        value={teamSearch}
+                        onChange={(event) => setTeamSearch(event.target.value)}
+                        placeholder="Buscar por nombre, correo o rol..."
+                        className="w-full bg-transparent text-sm outline-none placeholder:text-slate-400"
+                      />
+                    </div>
+
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                        Equipo
+                      </p>
+                      <p className="text-xs text-slate-500">
+                        {filteredTeam.length}{" "}
+                        {filteredTeam.length === 1
+                          ? "persona con acceso"
+                          : "personas con acceso"}
+                      </p>
+
+                      <div className="mt-2 space-y-2">
+                        {filteredTeam.map((member) => {
+                          const online =
+                            presence[member.user_id]?.status === "online";
+                          const role = member.account_role ?? "";
+                          return (
+                            <div
+                              key={member.user_id}
+                              className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3"
+                            >
+                              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-indigo-50 text-xs font-bold text-[#3f3fd8]">
+                                {initials(
+                                  member.full_name ?? member.email ?? "",
+                                )}
+                              </span>
+                              <div className="min-w-0 flex-1">
+                                <p className="flex items-center gap-2 text-sm font-bold text-slate-800">
                                   {member.full_name || "Sin nombre"}
+                                  {member.user_id === user?.id ? (
+                                    <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[9px] font-bold uppercase text-slate-500">
+                                      Tú
+                                    </span>
+                                  ) : null}
                                 </p>
-                                <p className="text-[11px] text-slate-400">
+                                <p className="truncate text-[11px] text-slate-400">
                                   {member.email}
                                 </p>
-                              </td>
-                              <td className="px-4 py-3 text-right">
-                                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-600">
-                                  {ROLE_LABEL[member.account_role ?? ""] ??
-                                    member.account_role ??
-                                    "—"}
-                                </span>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                                <p className="text-[10px] text-slate-400">
+                                  Último acceso:{" "}
+                                  {lastSeenLabel(presence[member.user_id])}
+                                </p>
+                              </div>
+                              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-bold text-slate-600">
+                                {ROLE_LABEL[role] ?? role ?? "—"}
+                              </span>
+                              <span
+                                className={`flex items-center gap-1.5 text-[11px] font-semibold ${
+                                  online ? "text-emerald-600" : "text-slate-400"
+                                }`}
+                              >
+                                <span
+                                  className={`h-1.5 w-1.5 rounded-full ${
+                                    online ? "bg-emerald-500" : "bg-slate-300"
+                                  }`}
+                                />
+                                {online ? "En línea" : "Inactivo"}
+                              </span>
+                            </div>
+                          );
+                        })}
+                        {filteredTeam.length === 0 ? (
+                          <p className="rounded-xl border border-dashed border-slate-200 px-4 py-6 text-center text-xs text-slate-500">
+                            Sin resultados para “{teamSearch}”.
+                          </p>
+                        ) : null}
+                      </div>
                     </div>
 
-                    <p className="text-[11px] text-slate-500">
-                      Las invitaciones y los permisos detallados se administran
-                      desde Configuración del CRM.
-                    </p>
+                    <div>
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                            Roles y permisos
+                          </p>
+                          <p className="text-xs text-slate-500">
+                            Los roles son fijos. Para cambiar el rol de alguien,
+                            hazlo desde el CRM.
+                          </p>
+                        </div>
+                        <a
+                          href="/settings"
+                          className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-50"
+                        >
+                          Gestionar en el CRM
+                        </a>
+                      </div>
+
+                      <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                        {ROLE_CARDS.map((card) => {
+                          const count = team.filter(
+                            (member) => member.account_role === card.role,
+                          ).length;
+                          return (
+                            <div
+                              key={card.role}
+                              className="rounded-xl border border-slate-200 bg-white p-4"
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <p className="text-sm font-bold text-slate-800">
+                                  {card.label}
+                                </p>
+                                <span className="text-[10px] font-semibold text-slate-400">
+                                  {count === 0
+                                    ? "Nadie aún"
+                                    : `${count} ${
+                                        count === 1 ? "persona" : "personas"
+                                      }`}
+                                </span>
+                              </div>
+                              <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
+                                {card.description}
+                              </p>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {inviteOpen ? (
+                      <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/40 p-4">
+                        <div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl">
+                          <h3 className="text-base font-black text-slate-900">
+                            Invitar usuario
+                          </h3>
+                          <p className="mt-1 text-xs leading-relaxed text-slate-500">
+                            Las invitaciones se envían por correo desde
+                            Configuración del CRM. Allí eliges el rol y la
+                            persona acepta desde el enlace.
+                          </p>
+                          <div className="mt-4 flex justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setInviteOpen(false)}
+                              className="rounded-lg px-3 py-2 text-sm font-semibold text-slate-500 hover:bg-slate-50"
+                            >
+                              Cerrar
+                            </button>
+                            <a
+                              href="/settings"
+                              className="rounded-xl bg-[#3f3fd8] px-4 py-2 text-sm font-bold text-white"
+                            >
+                              Abrir Configuración
+                            </a>
+                          </div>
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
 
