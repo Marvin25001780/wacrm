@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import {
   CheckCircle2,
   Loader2,
@@ -15,6 +16,7 @@ import {
 
 import { useAuth } from "@/hooks/use-auth";
 import { usePosRate } from "@/components/pos/rate-context";
+import { usePosShift } from "@/components/pos/shift-context";
 import { PosButton, PosPageHeader } from "@/components/pos/pos-shell";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -106,6 +108,11 @@ function withGlobalDiscount(lines: Line[], amount: number): Line[] {
 export default function VenderPage() {
   const { accountId } = useAuth();
   const { rate } = usePosRate();
+  const {
+    shift: openShift,
+    loading: shiftLoading,
+    missing: shiftMissing,
+  } = usePosShift();
 
   const [products, setProducts] = useState<Product[]>([]);
   const [accounts, setAccounts] = useState<
@@ -483,7 +490,30 @@ export default function VenderPage() {
       <PosPageHeader
         title="Vender"
         subtitle="Cobra rápido y divide el pago entre métodos."
+        actions={
+          openShift ? (
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+              Turno #{openShift.number}
+            </span>
+          ) : null
+        }
       />
+
+      {!shiftMissing && !shiftLoading && !openShift ? (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
+          <p>
+            <strong>No hay un turno abierto.</strong> La venta se registra,
+            pero no entrará en el arqueo de caja.
+          </p>
+          <Link
+            href="/pos/turnos"
+            className="rounded-lg bg-amber-800 px-3 py-1.5 font-bold text-white hover:bg-amber-900"
+          >
+            Abrir turno
+          </Link>
+        </div>
+      ) : null}
 
       {success ? (
         <div className="mb-4 flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm">

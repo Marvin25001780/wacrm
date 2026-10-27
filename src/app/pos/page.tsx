@@ -17,6 +17,7 @@ import {
 
 import { useAuth } from "@/hooks/use-auth";
 import { usePosRate } from "@/components/pos/rate-context";
+import { usePosShift } from "@/components/pos/shift-context";
 import { DailyCloseDialog } from "@/components/pos/daily-close-dialog";
 import { PosButton, PosPageHeader } from "@/components/pos/pos-shell";
 import { createClient } from "@/lib/supabase/client";
@@ -71,6 +72,7 @@ const METHOD_COLOR: Record<string, string> = {
 export default function PosHomePage() {
   const { accountId, account, user } = useAuth();
   const { rate } = usePosRate();
+  const { shift } = usePosShift();
 
   const [today, setToday] = useState<SaleRow[]>([]);
   const [yesterday, setYesterday] = useState<SaleRow[]>([]);
@@ -223,9 +225,19 @@ export default function PosHomePage() {
             <h1 className="text-2xl font-black tracking-tight text-slate-900">
               ¡Hola, {firstName}!
             </h1>
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-              Operación del día activa
+            <span
+              className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold ${
+                shift
+                  ? "bg-emerald-50 text-emerald-700"
+                  : "bg-amber-50 text-amber-700"
+              }`}
+            >
+              <span
+                className={`h-1.5 w-1.5 rounded-full ${
+                  shift ? "bg-emerald-500" : "bg-amber-500"
+                }`}
+              />
+              {shift ? `Turno #${shift.number} abierto` : "Caja cerrada"}
             </span>
           </div>
           <p className="mt-1 text-sm text-slate-500">
@@ -234,9 +246,15 @@ export default function PosHomePage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <Link href="/pos/turnos">
+            <PosButton variant="outline">
+              <Receipt className="h-4 w-4" />
+              {shift ? "Arqueo de caja" : "Abrir turno"}
+            </PosButton>
+          </Link>
           <PosButton variant="outline" onClick={() => setCloseOpen(true)}>
             <Receipt className="h-4 w-4" />
-            Cierre del día
+            Resumen del día
           </PosButton>
           <Link href="/pos/vender">
             <PosButton className="px-5 py-2.5">
@@ -521,6 +539,7 @@ export default function PosHomePage() {
       <DailyCloseDialog
         open={closeOpen}
         onOpenChange={setCloseOpen}
+        accountId={accountId}
         accountName={account?.name ?? ""}
         rate={rate}
       />

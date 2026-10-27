@@ -33,22 +33,28 @@ const METHOD_LABEL: Record<string, string> = Object.fromEntries(
 export function DailyCloseDialog({
   open,
   onOpenChange,
+  accountId,
   accountName,
   rate,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  accountId: string | null;
   accountName: string;
   rate: number;
 }) {
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [sales, setSales] = useState<SaleRow[]>([]);
   const [payments, setPayments] = useState<PaymentRow[]>([]);
+  const [expenses, setExpenses] = useState(0);
+  const [shifts, setShifts] = useState<
+    { number: number; difference_usd: number | string; difference_bs: number | string }[]
+  >([]);
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
 
   const load = useCallback(async () => {
-    if (!open) return;
+    if (!open || !accountId) return;
     const supabase = createClient();
     setLoading(true);
 
@@ -59,12 +65,46 @@ export function DailyCloseDialog({
     const { data: salesData } = await supabase
       .from("pos_sales")
       .select("id, subtotal_usd, unit_cost_usd, balance_usd, status")
+      .eq("account_id", accountId)
       .gte("created_at", start.toISOString())
       .lt("created_at", end.toISOString())
       .neq("status", "void");
 
     const rows = (salesData ?? []) as SaleRow[];
     setSales(rows);
+
+    const { data: expensesData } = await supabase
+      .from("pos_transactions")
+      .select("amount_usd")
+      .eq("account_id", accountId)
+      .eq("kind", "out")
+      .eq("category", "expense")
+      .gte("created_at", start.toISOString())
+      .lt("created_at", end.toISOString());
+
+    setExpenses(
+      (expensesData ?? []).reduce(
+        (sum, row) => sum + toNumber(row.amount_usd),
+        0,
+      ),
+    );
+
+    const { data: shiftsData } = await supabase
+      .from("pos_shifts")
+      .select("number, difference_usd, difference_bs")
+      .eq("account_id", accountId)
+      .eq("status", "closed")
+      .gte("closed_at", start.toISOString())
+      .lt("closed_at", end.toISOString())
+      .order("closed_at", { ascending: false });
+
+    setShifts(
+      (shiftsData ?? []) as {
+        number: number;
+        difference_usd: number | string;
+        difference_bs: number | string;
+      }[],
+    );
 
     if (rows.length === 0) {
       setPayments([]);
@@ -82,7 +122,7 @@ export function DailyCloseDialog({
 
     setPayments((paymentsData ?? []) as PaymentRow[]);
     setLoading(false);
-  }, [open, date]);
+  }, [open, date, accountId]);
 
   useEffect(() => {
     void load();
@@ -129,6 +169,11 @@ export function DailyCloseDialog({
   }, [sales, payments]);
 
   const text = useMemo(() => {
+    const shiftsWithDifference = shifts.filter(
+      (row) =>
+        Math.abs(toNumber(row.difference_usd)) >= 0.005 ||
+        Math.abs(toNumber(row.difference_bs)) >= 0.005,
+    );
     const lines = [
       `*Cierre del día · ${accountName || "Mi negocio"}*`,
       date,
@@ -149,14 +194,23 @@ export function DailyCloseDialog({
 
     lines.push(
       `Ventas a crédito: ${formatUsd(summary.credit)} (${formatBs(usdToBs(summary.credit, rate))})`,
-      `Gastos pagados: ${formatUsd(0)} (${formatBs(0)})`,
+      `Gastos pagados: ${formatUsd(expenses)} (${formatBs(usdToBs(expenses, rate))})`,
       `Utilidad bruta: ${formatUsd(summary.gross)} (${formatBs(usdToBs(summary.gross, rate))})`,
-      "Turnos con diferencia:",
-      "• Ninguno",
+      `Turnos cerrados: ${shifts.length} · con diferencia: ${shiftsWithDifference.length}`,
     );
 
+    if (shiftsWithDifference.length === 0) {
+      lines.push("• Sin diferencias");
+    } else {
+      for (const row of shiftsWithDifference) {
+        lines.push(
+          `• Turno #${row.number}: ${formatUsd(toNumber(row.difference_usd))} (${formatBs(toNumber(row.difference_bs))})`,
+        );
+      }
+    }
+
     return lines.join("\n");
-  }, [accountName, date, rate, summary]);
+  }, [accountName, date, rate, summary, expenses, shifts]);
 
   async function copy() {
     try {

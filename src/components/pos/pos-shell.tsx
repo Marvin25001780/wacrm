@@ -8,6 +8,7 @@ import {
   ChartNoAxesColumn,
   ChevronRight,
   CircleHelp,
+  Clock,
   DollarSign,
   LayoutDashboard,
   Loader2,
@@ -24,6 +25,10 @@ import { AuthProvider, useAuth } from "@/hooks/use-auth";
 import { createClient } from "@/lib/supabase/client";
 import { isModuleEnabled } from "@/lib/modules";
 import { PosRateProvider, usePosRate } from "@/components/pos/rate-context";
+import {
+  PosShiftProvider,
+  usePosShift,
+} from "@/components/pos/shift-context";
 import { PosSettingsDialog } from "@/components/pos/settings-dialog";
 import type { PosSettingsSection } from "@/components/pos/settings-dialog";
 import { formatBs, formatUsd, round2, toNumber } from "@/lib/pos/money";
@@ -54,6 +59,7 @@ const NAV: NavGroup[] = [
       { href: "/pos/ventas", label: "Historial", icon: ChartNoAxesColumn },
     ],
   },
+  { href: "/pos/turnos", label: "Turnos", icon: Clock },
   { href: "/pos/catalogo", label: "Catálogo", icon: Tags },
   { href: "/pos/inventario", label: "Inventario", icon: Boxes } as NavLeaf,
   { href: "/pos/contactos", label: "Contactos", icon: Users },
@@ -70,7 +76,9 @@ export function PosShell({ children }: { children: ReactNode }) {
   return (
     <AuthProvider>
       <PosRateProvider>
-        <PosFrame>{children}</PosFrame>
+        <PosShiftProvider>
+          <PosFrame>{children}</PosFrame>
+        </PosShiftProvider>
       </PosRateProvider>
     </AuthProvider>
   );
@@ -123,6 +131,7 @@ function PosFrame({ children }: { children: ReactNode }) {
           </Link>
 
           <div className="ml-auto flex items-center gap-2">
+            <ShiftChip />
             <RateChip
               open={rateOpen}
               onOpenChange={setRateOpen}
@@ -265,7 +274,11 @@ function Sidebar({ onOpenSettings }: { onOpenSettings: () => void }) {
           })}
         </nav>
 
-        <div className="mt-3 border-t border-slate-100 pt-2">
+        <div className="mt-3">
+          <ShiftCard />
+        </div>
+
+        <div className="mt-2 border-t border-slate-100 pt-2">
           <button
             type="button"
             onClick={onOpenSettings}
@@ -278,6 +291,79 @@ function Sidebar({ onOpenSettings }: { onOpenSettings: () => void }) {
       </div>
     </aside>
   );
+}
+
+function ShiftChip() {
+  const { shift, loading, missing } = usePosShift();
+  if (loading || missing) return null;
+
+  return (
+    <Link
+      href="/pos/turnos"
+      className="hidden items-center gap-1.5 rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 md:flex"
+      title="Turnos y arqueo de caja"
+    >
+      <span
+        className={`h-1.5 w-1.5 rounded-full ${
+          shift ? "bg-emerald-500" : "bg-slate-300"
+        }`}
+      />
+      {shift ? `Caja #${String(shift.number).padStart(2, "0")}` : "Caja cerrada"}
+    </Link>
+  );
+}
+
+function ShiftCard() {
+  const { shift, loading, missing } = usePosShift();
+  if (missing) return null;
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-2.5">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <span
+            className={`h-2 w-2 shrink-0 rounded-full ${
+              shift ? "bg-emerald-500" : "bg-slate-300"
+            }`}
+          />
+          <div className="min-w-0">
+            <p className="truncate text-[11px] font-bold text-slate-700">
+              {loading
+                ? "Cargando caja…"
+                : shift
+                  ? `Caja #${String(shift.number).padStart(2, "0")}`
+                  : "Caja cerrada"}
+            </p>
+            <p
+              className={`truncate text-[10px] ${
+                shift ? "text-emerald-700" : "text-slate-400"
+              }`}
+            >
+              {loading
+                ? ""
+                : shift
+                  ? `Abierta ${shiftTime(shift.opened_at)}`
+                  : "Sin turno activo"}
+            </p>
+          </div>
+        </div>
+        <Link
+          href="/pos/turnos"
+          className="shrink-0 rounded-md border border-slate-200 bg-white px-2 py-1 text-[10px] font-bold text-slate-600 hover:text-[#3f3fd8]"
+        >
+          {shift ? "Cierre" : "Abrir"}
+        </Link>
+      </div>
+    </div>
+  );
+}
+
+function shiftTime(value: string): string {
+  return new Intl.DateTimeFormat("es-VE", {
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "America/Caracas",
+  }).format(new Date(value));
 }
 
 function RateChip({
