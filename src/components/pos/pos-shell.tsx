@@ -55,8 +55,8 @@ const NAV: NavGroup[] = [
   { href: "/pos/catalogo", label: "Catálogo", icon: Tags },
   { href: "/pos/inventario", label: "Inventario", icon: Boxes } as NavLeaf,
   { href: "/contacts", label: "Contactos", icon: Users },
-  { href: "/pos/finanzas", label: "Finanzas", icon: Wallet, soon: true } as NavLeaf,
-  { href: "/pos/informes", label: "Informes", icon: ChartNoAxesColumn, soon: true } as NavLeaf,
+  { href: "/pos/finanzas", label: "Finanzas", icon: Wallet } as NavLeaf,
+  { href: "/pos/informes", label: "Informes", icon: ChartNoAxesColumn } as NavLeaf,
 ];
 
 function isActive(pathname: string, href: string): boolean {

@@ -54,10 +54,11 @@ interface Payment {
   id: string;
   method: PaymentMethod;
   amount: string;
+  accountId: string;
 }
 
-function newPayment(method: PaymentMethod = "cash_usd"): Payment {
-  return { id: crypto.randomUUID(), method, amount: "" };
+function newPayment(method: PaymentMethod = "cash_usd", accountId = ""): Payment {
+  return { id: crypto.randomUUID(), method, amount: "", accountId };
 }
 
 export default function VenderPage() {
@@ -65,6 +66,9 @@ export default function VenderPage() {
   const { rate } = usePosRate();
 
   const [products, setProducts] = useState<Product[]>([]);
+  const [accounts, setAccounts] = useState<
+    { id: string; name: string; currency: "USD" | "VES" }[]
+  >([]);
   const [search, setSearch] = useState("");
   const [cart, setCart] = useState<Line[]>([]);
   const [payments, setPayments] = useState<Payment[]>([newPayment()]);
@@ -81,16 +85,27 @@ export default function VenderPage() {
     if (!accountId) return;
     const supabase = createClient();
     setLoading(true);
-    const { data } = await supabase
-      .from("pos_products")
-      .select(
-        "id, name, sku, kind, unit, cost_usd, price_usd, stock, taxable",
-      )
-      .eq("account_id", accountId)
-      .eq("active", true)
-      .neq("kind", "supply")
-      .order("name");
-    setProducts((data ?? []) as Product[]);
+    const [productsRes, accountsRes] = await Promise.all([
+      supabase
+        .from("pos_products")
+        .select(
+          "id, name, sku, kind, unit, cost_usd, price_usd, stock, taxable",
+        )
+        .eq("account_id", accountId)
+        .eq("active", true)
+        .neq("kind", "supply")
+        .order("name"),
+      supabase
+        .from("pos_accounts")
+        .select("id, name, currency")
+        .eq("account_id", accountId)
+        .eq("active", true)
+        .order("name"),
+    ]);
+    setProducts((productsRes.data ?? []) as Product[]);
+    setAccounts(
+      (accountsRes.data ?? []) as { id: string; name: string; currency: "USD" | "VES" }[],
+    );
     setLoading(false);
   }, [accountId]);
 
@@ -174,7 +189,13 @@ export default function VenderPage() {
   const remaining = round2(total - covered);
 
   function fillExact() {
-    setPayments([{ ...newPayment("cash_usd"), amount: String(totalsBase.base) }]);
+    const usdAccount = accounts.find((account) => account.currency === "USD");
+    setPayments([
+      {
+        ...newPayment("cash_usd", usdAccount?.id ?? ""),
+        amount: String(totalsBase.base),
+      },
+    ]);
   }
 
   function updatePayment(id: string, patch: Partial<Payment>) {
@@ -222,6 +243,7 @@ export default function VenderPage() {
           amount: toNumber(payment.amount),
           amount_usd: payment.amountUsd,
           reference: null,
+          pos_account_id: payment.accountId || null,
         })),
       p_customer_id: null,
       p_notes: null,
@@ -436,45 +458,82 @@ export default function VenderPage() {
                   (m) => m.value === payment.method,
                 )!;
                 return (
-                  <div key={payment.id} className="flex items-center gap-2">
+                  <div
+                    key={payment.id}
+                    className="rounded-lg border border-slate-100 p-2"
+                  >
+                    <div className="flex items-center gap-2">
+                      <select
+                        value={payment.method}
+                        onChange={(event) => {
+                          const next = event.target.value as PaymentMethod;
+                          const nextMethod = PAYMENT_METHODS.find(
+                            (m) => m.value === next,
+                          )!;
+                          const account = accounts.find(
+                            (a) => a.currency === nextMethod.currency,
+                          );
+                          updatePayment(payment.id, {
+                            method: next,
+                            amount: "",
+                            accountId: account?.id ?? "",
+                          });
+                        }}
+                        className="w-32 rounded-lg border border-slate-200 px-2 py-1.5 text-xs outline-none focus:border-[#3f3fd8]"
+                      >
+                        {PAYMENT_METHODS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                      <input
+                        value={payment.amount}
+                        onChange={(event) =>
+                          updatePayment(payment.id, {
+                            amount: event.target.value,
+                          })
+                        }
+                        inputMode="decimal"
+                        placeholder={
+                          method.currency === "VES" ? "Bs" : "USD"
+                        }
+                        className="min-w-0 flex-1 rounded-lg border border-slate-200 px-2 py-1.5 text-sm outline-none focus:border-[#3f3fd8]"
+                      />
+                      {payments.length > 1 ? (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setPayments((current) =>
+                              current.filter((p) => p.id !== payment.id),
+                            )
+                          }
+                          className="rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      ) : null}
+                    </div>
                     <select
-                      value={payment.method}
+                      value={payment.accountId}
                       onChange={(event) =>
                         updatePayment(payment.id, {
-                          method: event.target.value as PaymentMethod,
-                          amount: "",
+                          accountId: event.target.value,
                         })
                       }
-                      className="w-36 rounded-lg border border-slate-200 px-2 py-1.5 text-xs outline-none focus:border-[#3f3fd8]"
+                      className="mt-1.5 w-full rounded-lg border border-slate-200 px-2 py-1 text-[11px] text-slate-600 outline-none focus:border-[#3f3fd8]"
                     >
-                      {PAYMENT_METHODS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
+                      <option value="">
+                        Sin cuenta (no entra a Finanzas)
+                      </option>
+                      {accounts
+                        .filter((account) => account.currency === method.currency)
+                        .map((account) => (
+                          <option key={account.id} value={account.id}>
+                            {account.name}
+                          </option>
+                        ))}
                     </select>
-                    <input
-                      value={payment.amount}
-                      onChange={(event) =>
-                        updatePayment(payment.id, { amount: event.target.value })
-                      }
-                      inputMode="decimal"
-                      placeholder={method.currency === "VES" ? "Bs" : "USD"}
-                      className="min-w-0 flex-1 rounded-lg border border-slate-200 px-2 py-1.5 text-sm outline-none focus:border-[#3f3fd8]"
-                    />
-                    {payments.length > 1 ? (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setPayments((current) =>
-                            current.filter((p) => p.id !== payment.id),
-                          )
-                        }
-                        className="rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    ) : null}
                   </div>
                 );
               })}
