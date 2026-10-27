@@ -6,6 +6,7 @@ import { ArrowRight, CircleCheck, Plus, Receipt } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
 import { usePosRate } from "@/components/pos/rate-context";
+import { DailyCloseDialog } from "@/components/pos/daily-close-dialog";
 import {
   PosButton,
   PosMetric,
@@ -34,6 +35,7 @@ export default function PosHomePage() {
   const [today, setToday] = useState<SaleRow[]>([]);
   const [month, setMonth] = useState<SaleRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [closeOpen, setCloseOpen] = useState(false);
 
   const load = useCallback(async () => {
     if (!accountId) return;
@@ -75,6 +77,46 @@ export default function PosHomePage() {
   const todayStats = useMemo(() => metrics(today), [today]);
   const monthStats = useMemo(() => metrics(month), [month]);
 
+  // Ventas por hora (8:00 a 20:00, hora de Caracas) para el gráfico del día.
+  const hourly = useMemo(() => {
+    const buckets = new Array(13).fill(0) as number[];
+    const formatter = new Intl.DateTimeFormat("en-US", {
+      hour: "numeric",
+      hour12: false,
+      timeZone: "America/Caracas",
+    });
+    for (const sale of today) {
+      const hour = Number(formatter.format(new Date(sale.created_at)));
+      const index = hour - 8;
+      if (index >= 0 && index < buckets.length) {
+        buckets[index] += toNumber(sale.subtotal_usd);
+      }
+    }
+    return buckets;
+  }, [today]);
+
+  const maxHour = useMemo(() => Math.max(...hourly, 0.01), [hourly]);
+
+  // Ventas por día del mes actual para el gráfico mensual.
+  const dailyMonth = useMemo(() => {
+    const now = new Date();
+    const days = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    const buckets = new Array(days).fill(0) as number[];
+    const formatter = new Intl.DateTimeFormat("en-US", {
+      day: "numeric",
+      timeZone: "America/Caracas",
+    });
+    for (const sale of month) {
+      const day = Number(formatter.format(new Date(sale.created_at)));
+      if (day >= 1 && day <= days) {
+        buckets[day - 1] += toNumber(sale.subtotal_usd);
+      }
+    }
+    return buckets;
+  }, [month]);
+
+  const maxDay = useMemo(() => Math.max(...dailyMonth, 0.01), [dailyMonth]);
+
   const pending = useMemo(
     () =>
       month.filter(
@@ -98,7 +140,7 @@ export default function PosHomePage() {
         subtitle={`Así va ${account?.name ?? "tu negocio"} · ${dateLabel}`}
         actions={
           <>
-            <PosButton variant="outline">
+            <PosButton variant="outline" onClick={() => setCloseOpen(true)}>
               <Receipt className="h-4 w-4" />
               Cierre del día
             </PosButton>
@@ -147,29 +189,43 @@ export default function PosHomePage() {
               />
             </div>
 
-            <div className="mt-5 rounded-xl border border-indigo-100 bg-white/60 px-4 py-8 text-center">
+            <div className="relative mt-5 rounded-xl border border-indigo-100 bg-white/60 px-4 pb-3 pt-6">
               {todayStats.count === 0 ? (
-                <p className="text-sm text-slate-500">
+                <p className="absolute left-0 right-0 top-1/2 -translate-y-1/2 text-center text-sm text-slate-500">
                   Todavía no hay ventas hoy. Aquí las verás entrar, hora por
                   hora.
                 </p>
-              ) : (
-                <ul className="space-y-2 text-left">
-                  {today.slice(0, 4).map((sale) => (
-                    <li
-                      key={sale.id}
-                      className="flex items-center justify-between rounded-lg border border-slate-100 bg-white px-3 py-2 text-sm"
-                    >
-                      <span className="font-semibold text-slate-700">
-                        Venta #{sale.number}
-                      </span>
-                      <span className="text-slate-500">
-                        {formatUsd(toNumber(sale.total_usd))}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
+              ) : null}
+
+              <div className="flex h-36 items-end gap-1">
+                {hourly.map((value, index) => (
+                  <div
+                    key={index}
+                    className="flex h-full flex-1 items-end"
+                    title={`${index + 8}:00 · ${formatUsd(value)}`}
+                  >
+                    <div
+                      className={`w-full rounded-t transition-all ${
+                        value > 0 ? "bg-[#3f3fd8]" : "bg-slate-200"
+                      }`}
+                      style={{
+                        height:
+                          value > 0
+                            ? `${Math.max((value / maxHour) * 100, 5)}%`
+                            : "2px",
+                      }}
+                    />
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-2 flex justify-between text-[10px] text-slate-400">
+                <span>9 am</span>
+                <span>12 m</span>
+                <span>3 pm</span>
+                <span>6 pm</span>
+                <span>8 pm</span>
+              </div>
             </div>
           </section>
 
@@ -223,6 +279,39 @@ export default function PosHomePage() {
                 rate={rate}
               />
             </div>
+
+            <div className="mt-5">
+              <div className="flex h-24 items-end gap-0.5">
+                {dailyMonth.map((value, index) => (
+                  <div
+                    key={index}
+                    className="flex h-full flex-1 items-end"
+                    title={`Día ${index + 1} · ${formatUsd(value)}`}
+                  >
+                    <div
+                      className={`w-full rounded-t ${
+                        value > 0 ? "bg-[#3f3fd8]" : "bg-slate-200"
+                      }`}
+                      style={{
+                        height:
+                          value > 0
+                            ? `${Math.max((value / maxDay) * 100, 6)}%`
+                            : "2px",
+                      }}
+                    />
+                  </div>
+                ))}
+              </div>
+              <div className="mt-1 flex justify-between text-[10px] text-slate-400">
+                <span>1</span>
+                <span>5</span>
+                <span>10</span>
+                <span>15</span>
+                <span>20</span>
+                <span>Hoy</span>
+                <span>30</span>
+              </div>
+            </div>
           </section>
         </div>
 
@@ -262,31 +351,15 @@ export default function PosHomePage() {
             </div>
           </section>
 
-          <section className="rounded-2xl border border-slate-200 bg-white p-4">
-            <p className="text-sm font-bold text-slate-800">Atajos</p>
-            <div className="mt-3 space-y-2">
-              <Link
-                href="/pos/vender"
-                className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-              >
-                Nueva venta <Plus className="h-4 w-4 text-slate-400" />
-              </Link>
-              <Link
-                href="/pos/catalogo"
-                className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-              >
-                Crear producto <Plus className="h-4 w-4 text-slate-400" />
-              </Link>
-            </div>
-            {rate <= 0 ? (
-              <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-[11px] text-amber-700">
-                Configura la tasa del día en la barra superior para ver los
-                equivalentes en bolívares.
-              </p>
-            ) : null}
-          </section>
         </aside>
       </div>
+
+      <DailyCloseDialog
+        open={closeOpen}
+        onOpenChange={setCloseOpen}
+        accountName={account?.name ?? ""}
+        rate={rate}
+      />
 
       {loading ? (
         <p className="text-center text-xs text-slate-400">Cargando ventas…</p>
