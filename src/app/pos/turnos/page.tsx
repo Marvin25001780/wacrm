@@ -10,6 +10,7 @@ import {
   LockKeyhole,
   Minus,
   Plus,
+  Printer,
   Receipt,
   Wallet,
   X,
@@ -22,6 +23,10 @@ import {
   usePosShift,
 } from "@/components/pos/shift-context";
 import { PosButton, PosPageHeader } from "@/components/pos/pos-shell";
+import {
+  ShiftCloseDialog,
+  type ShiftPrintData,
+} from "@/components/pos/shift-close-dialog";
 import { createClient } from "@/lib/supabase/client";
 import {
   PAYMENT_METHODS,
@@ -69,6 +74,7 @@ interface ShiftRow {
   difference_bs: number | string;
   sales_usd: number | string;
   sales_count: number;
+  by_method?: MethodRow[];
   notes_close: string | null;
 }
 
@@ -111,6 +117,8 @@ export default function TurnosPage() {
     difference_usd: number;
     difference_bs: number;
   } | null>(null);
+  const [printData, setPrintData] = useState<ShiftPrintData | null>(null);
+  const [printOpen, setPrintOpen] = useState(false);
 
   const load = useCallback(async () => {
     if (!accountId) return;
@@ -145,7 +153,7 @@ export default function TurnosPage() {
     const { data: historyData, error: historyError } = await supabase
       .from("pos_shifts")
       .select(
-        "id, number, status, opened_at, closed_at, opening_usd, opening_bs, rate_open, expected_usd, expected_bs, counted_usd, counted_bs, difference_usd, difference_bs, sales_usd, sales_count, notes_close",
+        "id, number, status, opened_at, closed_at, opening_usd, opening_bs, rate_open, expected_usd, expected_bs, counted_usd, counted_bs, difference_usd, difference_bs, sales_usd, sales_count, by_method, notes_close",
       )
       .eq("account_id", accountId)
       .eq("status", "closed")
@@ -245,6 +253,48 @@ export default function TurnosPage() {
     await load();
   }
 
+  function printOpenShift() {
+    if (!summary) return;
+    setPrintData({
+      number: summary.number,
+      status: "open",
+      opened_at: summary.opened_at,
+      closed_at: null,
+      opening_usd: summary.opening_usd,
+      opening_bs: summary.opening_bs,
+      rate_open: summary.rate_open,
+      sales_usd: summary.sales_usd,
+      sales_count: summary.sales_count,
+      expected_usd: summary.expected_usd,
+      expected_bs: summary.expected_bs,
+      by_method: summary.by_method,
+    });
+    setPrintOpen(true);
+  }
+
+  function printClosedShift(row: ShiftRow) {
+    setPrintData({
+      number: row.number,
+      status: "closed",
+      opened_at: row.opened_at,
+      closed_at: row.closed_at,
+      opening_usd: row.opening_usd,
+      opening_bs: row.opening_bs,
+      rate_open: row.rate_open,
+      sales_usd: row.sales_usd,
+      sales_count: row.sales_count,
+      expected_usd: row.expected_usd,
+      expected_bs: row.expected_bs,
+      counted_usd: row.counted_usd,
+      counted_bs: row.counted_bs,
+      difference_usd: row.difference_usd,
+      difference_bs: row.difference_bs,
+      by_method: row.by_method ?? [],
+      notes: row.notes_close,
+    });
+    setPrintOpen(true);
+  }
+
   const rateForShift = toNumber(summary?.rate_open) || rate;
 
   return (
@@ -254,10 +304,20 @@ export default function TurnosPage() {
         subtitle="Apertura, cobros del turno y arqueo de efectivo."
         actions={
           shift ? (
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-              Turno #{shift.number} abierto
-            </span>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                Turno #{shift.number} abierto
+              </span>
+              <PosButton
+                variant="outline"
+                onClick={printOpenShift}
+                disabled={!summary}
+              >
+                <Printer className="h-4 w-4" />
+                Imprimir corte
+              </PosButton>
+            </div>
           ) : null
         }
       />
@@ -632,6 +692,9 @@ export default function TurnosPage() {
                   <th className="px-3 py-2.5 text-right font-semibold">
                     Diferencia
                   </th>
+                  <th className="px-4 py-2.5 text-right font-semibold">
+                    Cierre
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -678,6 +741,17 @@ export default function TurnosPage() {
                           {formatBs(toNumber(row.difference_bs))}
                         </span>
                       </td>
+                      <td className="px-4 py-2.5 text-right">
+                        <button
+                          type="button"
+                          onClick={() => printClosedShift(row)}
+                          title="Imprimir cierre"
+                          className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-50"
+                        >
+                          <Printer className="h-3 w-3" />
+                          Ver
+                        </button>
+                      </td>
                     </tr>
                   );
                 })}
@@ -694,6 +768,12 @@ export default function TurnosPage() {
           onOpen={openShift}
         />
       ) : null}
+
+      <ShiftCloseDialog
+        data={printData}
+        open={printOpen}
+        onOpenChange={setPrintOpen}
+      />
     </div>
   );
 }
