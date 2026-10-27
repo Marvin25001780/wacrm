@@ -25,14 +25,15 @@ import type {
 } from "./types";
 import { inputClass } from "./types";
 
-type Rounding = "none" | "0.05" | "0.10" | "up";
+type Rounding = "none" | "half" | "integer" | "99";
+type ChangeKind = "percent" | "fixed" | "margin";
 
-const ROUNDING_LABEL: Record<Rounding, string> = {
-  none: "Sin redondeo",
-  "0.05": "Al múltiplo de $ 0,05",
-  "0.10": "Al múltiplo de $ 0,10",
-  up: "Al entero superior",
-};
+const ROUNDING_OPTIONS: { value: Rounding; label: string }[] = [
+  { value: "none", label: "Sin redondeo" },
+  { value: "half", label: "A la mitad más cercana (0,50)" },
+  { value: "integer", label: "Al entero más cercano" },
+  { value: "99", label: "Al ,99 más cercano (9,99)" },
+];
 
 function marginOf(price: number, cost: number): number | null {
   if (price <= 0) return null;
@@ -580,7 +581,7 @@ function PriceChangeDialog({
   const [channelId, setChannelId] = useState(
     () => lists.find((list) => list.is_default)?.id ?? lists[0]?.id ?? "",
   );
-  const [kind, setKind] = useState<"percent" | "fixed">("percent");
+  const [kind, setKind] = useState<ChangeKind>("percent");
   const [value, setValue] = useState("-10");
   const [rounding, setRounding] = useState<Rounding>("none");
   const [preview, setPreview] = useState<
@@ -602,23 +603,52 @@ function PriceChangeDialog({
   function previewRows() {
     if (!channel) return;
     const amount = toNumber(value);
+
+    if (kind === "margin" && (amount <= 0 || amount >= 100)) {
+      setPreview(null);
+      setError("El margen objetivo debe estar entre 0 y 99 %.");
+      return;
+    }
+
     const rows = base
       .filter((product) => product.kind !== "supply")
       .map((product) => {
         const before = resolvePrice(product, channel, priceIndex);
-        const raw =
-          kind === "percent" ? before * (1 + amount / 100) : before + amount;
+        let raw: number;
+        if (kind === "percent") {
+          raw = before * (1 + amount / 100);
+        } else if (kind === "fixed") {
+          raw = before + amount;
+        } else {
+          const cost = toNumber(product.cost_usd);
+          if (cost <= 0) return null;
+          raw = cost / (1 - amount / 100);
+        }
+
         let after = Math.max(raw, 0);
-        if (rounding === "0.05") after = Math.round(after / 0.05) * 0.05;
-        if (rounding === "0.10") after = Math.round(after / 0.1) * 0.1;
-        if (rounding === "up") after = Math.ceil(after);
+        if (rounding === "half") {
+          after = Math.round(after / 0.5) * 0.5;
+        }
+        if (rounding === "integer") {
+          after = Math.round(after);
+        }
+        if (rounding === "99") {
+          after = Math.round(after - 0.99) + 0.99;
+        }
         return { product, before, after: round2(Math.max(after, 0)) };
       })
+      .filter((row): row is { product: Product; before: number; after: number } =>
+        row !== null,
+      )
       .filter((row) => row.after !== row.before);
 
     setPreview(rows);
     if (rows.length === 0) {
-      setError("Ningún precio cambia con esos valores.");
+      setError(
+        kind === "margin"
+          ? "Ningún producto con costo cambió con ese margen."
+          : "Ningún precio cambia con esos valores.",
+      );
     } else {
       setError(null);
     }
@@ -661,7 +691,7 @@ function PriceChangeDialog({
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/40 p-4 sm:items-center">
-      <div className="w-full max-w-2xl rounded-2xl bg-white shadow-2xl">
+      <div className="w-full max-w-3xl rounded-2xl bg-white shadow-2xl">
         <div className="flex items-start justify-between border-b border-slate-100 px-5 py-4">
           <div>
             <h2 className="text-xl font-black text-slate-900">Cambiar precios</h2>
@@ -747,13 +777,16 @@ function PriceChangeDialog({
               <select
                 value={kind}
                 onChange={(event) => {
-                  setKind(event.target.value as "percent" | "fixed");
+                  const next = event.target.value as ChangeKind;
+                  setKind(next);
+                  setValue(next === "margin" ? "35" : next === "fixed" ? "0" : "-10");
                   setPreview(null);
                 }}
                 className={inputClass}
               >
                 <option value="percent">Porcentaje (%)</option>
                 <option value="fixed">Monto fijo ($)</option>
+                <option value="margin">Margen objetivo (%)</option>
               </select>
             </label>
             <label className="flex flex-col gap-1">
@@ -768,8 +801,11 @@ function PriceChangeDialog({
                 className={inputClass}
               />
               <span className="text-[10px] text-slate-400">
-                Usa un número negativo para bajar. Ej.: 10 sube 10 %, -5 baja
-                5 %.
+                {kind === "margin"
+                  ? "Cada precio se calcula con su costo para dejar este margen. Sin costo, se omite."
+                  : kind === "fixed"
+                    ? "Se suma al precio de cada canal, en dólares ($). Usa un número negativo para bajar."
+                    : "Usa un número negativo para bajar. Ej.: 10 sube 10 %, -5 baja 5 %."}
               </span>
             </label>
             <label className="flex flex-col gap-1">
@@ -784,9 +820,9 @@ function PriceChangeDialog({
                 }}
                 className={inputClass}
               >
-                {(Object.keys(ROUNDING_LABEL) as Rounding[]).map((key) => (
-                  <option key={key} value={key}>
-                    {ROUNDING_LABEL[key]}
+                {ROUNDING_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
                   </option>
                 ))}
               </select>

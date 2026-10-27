@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
+  CheckCircle2,
   ChevronDown,
   ChevronUp,
   Info,
@@ -23,6 +24,10 @@ import { formatBs, formatUsd, toNumber, usdToBs } from "@/lib/pos/money";
 import { DiscountsTab } from "@/components/pos/catalog/discounts-tab";
 import { PricesTab } from "@/components/pos/catalog/prices-tab";
 import { SurchargesTab } from "@/components/pos/catalog/surcharges-tab";
+import {
+  UnitSelect,
+  unitShort,
+} from "@/components/pos/catalog/unit-select";
 import {
   CATEGORY_COLORS,
   KIND_LABEL,
@@ -711,8 +716,8 @@ function ProductForm({
   const [taxable, setTaxable] = useState(product?.taxable ?? true);
   const [active, setActive] = useState(product?.active ?? true);
 
-  const [openInventory, setOpenInventory] = useState(false);
-  const [openCodes, setOpenCodes] = useState(false);
+  const [openInventory, setOpenInventory] = useState(true);
+  const [openCodes, setOpenCodes] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -723,6 +728,19 @@ function ProductForm({
   const previewStock = product
     ? toNumber(product.stock)
     : toNumber(stockInitial);
+  const previewCost = toNumber(cost);
+  const previewPrice = kind === "supply" ? 0 : toNumber(price);
+  const previewMargin =
+    previewPrice > 0
+      ? ((previewPrice - previewCost) / previewPrice) * 100
+      : null;
+  const previewCategory = categories.find(
+    (category) => category.id === categoryId,
+  );
+  const previewColor = previewCategory?.color ?? "#4338ca";
+  const previewInitials = (name.trim() || "?")
+    .slice(0, 2)
+    .toUpperCase();
 
   async function save() {
     if (!accountId) return;
@@ -877,6 +895,11 @@ function ProductForm({
                       className="w-full bg-transparent text-right text-sm outline-none"
                     />
                   </div>
+                  {toNumber(price) > 0 ? (
+                    <span className="text-[10px] text-slate-400">
+                      ≈ {formatBs(usdToBs(toNumber(price), rate))}
+                    </span>
+                  ) : null}
                 </label>
               ) : null}
 
@@ -914,31 +937,36 @@ function ProductForm({
           {kind !== "service" ? (
             <Collapsible
               title="Unidad e inventario"
-              subtitle={`${unit} · ${trackInventory ? "controla inventario" : "sin control"}`}
+              subtitle={`${unitShort(unit)} · ${trackInventory ? "controla inventario" : "sin control"}`}
               open={openInventory}
               onToggle={() => setOpenInventory((value) => !value)}
             >
               <div className="grid gap-3 sm:grid-cols-2">
-                <label className="flex flex-col gap-1">
+                <div className="flex flex-col gap-1 sm:col-span-2">
                   <span className="text-xs font-bold text-slate-700">
                     Unidad *
                   </span>
-                  <input
-                    value={unit}
-                    onChange={(event) => setUnit(event.target.value)}
-                    className={inputClass}
-                  />
-                </label>
+                  <UnitSelect value={unit} onChange={setUnit} />
+                </div>
 
-                <label className="flex items-center gap-2 pt-6 text-sm text-slate-600">
-                  <input
-                    type="checkbox"
-                    checked={trackInventory}
-                    onChange={(event) => setTrackInventory(event.target.checked)}
-                    className="h-4 w-4 accent-[#4338ca]"
-                  />
+                <div className="flex items-center gap-2 text-sm text-slate-600 sm:col-span-2">
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={trackInventory}
+                    onClick={() => setTrackInventory((value) => !value)}
+                    className={`relative h-5 w-9 rounded-full transition-colors ${
+                      trackInventory ? "bg-[#4338ca]" : "bg-slate-200"
+                    }`}
+                  >
+                    <span
+                      className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${
+                        trackInventory ? "left-[18px]" : "left-0.5"
+                      }`}
+                    />
+                  </button>
                   Controlar inventario
-                </label>
+                </div>
 
                 {trackInventory ? (
                   <>
@@ -946,12 +974,17 @@ function ProductForm({
                       <span className="text-xs font-bold text-slate-700">
                         Stock mínimo
                       </span>
-                      <input
-                        value={minStock}
-                        onChange={(event) => setMinStock(event.target.value)}
-                        inputMode="decimal"
-                        className={inputClass}
-                      />
+                      <div className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2">
+                        <input
+                          value={minStock}
+                          onChange={(event) => setMinStock(event.target.value)}
+                          inputMode="decimal"
+                          className="w-full bg-transparent text-sm outline-none"
+                        />
+                        <span className="text-sm text-slate-400">
+                          {unitShort(unit)}
+                        </span>
+                      </div>
                       <span className="text-[10px] text-slate-400">
                         Aviso cuando quede por debajo
                       </span>
@@ -963,7 +996,8 @@ function ProductForm({
                           Existencia actual
                         </span>
                         <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-600">
-                          {toNumber(product.stock)} {product.unit}
+                          {toNumber(product.stock)}{" "}
+                          {unitShort(product.unit)}
                         </p>
                         <span className="text-[10px] text-slate-400">
                           Se cambia con compras o ajustes
@@ -974,14 +1008,22 @@ function ProductForm({
                         <span className="text-xs font-bold text-slate-700">
                           Stock inicial
                         </span>
-                        <input
-                          value={stockInitial}
-                          onChange={(event) => setStockInitial(event.target.value)}
-                          inputMode="decimal"
-                          className={inputClass}
-                        />
+                        <div className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2">
+                          <input
+                            value={stockInitial}
+                            onChange={(event) =>
+                              setStockInitial(event.target.value)
+                            }
+                            inputMode="decimal"
+                            className="w-full bg-transparent text-sm outline-none"
+                          />
+                          <span className="text-sm text-slate-400">
+                            {unitShort(unit)}
+                          </span>
+                        </div>
                         <span className="text-[10px] text-slate-400">
-                          Entra como un conteo de inventario
+                          Lo que tienes hoy. Entra como un conteo de
+                          inventario.
                         </span>
                       </label>
                     )}
@@ -1000,6 +1042,11 @@ function ProductForm({
                           className="w-full bg-transparent text-right text-sm outline-none"
                         />
                       </div>
+                      <span className="text-[10px] text-slate-400">
+                        ≈ {formatBs(usdToBs(toNumber(cost), rate))} · Lo que
+                        pagaste por cada {unitShort(unit)}. Hace falta si cargas
+                        stock.
+                      </span>
                     </label>
                   </>
                 ) : null}
@@ -1043,20 +1090,27 @@ function ProductForm({
                   value={description}
                   onChange={(event) => setDescription(event.target.value)}
                   rows={2}
+                  placeholder="Ej.: Camisa de algodón talla M"
                   className={inputClass}
                 />
                 <span className="text-[10px] text-slate-400">
                   Opcional. Se muestra al vender.
                 </span>
               </label>
-              <label className="flex items-center gap-2 text-sm text-slate-600">
-                <input
-                  type="checkbox"
-                  checked={taxable}
-                  onChange={(event) => setTaxable(event.target.checked)}
-                  className="h-4 w-4 accent-[#4338ca]"
-                />
-                Aplica IVA (16%)
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-bold text-slate-700">IVA</span>
+                <select
+                  value={taxable ? "true" : "false"}
+                  onChange={(event) =>
+                    setTaxable(event.target.value === "true")
+                  }
+                  className={inputClass}
+                >
+                  <option value="true">
+                    Predeterminado del comercio (16 %)
+                  </option>
+                  <option value="false">Exento de IVA</option>
+                </select>
               </label>
               <label className="flex items-center gap-2 text-sm text-slate-600">
                 <input
@@ -1075,51 +1129,99 @@ function ProductForm({
         <aside className="lg:sticky lg:top-4 lg:self-start">
           <div className="rounded-2xl bg-slate-50 p-4">
             <div className="mx-auto w-full max-w-52 rounded-xl border border-slate-200 bg-white p-3">
-              <div className="flex h-24 items-center justify-center rounded-lg bg-slate-100 text-slate-300">
-                <Package className="h-8 w-8" />
-              </div>
-              <div className="mt-2 flex items-center justify-between">
-                <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold text-amber-700">
+              <div
+                className="relative flex h-24 items-center justify-center rounded-lg"
+                style={{ backgroundColor: `${previewColor}14` }}
+              >
+                <span
+                  className="text-2xl font-black tracking-tight"
+                  style={{ color: previewColor }}
+                >
+                  {previewInitials}
+                </span>
+                <span className="absolute bottom-2 left-2 rounded bg-white/95 px-1.5 py-0.5 text-[9px] font-bold text-slate-600 shadow-sm">
                   {kind === "service" || !trackInventory
                     ? "Sin inventario"
-                    : `${previewStock} ${unit}`}
+                    : `${previewStock} ${unitShort(unit)}`}
                 </span>
               </div>
-              <p className="mt-2 line-clamp-2 text-xs text-slate-500">
+              <p className="mt-2 line-clamp-2 min-h-8 text-xs font-semibold text-slate-700">
                 {name.trim() || "Nombre del producto"}
               </p>
               <p className="text-lg font-black text-slate-900">
                 {kind === "supply"
                   ? "—"
-                  : toNumber(price) > 0
-                    ? formatUsd(toNumber(price))
+                  : previewPrice > 0
+                    ? formatUsd(previewPrice)
                     : "Sin precio"}
               </p>
+              {kind !== "supply" && previewPrice > 0 ? (
+                <p className="text-[10px] text-slate-400">
+                  {formatBs(usdToBs(previewPrice, rate))}
+                </p>
+              ) : null}
             </div>
             <p className="mt-2 text-center text-[10px] text-slate-400">
               Así se verá en el POS
             </p>
 
-            <div className="mt-4 space-y-1.5 text-[11px] text-slate-500">
-              <p className="font-bold text-slate-700">Al crearlo</p>
-              {missingPrice ? (
-                <p className="flex items-start gap-1.5">
-                  <Info className="mt-0.5 h-3 w-3 shrink-0" />
-                  Falta el precio: sin él no se crea.
-                </p>
-              ) : null}
-              {kind === "supply" ? (
-                <p className="flex items-start gap-1.5">
-                  <Info className="mt-0.5 h-3 w-3 shrink-0" />
-                  No se vende: no aparece en el POS ni lleva precio.
-                </p>
-              ) : null}
-              {kind !== "service" && trackInventory ? (
-                <p className="flex items-start gap-1.5">
-                  <Info className="mt-0.5 h-3 w-3 shrink-0" />
-                  La existencia entra con una compra o un ajuste.
-                </p>
-              ) : null}
+            <div className="mt-4 rounded-xl border border-slate-200 bg-white p-3">
+              <p className="text-[11px] font-bold text-slate-700">
+                Al crearlo
+              </p>
+              <div className="mt-2 space-y-1.5 text-[11px] text-slate-500">
+                {missingPrice ? (
+                  <p className="flex items-start gap-1.5">
+                    <Info className="mt-0.5 h-3 w-3 shrink-0" />
+                    Falta el precio: sin él no se crea.
+                  </p>
+                ) : kind === "supply" ? (
+                  <p className="flex items-start gap-1.5">
+                    <Info className="mt-0.5 h-3 w-3 shrink-0" />
+                    Es un insumo: no se vende ni aparece en el POS.
+                  </p>
+                ) : previewPrice > 0 ? (
+                  <p className="flex items-start gap-1.5">
+                    <Tag className="mt-0.5 h-3 w-3 shrink-0" />
+                    Se vende a {formatUsd(previewPrice)} (
+                    {formatBs(usdToBs(previewPrice, rate))}), antes de IVA.
+                  </p>
+                ) : null}
+
+                {kind === "service" ? (
+                  <p className="flex items-start gap-1.5">
+                    <Info className="mt-0.5 h-3 w-3 shrink-0" />
+                    Se cobra sin llevar inventario.
+                  </p>
+                ) : trackInventory ? (
+                  <p className="flex items-start gap-1.5">
+                    <Package className="mt-0.5 h-3 w-3 shrink-0" />
+                    {product
+                      ? `Tiene ${toNumber(product.stock)} ${unitShort(
+                          product.unit,
+                        )} en existencia.`
+                      : previewStock > 0
+                        ? `Entra con ${previewStock} ${unitShort(
+                            unit,
+                          )} a ${formatUsd(previewCost)} c/u por un conteo de inventario.`
+                        : "Sin existencia inicial: entra luego con una compra o un ajuste."}
+                  </p>
+                ) : (
+                  <p className="flex items-start gap-1.5">
+                    <Info className="mt-0.5 h-3 w-3 shrink-0" />
+                    No controla inventario.
+                  </p>
+                )}
+              </div>
+
+              <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-2">
+                <span className="text-[11px] text-slate-500">Margen</span>
+                <span className="text-lg font-black text-slate-900">
+                  {previewMargin == null
+                    ? "—"
+                    : `${previewMargin.toFixed(1)} %`}
+                </span>
+              </div>
             </div>
           </div>
         </aside>
@@ -1127,14 +1229,20 @@ function ProductForm({
 
       <div className="sticky bottom-0 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 bg-white/95 px-5 py-3 backdrop-blur">
         <p className="flex items-center gap-1.5 text-xs text-slate-500">
-          <Info className="h-3.5 w-3.5" />
+          {canSave ? (
+            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+          ) : (
+            <Info className="h-3.5 w-3.5" />
+          )}
           {missingName && missingPrice
             ? "Falta el nombre y el precio"
             : missingName
               ? "Falta el nombre"
               : missingPrice
                 ? "Falta el precio"
-                : "Listo para guardar"}
+                : product
+                  ? "Listo para guardar"
+                  : "Listo para crear"}
         </p>
         <div className="flex items-center gap-2">
           <button
