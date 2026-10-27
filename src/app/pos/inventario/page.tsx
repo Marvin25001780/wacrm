@@ -170,7 +170,26 @@ export default function InventarioPage() {
     setProducts(productRows);
     setCategories((categoriesRes.data ?? []) as { id: string; name: string }[]);
     setMovements((movementsRes.data ?? []) as unknown as Movement[]);
-    setDocs((docsRes.data ?? []) as unknown as Doc[]);
+    let docRows = (docsRes.data ?? []) as unknown as Doc[];
+    if (docsRes.error) {
+      const fallback = await supabase
+        .from("pos_inventory_docs")
+        .select(
+          "id, kind, adjustment_type, doc_date, invoice_number, note, total_usd, created_at, created_by, items:pos_inventory_doc_items(count)",
+        )
+        .eq("account_id", accountId)
+        .order("created_at", { ascending: false })
+        .limit(200);
+      docRows = (fallback.data ?? []).map((row) => ({
+        ...row,
+        status: "paid",
+        paid_usd: (row as { total_usd: number | string }).total_usd,
+        balance_usd: 0,
+        due_date: null,
+        supplier_name: null,
+      })) as unknown as Doc[];
+    }
+    setDocs(docRows);
     setAccounts((accountsRes.data ?? []) as DialogAccount[]);
     setTeam(
       Object.fromEntries(
