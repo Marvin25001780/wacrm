@@ -72,7 +72,7 @@ const METHOD_COLOR: Record<string, string> = {
 export default function PosHomePage() {
   const { accountId, account, user } = useAuth();
   const { rate } = usePosRate();
-  const { shift } = usePosShift();
+  const { shift, missing: shiftMissing } = usePosShift();
 
   const [today, setToday] = useState<SaleRow[]>([]);
   const [yesterday, setYesterday] = useState<SaleRow[]>([]);
@@ -227,17 +227,27 @@ export default function PosHomePage() {
             </h1>
             <span
               className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold ${
-                shift
-                  ? "bg-emerald-50 text-emerald-700"
-                  : "bg-amber-50 text-amber-700"
+                shiftMissing
+                  ? "bg-slate-100 text-slate-600"
+                  : shift
+                    ? "bg-emerald-50 text-emerald-700"
+                    : "bg-amber-50 text-amber-700"
               }`}
             >
               <span
                 className={`h-1.5 w-1.5 rounded-full ${
-                  shift ? "bg-emerald-500" : "bg-amber-500"
+                  shiftMissing
+                    ? "bg-slate-400"
+                    : shift
+                      ? "bg-emerald-500"
+                      : "bg-amber-500"
                 }`}
               />
-              {shift ? `Turno #${shift.number} abierto` : "Caja cerrada"}
+              {shiftMissing
+                ? "POS activo"
+                : shift
+                  ? `Turno #${shift.number} abierto`
+                  : "Caja cerrada"}
             </span>
           </div>
           <p className="mt-1 text-sm text-slate-500">
@@ -246,12 +256,14 @@ export default function PosHomePage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Link href="/pos/turnos">
-            <PosButton variant="outline">
-              <Receipt className="h-4 w-4" />
-              {shift ? "Arqueo de caja" : "Abrir turno"}
-            </PosButton>
-          </Link>
+          {!shiftMissing ? (
+            <Link href="/pos/turnos">
+              <PosButton variant="outline">
+                <Receipt className="h-4 w-4" />
+                {shift ? "Arqueo de caja" : "Abrir turno"}
+              </PosButton>
+            </Link>
+          ) : null}
           <PosButton variant="outline" onClick={() => setCloseOpen(true)}>
             <Receipt className="h-4 w-4" />
             Resumen del día
