@@ -5,13 +5,14 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   Boxes,
-  Building2,
   ChartNoAxesColumn,
   ChevronRight,
   CircleHelp,
+  DollarSign,
   LayoutDashboard,
   Loader2,
   LogOut,
+  RefreshCw,
   Settings,
   ShoppingCart,
   Tags,
@@ -24,7 +25,8 @@ import { createClient } from "@/lib/supabase/client";
 import { isModuleEnabled } from "@/lib/modules";
 import { PosRateProvider, usePosRate } from "@/components/pos/rate-context";
 import { PosSettingsDialog } from "@/components/pos/settings-dialog";
-import { formatBs, formatUsd } from "@/lib/pos/money";
+import type { PosSettingsSection } from "@/components/pos/settings-dialog";
+import { formatBs, formatUsd, round2, toNumber } from "@/lib/pos/money";
 
 const ACCENT = "#3f3fd8";
 
@@ -79,6 +81,8 @@ function PosFrame({ children }: { children: ReactNode }) {
   const { rate, refresh } = usePosRate();
   const [rateOpen, setRateOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsSection, setSettingsSection] =
+    useState<PosSettingsSection>("negocio");
   const router = useRouter();
 
   useEffect(() => {
@@ -119,7 +123,15 @@ function PosFrame({ children }: { children: ReactNode }) {
           </Link>
 
           <div className="ml-auto flex items-center gap-2">
-            <RateChip open={rateOpen} onOpenChange={setRateOpen} />
+            <RateChip
+              open={rateOpen}
+              onOpenChange={setRateOpen}
+              onOpenSettings={() => {
+                setRateOpen(false);
+                setSettingsSection("moneda");
+                setSettingsOpen(true);
+              }}
+            />
             <Link
               href="/inbox"
               className="hidden items-center gap-1.5 rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 sm:flex"
@@ -140,7 +152,12 @@ function PosFrame({ children }: { children: ReactNode }) {
       </header>
 
       <div className="mx-auto flex w-full max-w-[1600px] gap-4 px-3 py-4 sm:px-5">
-        <Sidebar onOpenSettings={() => setSettingsOpen(true)} />
+        <Sidebar
+          onOpenSettings={() => {
+            setSettingsSection("negocio");
+            setSettingsOpen(true);
+          }}
+        />
         <main className="min-w-0 flex-1">{children}</main>
       </div>
 
@@ -149,6 +166,7 @@ function PosFrame({ children }: { children: ReactNode }) {
         onOpenChange={setSettingsOpen}
         currentRate={rate}
         onRateSaved={() => void refresh()}
+        initialSection={settingsSection}
       />
     </div>
   );
@@ -265,31 +283,44 @@ function Sidebar({ onOpenSettings }: { onOpenSettings: () => void }) {
 function RateChip({
   open,
   onOpenChange,
+  onOpenSettings,
 }: {
   open: boolean;
   onOpenChange: (value: boolean) => void;
+  onOpenSettings: () => void;
 }) {
-  const { rate, saveRate, loading } = usePosRate();
-  const [value, setValue] = useState("");
-  const [saving, setSaving] = useState(false);
+  const { rate, source, updatedAt, loading, fetchBcv } = usePosRate();
+  const [usd, setUsd] = useState("");
+  const [bs, setBs] = useState("");
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (open) {
-      setValue(rate ? String(rate) : "");
+      setUsd("");
+      setBs("");
       setError(null);
     }
-  }, [open, rate]);
+  }, [open]);
 
-  async function submit() {
-    setSaving(true);
-    const message = await saveRate(Number(value));
-    setSaving(false);
-    if (message) {
-      setError(message);
-      return;
-    }
-    onOpenChange(false);
+  function changeUsd(value: string) {
+    setUsd(value);
+    const amount = toNumber(value);
+    setBs(amount > 0 && rate > 0 ? String(round2(amount * rate)) : "");
+  }
+
+  function changeBs(value: string) {
+    setBs(value);
+    const amount = toNumber(value);
+    setUsd(amount > 0 && rate > 0 ? String(round2(amount / rate)) : "");
+  }
+
+  async function update() {
+    setBusy(true);
+    setError(null);
+    const message = await fetchBcv();
+    setBusy(false);
+    if (message) setError(message);
   }
 
   return (
@@ -299,51 +330,121 @@ function RateChip({
         onClick={() => onOpenChange(!open)}
         className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50"
       >
-        <Building2 className="h-3.5 w-3.5 text-slate-400" />
+        <DollarSign className="h-3.5 w-3.5 text-slate-400" />
         {loading ? "…" : rate > 0 ? formatBs(rate) : "Sin tasa"}
         <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[9px] uppercase text-slate-400">
-          BCV
+          {source === "bcv" ? "BCV" : source === "manual" ? "Manual" : "—"}
         </span>
       </button>
 
       {open ? (
-        <div className="absolute right-0 top-11 z-50 w-72 rounded-xl border border-slate-200 bg-white p-4 shadow-xl">
-          <p className="text-xs font-bold text-slate-700">Tasa del día (Bs/USD)</p>
-          <p className="mt-1 text-[11px] text-slate-500">
-            Se usa para mostrar los equivalentes en bolívares y guardar la tasa
-            de cada venta.
-          </p>
-          <input
-            value={value}
-            onChange={(event) => setValue(event.target.value)}
-            inputMode="decimal"
-            placeholder="887302.00"
-            className="mt-3 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-[#3f3fd8]"
-          />
+        <div className="absolute right-0 top-11 z-50 w-80 rounded-xl border border-slate-200 bg-white p-4 shadow-xl">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-bold text-slate-800">Calculadora</p>
+            <span className="text-[10px] font-medium text-slate-400">
+              {source === "bcv" ? "BCV" : source === "manual" ? "Manual" : "Sin fuente"}{" "}
+              · {relativeTime(updatedAt)}
+            </span>
+          </div>
+
+          <label className="mt-3 flex flex-col gap-1">
+            <span className="text-[11px] font-semibold text-slate-500">
+              Dólares
+            </span>
+            <div className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2">
+              <span className="text-sm text-slate-400">$</span>
+              <input
+                value={usd}
+                onChange={(event) => changeUsd(event.target.value)}
+                inputMode="decimal"
+                placeholder="0,00"
+                className="w-full bg-transparent text-right text-sm outline-none"
+              />
+            </div>
+          </label>
+
+          <div className="my-2 flex items-center gap-2">
+            <div className="h-px flex-1 bg-slate-100" />
+            <span className="rounded-full border border-slate-200 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
+              ⇅ {rate > 0 ? formatBs(rate) : "Sin tasa"} por $
+            </span>
+            <div className="h-px flex-1 bg-slate-100" />
+          </div>
+
+          <label className="flex flex-col gap-1">
+            <span className="text-[11px] font-semibold text-slate-500">
+              Bolívares
+            </span>
+            <div className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2">
+              <span className="text-sm text-slate-400">Bs</span>
+              <input
+                value={bs}
+                onChange={(event) => changeBs(event.target.value)}
+                inputMode="decimal"
+                placeholder="0,00"
+                className="w-full bg-transparent text-right text-sm outline-none"
+              />
+            </div>
+          </label>
+
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {[1, 5, 10, 20].map((amount) => (
+              <button
+                key={amount}
+                type="button"
+                onClick={() => changeUsd(String(amount))}
+                className="rounded-lg border border-slate-200 px-2.5 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-50"
+              >
+                ${amount}
+              </button>
+            ))}
+          </div>
+
           {error ? (
             <p className="mt-2 text-[11px] text-red-600">{error}</p>
           ) : null}
-          <div className="mt-3 flex justify-end gap-2">
+
+          <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-3">
             <button
               type="button"
-              onClick={() => onOpenChange(false)}
-              className="rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-500 hover:bg-slate-50"
+              onClick={() => void update()}
+              disabled={busy}
+              className="inline-flex items-center gap-1.5 text-[11px] font-bold text-[#3f3fd8] hover:underline disabled:opacity-60"
             >
-              Cancelar
+              {busy ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <RefreshCw className="h-3 w-3" />
+              )}
+              Actualizar BCV
             </button>
             <button
               type="button"
-              onClick={() => void submit()}
-              disabled={saving}
-              className="rounded-lg bg-[#3f3fd8] px-3 py-1.5 text-xs font-bold text-white disabled:opacity-60"
+              onClick={onOpenSettings}
+              className="text-[11px] font-semibold text-slate-500 hover:text-[#3f3fd8]"
             >
-              {saving ? "Guardando…" : "Guardar tasa"}
+              Cambiar tasa en Ajustes →
             </button>
           </div>
         </div>
       ) : null}
     </div>
   );
+}
+
+function relativeTime(value: string | null): string {
+  if (!value) return "sin actualizar";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "sin actualizar";
+  const minutes = Math.floor((Date.now() - date.getTime()) / 60000);
+  if (minutes < 1) return "hace un momento";
+  if (minutes < 60) return `hace ${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `hace ${hours} h`;
+  return new Intl.DateTimeFormat("es-VE", {
+    day: "2-digit",
+    month: "short",
+  }).format(date);
 }
 
 /** Cabecera de página reutilizable por las pantallas del POS. */

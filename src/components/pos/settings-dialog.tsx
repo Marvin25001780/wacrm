@@ -16,12 +16,14 @@ import { useAuth } from "@/hooks/use-auth";
 import { createClient } from "@/lib/supabase/client";
 import { formatBs, formatUsd, toNumber, usdToBs } from "@/lib/pos/money";
 
-type Section =
+export type PosSettingsSection =
   | "negocio"
   | "moneda"
   | "impuestos"
   | "usuarios"
   | "bitacora";
+
+type Section = PosSettingsSection;
 
 interface SettingsForm {
   legal_name: string;
@@ -165,11 +167,13 @@ export function PosSettingsDialog({
   onOpenChange,
   currentRate,
   onRateSaved,
+  initialSection = "negocio",
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   currentRate: number;
   onRateSaved: () => void;
+  initialSection?: PosSettingsSection;
 }) {
   const { accountId, account, user } = useAuth();
   const [section, setSection] = useState<Section>("negocio");
@@ -280,11 +284,11 @@ export function PosSettingsDialog({
   useEffect(() => {
     if (!open) return;
     setCommercialName(account?.name ?? "");
-    setSection("negocio");
+    setSection(initialSection);
     setMessage(null);
     setError(null);
     void load();
-  }, [open, account?.name, load]);
+  }, [open, account?.name, load, initialSection]);
 
   const preview = useMemo(
     () => ({
