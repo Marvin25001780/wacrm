@@ -23,6 +23,9 @@ export interface Product {
   track_inventory: boolean;
   active: boolean;
   category_id: string | null;
+  parent_product_id: string | null;
+  is_parent: boolean;
+  variant_label: string | null;
 }
 
 export interface Discount {

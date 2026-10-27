@@ -24,6 +24,7 @@ import { formatBs, formatUsd, toNumber, usdToBs } from "@/lib/pos/money";
 import { DiscountsTab } from "@/components/pos/catalog/discounts-tab";
 import { PricesTab } from "@/components/pos/catalog/prices-tab";
 import { SurchargesTab } from "@/components/pos/catalog/surcharges-tab";
+import { VariantDialog } from "@/components/pos/catalog/variant-dialog";
 import {
   UnitSelect,
   unitShort,
@@ -79,6 +80,7 @@ export default function CatalogoPage() {
   const [loading, setLoading] = useState(true);
   const [categoryOpen, setCategoryOpen] = useState(false);
   const [categoryEditing, setCategoryEditing] = useState<Category | null>(null);
+  const [variantProduct, setVariantProduct] = useState<Product | null>(null);
 
   const load = useCallback(async () => {
     if (!accountId) return;
@@ -88,7 +90,7 @@ export default function CatalogoPage() {
     const missing: string[] = [];
 
     const PRODUCT_FULL =
-      "id, name, sku, barcode, description, kind, unit, cost_usd, price_usd, stock, min_stock, taxable, track_inventory, active, category_id";
+      "id, name, sku, barcode, description, kind, unit, cost_usd, price_usd, stock, min_stock, taxable, track_inventory, active, category_id, parent_product_id, is_parent, variant_label";
     const PRODUCT_BASE =
       "id, name, sku, kind, unit, cost_usd, price_usd, stock, min_stock, taxable, active, category_id";
 
@@ -114,8 +116,16 @@ export default function CatalogoPage() {
           barcode: null,
           description: null,
           track_inventory: true,
+          parent_product_id: null,
+          is_parent: false,
+          variant_label: null,
         })) as Product[];
-        missing.push("089");
+        const code = firstProducts.error.message.includes(
+          "parent_product_id",
+        )
+          ? "097"
+          : "089";
+        if (!missing.includes(code)) missing.push(code);
       }
     } else {
       productsData = (firstProducts.data ?? []) as Product[];
@@ -222,6 +232,7 @@ export default function CatalogoPage() {
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
     return products.filter((product) => {
+      if (product.parent_product_id) return false;
       if (statusFilter === "active" && !product.active) return false;
       if (!term) return true;
       return (
@@ -265,10 +276,13 @@ export default function CatalogoPage() {
   async function deactivate(ids: string[]) {
     if (!accountId || ids.length === 0) return;
     const supabase = createClient();
+    const childIds = products
+      .filter((product) => ids.includes(product.parent_product_id ?? ""))
+      .map((product) => product.id);
     await supabase
       .from("pos_products")
       .update({ active: false })
-      .in("id", ids);
+      .in("id", [...ids, ...childIds]);
     setSelected(new Set());
     void load();
   }
@@ -336,6 +350,9 @@ export default function CatalogoPage() {
               : ""}
             {missingMigrations.includes("092")
               ? "La 092 agrega los canales de precio; hasta entonces solo existe Principal. "
+              : ""}
+            {missingMigrations.includes("097")
+              ? "La 097 agrega las variantes de producto. "
               : ""}
             Mientras tanto, el catálogo funciona con los campos anteriores.
           </p>
@@ -447,7 +464,7 @@ export default function CatalogoPage() {
                     <th className="px-4 py-2.5 text-right font-semibold">Existencia</th>
                     <th className="px-4 py-2.5 text-right font-semibold">Precio</th>
                     <th className="px-4 py-2.5 font-semibold">Estado</th>
-                    <th className="w-20 px-4 py-2.5 text-right font-semibold">Acciones</th>
+                    <th className="w-36 px-4 py-2.5 text-right font-semibold">Acciones</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -457,6 +474,18 @@ export default function CatalogoPage() {
                     const margin =
                       price > 0 ? ((price - cost) / price) * 100 : 0;
                     const category = categoriesById.get(product.category_id ?? "");
+                    const childVariants = products.filter(
+                      (row) => row.parent_product_id === product.id,
+                    );
+                    const variantCount = childVariants.length;
+                    const minVariantPrice = childVariants.reduce<number | null>(
+                      (min, row) => {
+                        const value = toNumber(row.price_usd);
+                        if (value <= 0) return min;
+                        return min == null || value < min ? value : min;
+                      },
+                      null,
+                    );
                     return (
                       <tr
                         key={product.id}
@@ -476,20 +505,29 @@ export default function CatalogoPage() {
                         </td>
                         <td className="px-4 py-3 font-semibold text-slate-800">
                           {product.name}
+                          {variantCount > 0 ? (
+                            <span className="ml-2 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-bold text-[#4338ca]">
+                              {variantCount} variantes
+                            </span>
+                          ) : null}
                         </td>
                         <td className="px-4 py-3 text-slate-500">
                           {product.sku ?? "—"}
                         </td>
                         <td className="px-4 py-3 text-right text-slate-600">
-                          {product.kind === "service" ? "—" : formatUsd(cost)}
-                          {product.kind === "service" ? null : (
+                          {product.is_parent || product.kind === "service"
+                            ? "—"
+                            : formatUsd(cost)}
+                          {product.is_parent || product.kind === "service" ? null : (
                             <span className="block text-[10px] text-slate-400">
                               {formatBs(usdToBs(cost, rate))}
                             </span>
                           )}
                         </td>
                         <td className="px-4 py-3 text-right text-slate-600">
-                          {product.kind === "service" || price <= 0
+                          {product.is_parent ||
+                          product.kind === "service" ||
+                          price <= 0
                             ? "—"
                             : `${margin.toFixed(1)} %`}
                         </td>
@@ -510,19 +548,38 @@ export default function CatalogoPage() {
                         </td>
                         <td className="px-4 py-3">
                           <span className="rounded bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
-                            {KIND_SHORT[product.kind]}
+                            {product.is_parent
+                              ? "Variantes"
+                              : KIND_SHORT[product.kind]}
                           </span>
                         </td>
                         <td className="px-4 py-3 text-right text-slate-600">
-                          {!product.track_inventory || product.kind === "service"
+                          {product.is_parent ||
+                          !product.track_inventory ||
+                          product.kind === "service"
                             ? "—"
                             : `${toNumber(product.stock)} ${product.unit}`}
                         </td>
                         <td className="px-4 py-3 text-right font-semibold text-slate-800">
-                          {formatUsd(price)}
-                          <span className="block text-[10px] font-normal text-slate-400">
-                            {formatBs(usdToBs(price, rate))}
-                          </span>
+                          {product.is_parent ? (
+                            minVariantPrice != null ? (
+                              <>
+                                Desde {formatUsd(minVariantPrice)}
+                                <span className="block text-[10px] font-normal text-slate-400">
+                                  {formatBs(usdToBs(minVariantPrice, rate))}
+                                </span>
+                              </>
+                            ) : (
+                              "—"
+                            )
+                          ) : (
+                            <>
+                              {formatUsd(price)}
+                              <span className="block text-[10px] font-normal text-slate-400">
+                                {formatBs(usdToBs(price, rate))}
+                              </span>
+                            </>
+                          )}
                         </td>
                         <td className="px-4 py-3">
                           <span
@@ -539,13 +596,22 @@ export default function CatalogoPage() {
                           className="px-4 py-3 text-right"
                           onClick={(event) => event.stopPropagation()}
                         >
-                          <button
-                            type="button"
-                            onClick={() => void deactivate([product.id])}
-                            className="text-[11px] font-bold text-[#4338ca] hover:underline"
-                          >
-                            Eliminar
-                          </button>
+                          <div className="flex items-center justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setVariantProduct(product)}
+                              className="rounded-lg border border-slate-200 px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-50"
+                            >
+                              Variantes
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void deactivate([product.id])}
+                              className="text-[11px] font-bold text-[#4338ca] hover:underline"
+                            >
+                              Eliminar
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -667,6 +733,19 @@ export default function CatalogoPage() {
           onSaved={() => {
             setCategoryOpen(false);
             void load();
+          }}
+        />
+      ) : null}
+
+      {variantProduct ? (
+        <VariantDialog
+          product={variantProduct}
+          onClose={() => setVariantProduct(null)}
+          onChanged={() => {
+            void load();
+            setVariantProduct((current) =>
+              current ? { ...current, is_parent: true } : current,
+            );
           }}
         />
       ) : null}
@@ -840,6 +919,13 @@ function ProductForm({
           <p className="text-sm text-slate-500">
             ¿Qué vas a agregar? Elige uno y te pedimos solo lo que necesita.
           </p>
+
+          {product?.is_parent ? (
+            <div className="mt-3 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-800">
+              Este producto es el contenedor de sus variantes. El precio y el
+              stock se manejan en cada variante desde la tabla Productos.
+            </div>
+          ) : null}
 
           <div className="mt-4 inline-flex rounded-xl bg-slate-100 p-1">
             {(["product", "supply", "service"] as Kind[]).map((value) => (

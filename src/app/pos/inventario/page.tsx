@@ -101,10 +101,11 @@ export default function InventarioPage() {
         supabase
           .from("pos_products")
           .select(
-            "id, name, sku, kind, unit, cost_usd, price_usd, stock, min_stock, category_id",
+            "id, name, sku, kind, unit, cost_usd, price_usd, stock, min_stock, category_id, is_parent",
           )
           .eq("account_id", accountId)
           .eq("active", true)
+          .eq("is_parent", false)
           .order("name"),
         supabase
           .from("pos_categories")
@@ -138,7 +139,19 @@ export default function InventarioPage() {
           .eq("account_id", accountId),
       ]);
 
-    setProducts((productsRes.data ?? []) as unknown as Product[]);
+    let productRows = (productsRes.data ?? []) as unknown as Product[];
+    if (productsRes.error) {
+      const fallback = await supabase
+        .from("pos_products")
+        .select(
+          "id, name, sku, kind, unit, cost_usd, price_usd, stock, min_stock, category_id",
+        )
+        .eq("account_id", accountId)
+        .eq("active", true)
+        .order("name");
+      productRows = (fallback.data ?? []) as unknown as Product[];
+    }
+    setProducts(productRows);
     setCategories((categoriesRes.data ?? []) as { id: string; name: string }[]);
     setMovements((movementsRes.data ?? []) as unknown as Movement[]);
     setDocs((docsRes.data ?? []) as unknown as Doc[]);

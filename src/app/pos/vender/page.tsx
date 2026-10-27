@@ -45,6 +45,7 @@ interface Product {
   price_usd: number | string;
   stock: number | string;
   taxable: boolean;
+  is_parent?: boolean;
 }
 
 interface Line {
@@ -186,11 +187,12 @@ export default function VenderPage() {
         supabase
           .from("pos_products")
           .select(
-            "id, name, sku, barcode, kind, unit, cost_usd, price_usd, stock, taxable",
+            "id, name, sku, barcode, kind, unit, cost_usd, price_usd, stock, taxable, is_parent",
           )
           .eq("account_id", accountId)
           .eq("active", true)
           .neq("kind", "supply")
+          .eq("is_parent", false)
           .order("name"),
         supabase
           .from("pos_accounts")
@@ -223,7 +225,20 @@ export default function VenderPage() {
           .select("product_id, price_list_id, price_usd")
           .eq("account_id", accountId),
       ]);
-    setProducts((productsRes.data ?? []) as Product[]);
+    let productRows = (productsRes.data ?? []) as Product[];
+    if (productsRes.error) {
+      const fallback = await supabase
+        .from("pos_products")
+        .select(
+          "id, name, sku, barcode, kind, unit, cost_usd, price_usd, stock, taxable",
+        )
+        .eq("account_id", accountId)
+        .eq("active", true)
+        .neq("kind", "supply")
+        .order("name");
+      productRows = (fallback.data ?? []) as Product[];
+    }
+    setProducts(productRows);
     setAccounts(
       (accountsRes.data ?? []) as { id: string; name: string; currency: "USD" | "VES" }[],
     );

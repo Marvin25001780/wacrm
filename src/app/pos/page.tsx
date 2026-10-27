@@ -119,7 +119,7 @@ export default function PosHomePage() {
           .lt("created_at", startToday.toISOString()),
         supabase
           .from("pos_products")
-          .select("id, name, stock, min_stock, unit")
+          .select("id, name, stock, min_stock, unit, is_parent")
           .eq("account_id", accountId)
           .eq("active", true)
           .eq("kind", "product")
@@ -141,7 +141,11 @@ export default function PosHomePage() {
     const todayRows = (todayRes.data ?? []) as SaleRow[];
     setToday(todayRows);
     setYesterday((yesterdayRes.data ?? []) as SaleRow[]);
-    setProducts((productsRes.data ?? []) as ProductRow[]);
+    setProducts(
+      ((productsRes.data ?? []) as (ProductRow & { is_parent?: boolean })[]).filter(
+        (row) => !row.is_parent,
+      ) as ProductRow[],
+    );
     setReturnsToday(
       (returnsTodayRes.data ?? []) as {
         subtotal_usd: number | string;

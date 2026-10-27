@@ -109,6 +109,7 @@ export function PricesTab({
     const term = search.trim().toLowerCase();
     return products
       .filter((product) => product.kind !== "supply")
+      .filter((product) => !product.is_parent)
       .filter((product) => (status === "active" ? product.active : true))
       .filter((product) => {
         if (!term) return true;
@@ -611,7 +612,7 @@ function PriceChangeDialog({
     }
 
     const rows = base
-      .filter((product) => product.kind !== "supply")
+      .filter((product) => product.kind !== "supply" && !product.is_parent)
       .map((product) => {
         const before = resolvePrice(product, channel, priceIndex);
         let raw: number;
