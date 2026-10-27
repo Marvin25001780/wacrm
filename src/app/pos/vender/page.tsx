@@ -63,6 +63,7 @@ interface Payment {
   amount: string;
   accountId: string;
   reference: string;
+  received: string;
 }
 
 interface SurchargeRow {
@@ -99,6 +100,7 @@ function newPayment(method: PaymentMethod = "cash_usd", accountId = ""): Payment
     amount: "",
     accountId,
     reference: "",
+    received: "",
   };
 }
 
@@ -394,6 +396,40 @@ export default function VenderPage() {
   );
   const remaining = round2(total - covered);
 
+  const change = useMemo(() => {
+    let usd = 0;
+    let bs = 0;
+    for (const payment of resolved) {
+      const received = toNumber(payment.received);
+      if (received <= 0) continue;
+      if (payment.method === "cash_usd") {
+        const due = round2(payment.amountUsd + payment.igtf);
+        if (received > due + 0.005) usd += received - due;
+      } else if (payment.method === "cash_bs") {
+        const due = round2(toNumber(payment.amount));
+        if (received > due + 0.005) bs += received - due;
+      }
+    }
+    return { usd: round2(usd), bs: round2(bs) };
+  }, [resolved]);
+
+  function changeOf(payment: Payment): number {
+    const resolvedPayment = resolved.find((row) => row.id === payment.id);
+    if (!resolvedPayment || !payment.received) return 0;
+    const received = toNumber(payment.received);
+    if (payment.method === "cash_usd") {
+      const due = round2(
+        resolvedPayment.amountUsd + resolvedPayment.igtf,
+      );
+      return received > due + 0.005 ? round2(received - due) : 0;
+    }
+    if (payment.method === "cash_bs") {
+      const due = round2(toNumber(resolvedPayment.amount));
+      return received > due + 0.005 ? round2(received - due) : 0;
+    }
+    return 0;
+  }
+
   function fillExact() {
     const usdAccount = accounts.find((account) => account.currency === "USD");
     setPayments([
@@ -496,6 +532,12 @@ export default function VenderPage() {
       setError("El pago no cubre el total de la venta.");
       return;
     }
+    if (covered > total + 0.005) {
+      setError(
+        "El pago supera el total. Usa “Cobrar exacto” y anota el recibido para calcular el vuelto.",
+      );
+      return;
+    }
 
     const hasVes = resolved.some((p) => p.currency === "VES" && p.amountUsd > 0);
     if (hasVes && rate <= 0) {
@@ -565,6 +607,13 @@ export default function VenderPage() {
       await supabase
         .from("pos_sales")
         .update({ price_list_id: channel.id })
+        .eq("id", result.sale_id);
+    }
+
+    if (change.usd > 0 || change.bs > 0) {
+      await supabase
+        .from("pos_sales")
+        .update({ change_usd: change.usd, change_bs: change.bs })
         .eq("id", result.sale_id);
     }
 
@@ -951,6 +1000,19 @@ export default function VenderPage() {
                   </p>
                 </dd>
               </div>
+              {change.usd > 0 || change.bs > 0 ? (
+                <div className="mt-1 flex items-center justify-between rounded-lg bg-emerald-50 px-2 py-1.5 text-xs text-emerald-700">
+                  <span className="font-semibold">Vuelto</span>
+                  <span className="font-bold">
+                    {[
+                      change.usd > 0 ? formatUsd(change.usd) : null,
+                      change.bs > 0 ? formatBs(change.bs) : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </span>
+                </div>
+              ) : null}
             </dl>
 
             <div className="mt-3 space-y-2">
@@ -979,6 +1041,7 @@ export default function VenderPage() {
                             amount: "",
                             accountId: account?.id ?? "",
                             reference: "",
+                            received: "",
                           });
                         }}
                         className="w-32 rounded-lg border border-slate-200 px-2 py-1.5 text-xs outline-none focus:border-[#3f3fd8]"
@@ -1048,7 +1111,34 @@ export default function VenderPage() {
                         placeholder="Referencia: últimos dígitos, Zelle..."
                         className="mt-1.5 w-full rounded-lg border border-slate-200 px-2 py-1 text-[11px] text-slate-600 outline-none focus:border-[#3f3fd8]"
                       />
-                    ) : null}
+                    ) : (
+                      <div className="mt-1.5 flex items-center justify-between gap-2">
+                        <label className="flex items-center gap-1.5 text-[10px] font-semibold text-slate-400">
+                          Recibido
+                          <input
+                            value={payment.received}
+                            onChange={(event) =>
+                              updatePayment(payment.id, {
+                                received: event.target.value,
+                              })
+                            }
+                            inputMode="decimal"
+                            placeholder={
+                              method.currency === "VES" ? "Bs" : "USD"
+                            }
+                            className="w-20 rounded-lg border border-slate-200 px-2 py-1 text-right text-[11px] text-slate-700 outline-none focus:border-[#3f3fd8]"
+                          />
+                        </label>
+                        {changeOf(payment) > 0 ? (
+                          <span className="text-[10px] font-bold text-emerald-700">
+                            Vuelto{" "}
+                            {method.currency === "VES"
+                              ? formatBs(changeOf(payment))
+                              : formatUsd(changeOf(payment))}
+                          </span>
+                        ) : null}
+                      </div>
+                    )}
                   </div>
                 );
               })}

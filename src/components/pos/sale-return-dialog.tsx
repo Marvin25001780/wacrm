@@ -43,11 +43,15 @@ export function SaleReturnDialog({
   open,
   onOpenChange,
   onReturned,
+  initialAll = false,
+  initialReason = "",
 }: {
   saleId: string | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onReturned: () => void;
+  initialAll?: boolean;
+  initialReason?: string;
 }) {
   const { accountId } = useAuth();
   const { rate } = usePosRate();
@@ -130,6 +134,17 @@ export function SaleReturnDialog({
     setSale(saleRes.data as SaleRow);
     setItems((itemsRes.data ?? []) as ItemRow[]);
     setReturned(returnedMap);
+    if (initialAll) {
+      const next: Record<string, string> = {};
+      for (const item of (itemsRes.data ?? []) as ItemRow[]) {
+        const remaining = round2(
+          toNumber(item.quantity) - (returnedMap.get(item.id) ?? 0),
+        );
+        if (remaining > 0) next[item.id] = String(remaining);
+      }
+      setQuantities(next);
+      setReason(initialReason || "Anulación de venta");
+    }
     setAccounts((accountsRes.data ?? []) as AccountRow[]);
     const settings = settingsRes.data as {
       iva_rate: number | string;
@@ -138,7 +153,7 @@ export function SaleReturnDialog({
     setIvaRate(toNumber(settings?.iva_rate, 16));
     setIvaOn(settings?.iva_enabled ?? true);
     setLoading(false);
-  }, [open, saleId, accountId]);
+  }, [open, saleId, accountId, initialAll, initialReason]);
 
   useEffect(() => {
     void load();
@@ -261,12 +276,16 @@ export function SaleReturnDialog({
             <h2 className="text-xl font-black text-slate-900">
               {result
                 ? `Devolución #${result.number} registrada`
-                : `Devolución de venta #${sale?.number ?? ""}`}
+                : initialAll
+                  ? `Anular venta #${sale?.number ?? ""}`
+                  : `Devolución de venta #${sale?.number ?? ""}`}
             </h2>
             <p className="text-xs text-slate-500">
               {result
                 ? "El inventario y la caja ya quedaron actualizados."
-                : "Elige las cantidades y cómo se devuelve el dinero."}
+                : initialAll
+                  ? "Se devolverá todo lo vendido y se repondrá el stock."
+                  : "Elige las cantidades y cómo se devuelve el dinero."}
             </p>
           </div>
           <button
@@ -485,7 +504,7 @@ export function SaleReturnDialog({
                 ) : (
                   <RotateCcw className="h-4 w-4" />
                 )}
-                Confirmar devolución
+                {initialAll ? "Confirmar anulación" : "Confirmar devolución"}
               </PosButton>
             </>
           )}

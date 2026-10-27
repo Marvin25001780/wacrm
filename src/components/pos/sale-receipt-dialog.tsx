@@ -27,6 +27,8 @@ interface SaleDetail {
   paid_usd: number | string;
   balance_usd: number | string;
   returned_usd?: number | string;
+  change_usd?: number | string;
+  change_bs?: number | string;
   exchange_rate_used: number | string;
   notes: string | null;
   created_at: string;
@@ -388,6 +390,22 @@ export function SaleReceiptDialog({
                   <ReceiptRow
                     label="Devuelto"
                     value={formatUsd(toNumber(sale.returned_usd))}
+                  />
+                ) : null}
+                {toNumber(sale.change_usd) > 0.005 ||
+                toNumber(sale.change_bs) > 0.005 ? (
+                  <ReceiptRow
+                    label="Vuelto"
+                    value={[
+                      toNumber(sale.change_usd) > 0.005
+                        ? formatUsd(toNumber(sale.change_usd))
+                        : null,
+                      toNumber(sale.change_bs) > 0.005
+                        ? formatBs(toNumber(sale.change_bs))
+                        : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
                   />
                 ) : null}
               </div>

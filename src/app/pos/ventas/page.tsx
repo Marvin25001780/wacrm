@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Loader2, Plus, Receipt, RotateCcw, Search, ShoppingCart } from "lucide-react";
+import { Ban, Loader2, Plus, Receipt, RotateCcw, Search, ShoppingCart } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
 import { usePosRate } from "@/components/pos/rate-context";
@@ -41,6 +41,7 @@ export default function HistorialPage() {
   const [receiptSaleId, setReceiptSaleId] = useState<string | null>(null);
   const [returnOpen, setReturnOpen] = useState(false);
   const [returnSaleId, setReturnSaleId] = useState<string | null>(null);
+  const [returnAll, setReturnAll] = useState(false);
   const [returnsReady, setReturnsReady] = useState(false);
 
   const load = useCallback(async () => {
@@ -254,6 +255,7 @@ export default function HistorialPage() {
                       <button
                         type="button"
                         onClick={() => {
+                          setReturnAll(false);
                           setReturnSaleId(sale.id);
                           setReturnOpen(true);
                         }}
@@ -274,6 +276,30 @@ export default function HistorialPage() {
                         <RotateCcw className="h-3 w-3" />
                         Devolver
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setReturnAll(true);
+                          setReturnSaleId(sale.id);
+                          setReturnOpen(true);
+                        }}
+                        disabled={
+                          !returnsReady ||
+                          sale.status === "void" ||
+                          toNumber(sale.total_usd) -
+                            toNumber(sale.returned_usd) <=
+                            0.005
+                        }
+                        title={
+                          returnsReady
+                            ? "Anular: devolver todo y reponer stock"
+                            : "Falta aplicar la migración 093"
+                        }
+                        className="inline-flex items-center gap-1 rounded-lg border border-red-200 px-2 py-1 text-[11px] font-semibold text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        <Ban className="h-3 w-3" />
+                        Anular
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -292,8 +318,13 @@ export default function HistorialPage() {
       <SaleReturnDialog
         saleId={returnSaleId}
         open={returnOpen}
-        onOpenChange={setReturnOpen}
+        onOpenChange={(open) => {
+          setReturnOpen(open);
+          if (!open) setReturnAll(false);
+        }}
         onReturned={() => void load()}
+        initialAll={returnAll}
+        initialReason={returnAll ? "Anulación de venta" : ""}
       />
     </div>
   );
