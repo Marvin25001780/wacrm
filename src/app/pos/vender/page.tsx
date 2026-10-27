@@ -5,10 +5,12 @@ import {
   CheckCircle2,
   Loader2,
   Minus,
+  Percent,
   Plus,
   Search,
   ShoppingCart,
   Trash2,
+  X,
 } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
@@ -57,8 +59,48 @@ interface Payment {
   accountId: string;
 }
 
+interface SurchargeRow {
+  id: string;
+  name: string;
+  kind: "percent" | "fixed";
+  value: number | string;
+}
+
+interface DiscountRow {
+  id: string;
+  name: string;
+  code: string;
+  kind: "percent" | "fixed";
+  value: number | string;
+}
+
 function newPayment(method: PaymentMethod = "cash_usd", accountId = ""): Payment {
   return { id: crypto.randomUUID(), method, amount: "", accountId };
+}
+
+/** Reparte un descuento global entre las líneas, proporcional al importe. */
+function withGlobalDiscount(lines: Line[], amount: number): Line[] {
+  const gross = lines.reduce(
+    (sum, line) => sum + round2(line.quantity * line.unitPrice),
+    0,
+  );
+  if (amount <= 0 || gross <= 0) {
+    return lines.map((line) => ({ ...line, discount: 0 }));
+  }
+
+  const capped = Math.min(round2(amount), round2(gross));
+  let remaining = capped;
+
+  return lines.map((line, index) => {
+    const lineGross = round2(line.quantity * line.unitPrice);
+    const share =
+      index === lines.length - 1
+        ? remaining
+        : round2(capped * (lineGross / gross));
+    const safe = Math.max(0, Math.min(share, lineGross, remaining));
+    remaining = round2(remaining - safe);
+    return { ...line, discount: safe };
+  });
 }
 
 export default function VenderPage() {
@@ -70,6 +112,14 @@ export default function VenderPage() {
     { id: string; name: string; currency: "USD" | "VES" }[]
   >([]);
   const [customers, setCustomers] = useState<{ id: string; name: string }[]>([]);
+  const [surchargeOptions, setSurchargeOptions] = useState<SurchargeRow[]>([]);
+  const [selectedSurcharges, setSelectedSurcharges] = useState<string[]>([]);
+  const [discountCode, setDiscountCode] = useState("");
+  const [appliedDiscount, setAppliedDiscount] = useState<DiscountRow | null>(
+    null,
+  );
+  const [discountError, setDiscountError] = useState<string | null>(null);
+  const [applyingCode, setApplyingCode] = useState(false);
   const [customerId, setCustomerId] = useState("");
   const [search, setSearch] = useState("");
   const [cart, setCart] = useState<Line[]>([]);
@@ -87,34 +137,43 @@ export default function VenderPage() {
     if (!accountId) return;
     const supabase = createClient();
     setLoading(true);
-    const [productsRes, accountsRes, customersRes] = await Promise.all([
-      supabase
-        .from("pos_products")
-        .select(
-          "id, name, sku, kind, unit, cost_usd, price_usd, stock, taxable",
-        )
-        .eq("account_id", accountId)
-        .eq("active", true)
-        .neq("kind", "supply")
-        .order("name"),
-      supabase
-        .from("pos_accounts")
-        .select("id, name, currency")
-        .eq("account_id", accountId)
-        .eq("active", true)
-        .order("name"),
-      supabase
-        .from("pos_customers")
-        .select("id, name")
-        .eq("account_id", accountId)
-        .eq("active", true)
-        .order("name"),
-    ]);
+    const [productsRes, accountsRes, customersRes, surchargesRes] =
+      await Promise.all([
+        supabase
+          .from("pos_products")
+          .select(
+            "id, name, sku, kind, unit, cost_usd, price_usd, stock, taxable",
+          )
+          .eq("account_id", accountId)
+          .eq("active", true)
+          .neq("kind", "supply")
+          .order("name"),
+        supabase
+          .from("pos_accounts")
+          .select("id, name, currency")
+          .eq("account_id", accountId)
+          .eq("active", true)
+          .order("name"),
+        supabase
+          .from("pos_customers")
+          .select("id, name")
+          .eq("account_id", accountId)
+          .eq("active", true)
+          .order("name"),
+        supabase
+          .from("pos_surcharges")
+          .select("id, name, kind, value")
+          .eq("account_id", accountId)
+          .eq("active", true)
+          .eq("charge_customer", true)
+          .order("name"),
+      ]);
     setProducts((productsRes.data ?? []) as Product[]);
     setAccounts(
       (accountsRes.data ?? []) as { id: string; name: string; currency: "USD" | "VES" }[],
     );
     setCustomers((customersRes.data ?? []) as { id: string; name: string }[]);
+    setSurchargeOptions((surchargesRes.data ?? []) as SurchargeRow[]);
     setLoading(false);
   }, [accountId]);
 
@@ -174,9 +233,51 @@ export default function VenderPage() {
     setCart((current) => current.filter((l) => l.productId !== productId));
   }
 
-  const totalsBase = useMemo(
-    () => computeTotals(cart, { usdPaidBase: 0 }),
+  const grossSubtotal = useMemo(
+    () =>
+      round2(
+        cart.reduce(
+          (sum, line) => sum + round2(line.quantity * line.unitPrice),
+          0,
+        ),
+      ),
     [cart],
+  );
+
+  const discountAmount = useMemo(() => {
+    if (!appliedDiscount || grossSubtotal <= 0) return 0;
+    const value = toNumber(appliedDiscount.value);
+    return appliedDiscount.kind === "percent"
+      ? round2((grossSubtotal * value) / 100)
+      : Math.min(round2(value), grossSubtotal);
+  }, [appliedDiscount, grossSubtotal]);
+
+  const cartFinal = useMemo(
+    () => withGlobalDiscount(cart, discountAmount),
+    [cart, discountAmount],
+  );
+
+  const totalsBase = useMemo(
+    () => computeTotals(cartFinal, { usdPaidBase: 0 }),
+    [cartFinal],
+  );
+
+  const surchargeTotal = useMemo(
+    () =>
+      round2(
+        surchargeOptions
+          .filter((row) => selectedSurcharges.includes(row.id))
+          .reduce((sum, row) => {
+            const value = toNumber(row.value);
+            return (
+              sum +
+              (row.kind === "percent"
+                ? round2((totalsBase.subtotal * value) / 100)
+                : value)
+            );
+          }, 0),
+      ),
+    [surchargeOptions, selectedSurcharges, totalsBase.subtotal],
   );
 
   const resolved = useMemo(() => {
@@ -191,7 +292,7 @@ export default function VenderPage() {
   }, [payments, rate]);
 
   const igtfTotal = round2(resolved.reduce((sum, p) => sum + p.igtf, 0));
-  const total = round2(totalsBase.base + igtfTotal);
+  const total = round2(totalsBase.base + surchargeTotal + igtfTotal);
   const covered = round2(
     resolved.reduce((sum, p) => sum + p.amountUsd + p.igtf, 0),
   );
@@ -202,9 +303,81 @@ export default function VenderPage() {
     setPayments([
       {
         ...newPayment("cash_usd", usdAccount?.id ?? ""),
-        amount: String(totalsBase.base),
+        amount: String(round2(totalsBase.base + surchargeTotal)),
       },
     ]);
+  }
+
+  async function applyDiscountCode() {
+    const code = discountCode.trim().toUpperCase();
+    if (!code) return;
+    if (!accountId) return;
+    if (cart.length === 0) {
+      setDiscountError("Agrega productos antes de aplicar un código.");
+      return;
+    }
+
+    setApplyingCode(true);
+    setDiscountError(null);
+    const supabase = createClient();
+    const { data, error: codeError } = await supabase
+      .from("pos_discounts")
+      .select(
+        "id, name, code, kind, value, max_uses, used_count, valid_from, valid_to, active",
+      )
+      .eq("account_id", accountId)
+      .eq("code", code)
+      .maybeSingle();
+    setApplyingCode(false);
+
+    if (codeError) {
+      setDiscountError(
+        "No se pudo validar el código. Revisa que la migración 090 esté aplicada.",
+      );
+      return;
+    }
+    if (!data) {
+      setDiscountError("Ese código no existe.");
+      return;
+    }
+    if (!data.active) {
+      setDiscountError("Ese descuento está inactivo.");
+      return;
+    }
+
+    const today = new Date().toLocaleDateString("en-CA", {
+      timeZone: "America/Caracas",
+    });
+    if (data.valid_from && today < data.valid_from) {
+      setDiscountError("Ese descuento todavía no está vigente.");
+      return;
+    }
+    if (data.valid_to && today > data.valid_to) {
+      setDiscountError("Ese descuento ya venció.");
+      return;
+    }
+    if (data.max_uses != null && data.used_count >= data.max_uses) {
+      setDiscountError("Ese descuento agotó sus usos.");
+      return;
+    }
+
+    setAppliedDiscount(data as DiscountRow);
+    setDiscountCode(data.code);
+    setDiscountError(null);
+  }
+
+  function clearDiscount() {
+    setAppliedDiscount(null);
+    setDiscountCode("");
+    setDiscountError(null);
+  }
+
+  function toggleSurcharge(id: string) {
+    setSelectedSurcharges((current) =>
+      current.includes(id)
+        ? current.filter((value) => value !== id)
+        : [...current, id],
+    );
   }
 
   function updatePayment(id: string, patch: Partial<Payment>) {
@@ -237,8 +410,8 @@ export default function VenderPage() {
     setSaving(true);
     const supabase = createClient();
 
-    const { data, error: rpcError } = await supabase.rpc("pos_create_sale", {
-      p_items: cart.map((line) => ({
+    const salePayload: Record<string, unknown> = {
+      p_items: cartFinal.map((line) => ({
         product_id: line.productId,
         quantity: line.quantity,
         unit_price_usd: line.unitPrice,
@@ -257,7 +430,19 @@ export default function VenderPage() {
       p_customer_id: null,
       p_notes: null,
       p_rate: rate,
-    });
+    };
+
+    // Se envían solo cuando existen: así la venta normal sigue
+    // funcionando aunque la migración 090 aún no esté aplicada.
+    if (appliedDiscount) salePayload.p_discount_code = appliedDiscount.code;
+    if (selectedSurcharges.length > 0) {
+      salePayload.p_surcharges = selectedSurcharges;
+    }
+
+    const { data, error: rpcError } = await supabase.rpc(
+      "pos_create_sale",
+      salePayload,
+    );
 
     setSaving(false);
 
@@ -285,6 +470,10 @@ export default function VenderPage() {
     setPayments([newPayment()]);
     setSearch("");
     setCustomerId("");
+    setAppliedDiscount(null);
+    setDiscountCode("");
+    setDiscountError(null);
+    setSelectedSurcharges([]);
     void load();
     searchRef.current?.focus();
   }
@@ -475,9 +664,113 @@ export default function VenderPage() {
           </section>
 
           <section className="rounded-2xl border border-slate-200 bg-white p-4">
+            <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-slate-500">
+              <Percent className="h-3.5 w-3.5" />
+              Descuento
+            </p>
+
+            <div className="mt-2 flex items-center gap-2">
+              <input
+                value={discountCode}
+                onChange={(event) => {
+                  setDiscountCode(event.target.value.toUpperCase());
+                  setDiscountError(null);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && !appliedDiscount) {
+                    void applyDiscountCode();
+                  }
+                }}
+                disabled={Boolean(appliedDiscount)}
+                placeholder="Código (ej. VERANO10)"
+                className="min-w-0 flex-1 rounded-lg border border-slate-200 px-2.5 py-1.5 font-mono text-xs uppercase outline-none focus:border-[#4338ca] disabled:bg-slate-50"
+              />
+              {appliedDiscount ? (
+                <button
+                  type="button"
+                  onClick={clearDiscount}
+                  className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-[11px] font-bold text-slate-500 hover:bg-slate-50"
+                >
+                  <X className="h-3 w-3" />
+                  Quitar
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => void applyDiscountCode()}
+                  disabled={applyingCode || !discountCode.trim()}
+                  className="rounded-lg bg-slate-100 px-3 py-1.5 text-[11px] font-bold text-slate-700 hover:bg-slate-200 disabled:opacity-40"
+                >
+                  {applyingCode ? "..." : "Aplicar"}
+                </button>
+              )}
+            </div>
+
+            {appliedDiscount ? (
+              <p className="mt-2 flex items-center justify-between rounded-lg bg-emerald-50 px-2.5 py-1.5 text-[11px] text-emerald-700">
+                <span>
+                  <strong>{appliedDiscount.code}</strong> ·{" "}
+                  {appliedDiscount.name}
+                </span>
+                <span className="font-bold">− {formatUsd(discountAmount)}</span>
+              </p>
+            ) : null}
+
+            {discountError ? (
+              <p className="mt-2 rounded-lg bg-red-50 px-2.5 py-1.5 text-[11px] text-red-700">
+                {discountError}
+              </p>
+            ) : null}
+
+            {surchargeOptions.length > 0 ? (
+              <div className="mt-3 border-t border-slate-100 pt-3">
+                <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                  Recargos
+                </p>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {surchargeOptions.map((row) => {
+                    const active = selectedSurcharges.includes(row.id);
+                    return (
+                      <button
+                        key={row.id}
+                        type="button"
+                        onClick={() => toggleSurcharge(row.id)}
+                        className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${
+                          active
+                            ? "border-[#4338ca] bg-indigo-50 text-[#4338ca]"
+                            : "border-slate-200 text-slate-500 hover:bg-slate-50"
+                        }`}
+                      >
+                        {row.name} ·{" "}
+                        {row.kind === "percent"
+                          ? `${toNumber(row.value)} %`
+                          : formatUsd(toNumber(row.value))}
+                      </button>
+                    );
+                  })}
+                </div>
+                {surchargeTotal > 0 ? (
+                  <p className="mt-2 text-right text-[11px] font-semibold text-slate-600">
+                    Suma de recargos: {formatUsd(surchargeTotal)}
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
+          </section>
+
+          <section className="rounded-2xl border border-slate-200 bg-white p-4">
             <dl className="space-y-1.5 text-sm">
-              <Row label="Subtotal" value={formatUsd(totalsBase.subtotal)} />
+              <Row label="Subtotal" value={formatUsd(grossSubtotal)} />
+              {discountAmount > 0 ? (
+                <Row
+                  label={`Descuento ${appliedDiscount?.code ?? ""}`}
+                  value={`− ${formatUsd(discountAmount)}`}
+                />
+              ) : null}
               <Row label="IVA (16%)" value={formatUsd(totalsBase.iva)} />
+              {surchargeTotal > 0 ? (
+                <Row label="Recargos" value={formatUsd(surchargeTotal)} />
+              ) : null}
               <Row label="IGTF (3% divisas)" value={formatUsd(igtfTotal)} />
               <div className="my-2 border-t border-slate-100" />
               <div className="flex items-baseline justify-between">
