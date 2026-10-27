@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   Download,
   FileCheck2,
+  FileMinus2,
   Loader2,
   Save,
 } from "lucide-react";
@@ -28,7 +29,28 @@ interface FiscalSettings {
   next_number: number | string | null;
   control_prefix: string | null;
   control_next: number | string | null;
+  credit_series: string | null;
+  credit_range_from: number | string | null;
+  credit_range_to: number | string | null;
+  credit_next_number: number | string | null;
+  credit_control_prefix: string | null;
+  credit_control_next: number | string | null;
   legend: string | null;
+}
+
+interface FiscalCreditNote {
+  id: string;
+  number: number | string;
+  control_number: string | null;
+  customer_legal_name: string | null;
+  customer_tax_id: string | null;
+  reason: string;
+  subtotal_usd: number | string;
+  tax_iva_usd: number | string;
+  total_usd: number | string;
+  issued_at: string;
+  sale_id: string;
+  sale: { number: number } | null;
 }
 
 interface FiscalInvoice {
@@ -60,6 +82,12 @@ interface FormState {
   next_number: string;
   control_prefix: string;
   control_next: string;
+  credit_series: string;
+  credit_range_from: string;
+  credit_range_to: string;
+  credit_next_number: string;
+  credit_control_prefix: string;
+  credit_control_next: string;
   legend: string;
 }
 
@@ -77,6 +105,12 @@ const emptyForm: FormState = {
   next_number: "",
   control_prefix: "",
   control_next: "1",
+  credit_series: "NC",
+  credit_range_from: "",
+  credit_range_to: "",
+  credit_next_number: "",
+  credit_control_prefix: "",
+  credit_control_next: "1",
   legend: "",
 };
 
@@ -88,11 +122,13 @@ export default function FacturacionPage() {
   const [form, setForm] = useState<FormState>(emptyForm);
   const [confirmed, setConfirmed] = useState(false);
   const [invoices, setInvoices] = useState<FiscalInvoice[]>([]);
+  const [creditNotes, setCreditNotes] = useState<FiscalCreditNote[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [missing, setMissing] = useState(false);
+  const [creditMissing, setCreditMissing] = useState(false);
 
   const load = useCallback(async () => {
     if (!accountId) return;
@@ -100,7 +136,7 @@ export default function FacturacionPage() {
     setError(null);
     const supabase = createClient();
 
-    const [fiscalRes, settingsRes, invoicesRes] = await Promise.all([
+    const [fiscalRes, settingsRes, invoicesRes, creditRes] = await Promise.all([
       supabase
         .from("pos_fiscal_settings")
         .select("*")
@@ -119,6 +155,14 @@ export default function FacturacionPage() {
         .eq("account_id", accountId)
         .eq("fiscal_status", "fiscal")
         .order("fiscal_issued_at", { ascending: false })
+        .limit(100),
+      supabase
+        .from("pos_fiscal_credit_notes")
+        .select(
+          "id, number, control_number, customer_legal_name, customer_tax_id, reason, subtotal_usd, tax_iva_usd, total_usd, issued_at, sale_id, sale:pos_sales(number)",
+        )
+        .eq("account_id", accountId)
+        .order("issued_at", { ascending: false })
         .limit(100),
     ]);
 
@@ -148,6 +192,20 @@ export default function FacturacionPage() {
               next_number: fiscal.next_number ? String(fiscal.next_number) : "",
               control_prefix: fiscal.control_prefix ?? "",
               control_next: fiscal.control_next ? String(fiscal.control_next) : "1",
+              credit_series: fiscal.credit_series ?? "NC",
+              credit_range_from: fiscal.credit_range_from
+                ? String(fiscal.credit_range_from)
+                : "",
+              credit_range_to: fiscal.credit_range_to
+                ? String(fiscal.credit_range_to)
+                : "",
+              credit_next_number: fiscal.credit_next_number
+                ? String(fiscal.credit_next_number)
+                : "",
+              credit_control_prefix: fiscal.credit_control_prefix ?? "",
+              credit_control_next: fiscal.credit_control_next
+                ? String(fiscal.credit_control_next)
+                : "1",
               legend: fiscal.legend ?? "",
             }
           : {
@@ -161,6 +219,8 @@ export default function FacturacionPage() {
     }
 
     setInvoices((invoicesRes.data ?? []) as unknown as FiscalInvoice[]);
+    setCreditMissing(Boolean(creditRes.error));
+    setCreditNotes((creditRes.data ?? []) as unknown as FiscalCreditNote[]);
     setLoading(false);
   }, [accountId]);
 
@@ -177,6 +237,16 @@ export default function FacturacionPage() {
     }
     return { valid: true, remaining: to - next + 1 };
   }, [form.range_from, form.range_to, form.next_number]);
+
+  const creditRangeStatus = useMemo(() => {
+    const from = toNumber(form.credit_range_from);
+    const to = toNumber(form.credit_range_to);
+    const next = toNumber(form.credit_next_number);
+    if (from <= 0 || to < from || next <= 0 || next > to) {
+      return { valid: false, remaining: 0 };
+    }
+    return { valid: true, remaining: to - next + 1 };
+  }, [form.credit_range_from, form.credit_range_to, form.credit_next_number]);
 
   async function save() {
     if (!accountId) return;
@@ -213,6 +283,18 @@ export default function FacturacionPage() {
       }
     }
 
+    const creditTouched =
+      form.credit_range_from.trim() !== "" ||
+      form.credit_range_to.trim() !== "" ||
+      form.credit_next_number.trim() !== "";
+    if (creditTouched && !creditRangeStatus.valid) {
+      setError(
+        "Revisa el rango de notas de crédito: desde, hasta y siguiente deben ser coherentes.",
+      );
+      setSaving(false);
+      return;
+    }
+
     const supabase = createClient();
     const payload = {
       account_id: accountId,
@@ -229,6 +311,12 @@ export default function FacturacionPage() {
       next_number: toNumber(form.next_number) || null,
       control_prefix: form.control_prefix.trim() || null,
       control_next: toNumber(form.control_next) || 1,
+      credit_series: form.credit_series.trim() || "NC",
+      credit_range_from: toNumber(form.credit_range_from) || null,
+      credit_range_to: toNumber(form.credit_range_to) || null,
+      credit_next_number: toNumber(form.credit_next_number) || null,
+      credit_control_prefix: form.credit_control_prefix.trim() || null,
+      credit_control_next: toNumber(form.credit_control_next) || 1,
       legend: form.legend.trim() || null,
       updated_at: new Date().toISOString(),
     };
@@ -240,9 +328,11 @@ export default function FacturacionPage() {
     setSaving(false);
     if (dbError) {
       setError(
-        dbError.message.includes("pos_fiscal_settings")
-          ? "Falta aplicar la migración 100."
-          : dbError.message,
+        dbError.message.includes("credit_")
+          ? "Falta aplicar la migración 101 (notas de crédito)."
+          : dbError.message.includes("pos_fiscal_settings")
+            ? "Falta aplicar la migración 100."
+            : dbError.message,
       );
       return;
     }
@@ -296,11 +386,55 @@ export default function FacturacionPage() {
     URL.revokeObjectURL(url);
   }
 
+  function exportCreditCsv() {
+    const header = [
+      "Nota de crédito",
+      "Control",
+      "Fecha",
+      "RIF",
+      "Cliente",
+      "Motivo",
+      "Base USD",
+      "IVA USD",
+      "Total USD",
+    ];
+    const lines = creditNotes.map((note) => [
+      String(note.number),
+      note.control_number ?? "",
+      new Intl.DateTimeFormat("es-VE", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      }).format(new Date(note.issued_at)),
+      note.customer_tax_id ?? "",
+      note.customer_legal_name ?? "",
+      note.reason,
+      toNumber(note.subtotal_usd).toFixed(2),
+      toNumber(note.tax_iva_usd).toFixed(2),
+      toNumber(note.total_usd).toFixed(2),
+    ]);
+    const escape = (value: string) => `"${value.replaceAll('"', '""')}"`;
+    const csv = [header, ...lines]
+      .map((row) => row.map(escape).join(";"))
+      .join("\r\n");
+    const blob = new Blob([`\uFEFF${csv}`], {
+      type: "text/csv;charset=utf-8;",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `notas-credito-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <div className="space-y-4">
       <PosPageHeader
         title="Facturación"
-        subtitle="Datos fiscales, rango autorizado y libro de ventas."
+        subtitle="Datos fiscales, rangos autorizados, facturas y notas de crédito."
         actions={
           <PosButton onClick={() => void save()} disabled={saving || missing}>
             {saving ? (
@@ -319,6 +453,17 @@ export default function FacturacionPage() {
           <p className="mt-0.5">
             Ejecuta <code>supabase/migrations/100_pos_fiscal.sql</code> en
             Supabase para activar la facturación fiscal.
+          </p>
+        </div>
+      ) : null}
+
+      {!missing && creditMissing ? (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
+          <p className="font-bold">Falta aplicar la migración 101</p>
+          <p className="mt-0.5">
+            Ejecuta{" "}
+            <code>supabase/migrations/101_pos_fiscal_credit_notes.sql</code> en
+            Supabase para activar las notas de crédito.
           </p>
         </div>
       ) : null}
@@ -581,6 +726,109 @@ export default function FacturacionPage() {
             </label>
           </section>
 
+          <section className="rounded-2xl border border-slate-200 bg-white p-5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-bold text-slate-800">
+                  Notas de crédito
+                </p>
+                <p className="text-xs text-slate-500">
+                  Rango autorizado para anular total o parcialmente una factura.
+                  Si lo dejas vacío no podrás emitir notas de crédito.
+                </p>
+              </div>
+              <div className="rounded-xl bg-slate-50 px-3 py-2 text-right">
+                <p className="text-[10px] font-semibold uppercase text-slate-400">
+                  Restantes
+                </p>
+                <p
+                  className={`text-lg font-black ${
+                    creditRangeStatus.valid ? "text-slate-800" : "text-slate-300"
+                  }`}
+                >
+                  {creditRangeStatus.valid ? creditRangeStatus.remaining : "—"}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-4 grid gap-3 sm:grid-cols-3">
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-bold text-slate-700">Serie</span>
+                <input
+                  value={form.credit_series}
+                  onChange={(event) =>
+                    setForm({ ...form, credit_series: event.target.value })
+                  }
+                  className={inputClass}
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-bold text-slate-700">Desde</span>
+                <input
+                  value={form.credit_range_from}
+                  onChange={(event) =>
+                    setForm({ ...form, credit_range_from: event.target.value })
+                  }
+                  inputMode="numeric"
+                  className={inputClass}
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-bold text-slate-700">Hasta</span>
+                <input
+                  value={form.credit_range_to}
+                  onChange={(event) =>
+                    setForm({ ...form, credit_range_to: event.target.value })
+                  }
+                  inputMode="numeric"
+                  className={inputClass}
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-bold text-slate-700">
+                  Siguiente número
+                </span>
+                <input
+                  value={form.credit_next_number}
+                  onChange={(event) =>
+                    setForm({ ...form, credit_next_number: event.target.value })
+                  }
+                  inputMode="numeric"
+                  className={inputClass}
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-bold text-slate-700">
+                  Prefijo de control
+                </span>
+                <input
+                  value={form.credit_control_prefix}
+                  onChange={(event) =>
+                    setForm({
+                      ...form,
+                      credit_control_prefix: event.target.value,
+                    })
+                  }
+                  placeholder="Opcional"
+                  className={inputClass}
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-bold text-slate-700">
+                  Siguiente control
+                </span>
+                <input
+                  value={form.credit_control_next}
+                  onChange={(event) =>
+                    setForm({ ...form, credit_control_next: event.target.value })
+                  }
+                  inputMode="numeric"
+                  className={inputClass}
+                />
+              </label>
+            </div>
+          </section>
+
           <section className="rounded-2xl border border-slate-200 bg-white">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-3">
               <div>
@@ -657,6 +905,94 @@ export default function FacturacionPage() {
                                 minute: "2-digit",
                               }).format(new Date(invoice.fiscal_issued_at))
                             : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+
+          <section className="rounded-2xl border border-slate-200 bg-white">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-3">
+              <div>
+                <p className="text-sm font-bold text-slate-800">
+                  Notas de crédito emitidas
+                </p>
+                <p className="text-[11px] text-slate-500">
+                  Últimas 100 notas. Cada devolución puede tener una sola.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={exportCreditCsv}
+                disabled={creditNotes.length === 0}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-[11px] font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+              >
+                <Download className="h-3.5 w-3.5" />
+                Notas de crédito CSV
+              </button>
+            </div>
+
+            {creditNotes.length === 0 ? (
+              <div className="px-6 py-12 text-center">
+                <FileMinus2 className="mx-auto h-8 w-8 text-slate-300" />
+                <p className="mt-2 text-sm font-bold text-slate-700">
+                  Todavía no hay notas de crédito
+                </p>
+                <p className="text-xs text-slate-500">
+                  Emítelas desde el Historial de ventas, en una venta facturada
+                  con devoluciones.
+                </p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50 text-left text-[10px] uppercase tracking-wide text-slate-500">
+                    <tr>
+                      <th className="px-4 py-2.5">Nota</th>
+                      <th className="px-4 py-2.5">Control</th>
+                      <th className="px-4 py-2.5">Venta</th>
+                      <th className="px-4 py-2.5">Cliente</th>
+                      <th className="px-4 py-2.5">RIF</th>
+                      <th className="px-4 py-2.5 text-right">IVA</th>
+                      <th className="px-4 py-2.5 text-right">Total</th>
+                      <th className="px-4 py-2.5">Fecha</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {creditNotes.map((note) => (
+                      <tr key={note.id}>
+                        <td className="px-4 py-2.5 font-bold text-slate-800">
+                          {note.number}
+                        </td>
+                        <td className="px-4 py-2.5 text-slate-500">
+                          {note.control_number ?? "—"}
+                        </td>
+                        <td className="px-4 py-2.5 text-slate-600">
+                          #{note.sale?.number ?? "—"}
+                        </td>
+                        <td className="px-4 py-2.5 text-slate-600">
+                          {note.customer_legal_name ?? "—"}
+                        </td>
+                        <td className="px-4 py-2.5 text-slate-500">
+                          {note.customer_tax_id ?? "—"}
+                        </td>
+                        <td className="px-4 py-2.5 text-right text-slate-500">
+                          {formatUsd(toNumber(note.tax_iva_usd))}
+                        </td>
+                        <td className="px-4 py-2.5 text-right font-semibold text-slate-800">
+                          {formatUsd(toNumber(note.total_usd))}
+                        </td>
+                        <td className="px-4 py-2.5 text-[11px] text-slate-500">
+                          {new Intl.DateTimeFormat("es-VE", {
+                            day: "2-digit",
+                            month: "short",
+                            year: "numeric",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          }).format(new Date(note.issued_at))}
                         </td>
                       </tr>
                     ))}

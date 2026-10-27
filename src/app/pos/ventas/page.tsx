@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Ban, FileCheck2, Loader2, Plus, Receipt, RotateCcw, Search, ShoppingCart } from "lucide-react";
+import { Ban, FileCheck2, FileMinus2, Loader2, Plus, Receipt, RotateCcw, Search, ShoppingCart } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
 import { usePosRate } from "@/components/pos/rate-context";
@@ -10,6 +10,7 @@ import { PosButton, PosPageHeader } from "@/components/pos/pos-shell";
 import { SaleReceiptDialog } from "@/components/pos/sale-receipt-dialog";
 import { SaleReturnDialog } from "@/components/pos/sale-return-dialog";
 import { FiscalInvoiceDialog } from "@/components/pos/fiscal-invoice-dialog";
+import { FiscalCreditNoteDialog } from "@/components/pos/fiscal-credit-note-dialog";
 import { createClient } from "@/lib/supabase/client";
 import { formatBs, formatUsd, round2, toNumber } from "@/lib/pos/money";
 
@@ -52,6 +53,7 @@ export default function HistorialPage() {
     number: number;
     total_usd: number | string;
   } | null>(null);
+  const [creditSaleId, setCreditSaleId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!accountId) return;
@@ -283,6 +285,18 @@ export default function HistorialPage() {
                           Facturar
                         </button>
                       ) : null}
+                      {fiscalEnabled &&
+                      sale.fiscal_status === "fiscal" &&
+                      toNumber(sale.returned_usd) > 0.005 ? (
+                        <button
+                          type="button"
+                          onClick={() => setCreditSaleId(sale.id)}
+                          className="inline-flex items-center gap-1 rounded-lg border border-indigo-200 px-2 py-1 text-[11px] font-semibold text-[#3f3fd8] hover:bg-indigo-50"
+                        >
+                          <FileMinus2 className="h-3 w-3" />
+                          Nota de crédito
+                        </button>
+                      ) : null}
                       <button
                         type="button"
                         onClick={() => {
@@ -379,6 +393,15 @@ export default function HistorialPage() {
           }}
         />
       ) : null}
+
+      <FiscalCreditNoteDialog
+        saleId={creditSaleId}
+        open={creditSaleId !== null}
+        onOpenChange={(open) => {
+          if (!open) setCreditSaleId(null);
+        }}
+        onIssued={() => void load()}
+      />
     </div>
   );
 }

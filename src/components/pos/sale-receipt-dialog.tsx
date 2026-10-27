@@ -116,6 +116,9 @@ export function SaleReceiptDialog({
   const [payments, setPayments] = useState<PaymentRow[]>([]);
   const [settings, setSettings] = useState<SettingsRow | null>(null);
   const [fiscal, setFiscal] = useState<FiscalSettingsRow | null>(null);
+  const [creditNotes, setCreditNotes] = useState<
+    { number: number | string; control_number: string | null; total_usd: number | string }[]
+  >([]);
   const [customerName, setCustomerName] = useState("");
   const [shiftNumber, setShiftNumber] = useState<number | null>(null);
   const [channelName, setChannelName] = useState("");
@@ -132,7 +135,7 @@ export function SaleReceiptDialog({
       setError(null);
       const supabase = createClient();
 
-      const [saleRes, itemsRes, paymentsRes, settingsRes, fiscalRes] =
+      const [saleRes, itemsRes, paymentsRes, settingsRes, fiscalRes, creditRes] =
         await Promise.all([
           supabase.from("pos_sales").select("*").eq("id", saleId).maybeSingle(),
           supabase
@@ -159,6 +162,10 @@ export function SaleReceiptDialog({
             )
             .eq("account_id", accountId ?? "")
             .maybeSingle(),
+          supabase
+            .from("pos_fiscal_credit_notes")
+            .select("number, control_number, total_usd")
+            .eq("sale_id", saleId),
         ]);
 
       if (!alive) return;
@@ -175,6 +182,13 @@ export function SaleReceiptDialog({
       setPayments((paymentsRes.data ?? []) as PaymentRow[]);
       setSettings((settingsRes.data as SettingsRow | null) ?? null);
       setFiscal((fiscalRes.data as FiscalSettingsRow | null) ?? null);
+      setCreditNotes(
+        (creditRes.data ?? []) as {
+          number: number | string;
+          control_number: string | null;
+          total_usd: number | string;
+        }[],
+      );
 
       if (detail.pos_customer_id) {
         const { data } = await supabase
@@ -368,6 +382,12 @@ export function SaleReceiptDialog({
                       {fiscal?.machine_number ?? "—"}
                     </p>
                     <p>Serial: {fiscal?.printer_serial ?? "—"}</p>
+                    {creditNotes.map((note) => (
+                      <p key={String(note.number)}>
+                        Nota de crédito N° {note.number} ·{" "}
+                        {formatUsd(toNumber(note.total_usd))}
+                      </p>
+                    ))}
                   </>
                 ) : fields.customer ? (
                   <p>Cliente: {customerName || "Consumidor final"}</p>
