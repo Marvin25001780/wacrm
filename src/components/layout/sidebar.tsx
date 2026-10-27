@@ -14,6 +14,7 @@ import { useTotalUnread } from "@/hooks/use-total-unread";
 import { useUnreadNotifications } from "@/hooks/use-unread-notifications";
 import {
   ChevronDown,
+  ExternalLink,
   LogOut,
   MessageSquare,
   PanelLeft,
@@ -61,6 +62,7 @@ function NavLeaf({
   unreadNotifications,
   indent = false,
   collapsed = false,
+  onNavigate,
 }: {
   item: NavItem;
   pathname: string;
@@ -68,25 +70,25 @@ function NavLeaf({
   unreadNotifications: number;
   indent?: boolean;
   collapsed?: boolean;
+  onNavigate?: () => void;
 }) {
   const active = isNavActive(pathname, item.href);
   const showUnreadDot = item.href === "/inbox" && totalUnread > 0 && !active;
   const showNotificationBadge =
     item.href === "/notifications" && unreadNotifications > 0;
 
-  const content = (
-    <Link
-      href={item.href}
-      className={cn(
-        // Taller on mobile so fingers can hit the row reliably (≥44px).
-        "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors lg:py-2",
-        indent && !collapsed && "lg:pl-7",
-        collapsed && "justify-center px-0 lg:px-0",
-        active
-          ? "bg-primary/10 text-primary"
-          : "text-muted-foreground hover:bg-muted hover:text-foreground",
-      )}
-    >
+  const className = cn(
+    // Taller on mobile so fingers can hit the row reliably (≥44px).
+    "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors lg:py-2",
+    indent && !collapsed && "lg:pl-7",
+    collapsed && "justify-center px-0 lg:px-0",
+    active
+      ? "bg-primary/10 text-primary"
+      : "text-muted-foreground hover:bg-muted hover:text-foreground",
+  );
+
+  const inner = (
+    <>
       <item.icon className="h-4 w-4 shrink-0" />
       <span
         className={cn(
@@ -96,6 +98,12 @@ function NavLeaf({
       >
         {item.label}
       </span>
+      {!collapsed && item.newWindow && (
+        <ExternalLink
+          className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60"
+          aria-hidden="true"
+        />
+      )}
       {!collapsed && item.beta && (
         <span
           aria-label="Beta feature"
@@ -124,6 +132,24 @@ function NavLeaf({
           {unreadNotifications > 9 ? "9+" : unreadNotifications}
         </span>
       )}
+    </>
+  );
+
+  // El POS vive en su propia ventana: la nombramos para reutilizarla en
+  // cada clic y dejar el CRM intacto en la pestaña actual.
+  const content = item.newWindow ? (
+    <a
+      href={item.href}
+      target="nexus-pos"
+      rel="noopener noreferrer"
+      className={className}
+      onClick={() => onNavigate?.()}
+    >
+      {inner}
+    </a>
+  ) : (
+    <Link href={item.href} className={className}>
+      {inner}
     </Link>
   );
 
@@ -428,6 +454,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
                       totalUnread={totalUnread}
                       unreadNotifications={unreadNotifications}
                       collapsed={collapsed}
+                      onNavigate={onClose}
                     />
                   ),
                 )

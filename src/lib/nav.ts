@@ -68,6 +68,11 @@ export interface NavItem {
    * viewers); "agent" means agent/admin/owner; "admin" means admin/owner.
    */
   minRole?: AccountRole;
+  /**
+   * When true, the row opens the destination in its own window/tab instead
+   * of navigating the CRM. Used by the POS so the CRM stays where it was.
+   */
+  newWindow?: boolean;
 }
 
 // ------------------------------------------------------------
@@ -76,7 +81,13 @@ export interface NavItem {
 const principalNav: NavItem[] = [
   { href: "/dashboard", label: "Panel", icon: LayoutDashboard, minRole: "admin" },
   { href: "/inbox", label: "Bandeja de entrada", icon: MessageSquare },
-  { href: "/pos", label: "POS", icon: ShoppingCart, minRole: "agent" },
+  {
+    href: "/pos",
+    label: "POS",
+    icon: ShoppingCart,
+    minRole: "agent",
+    newWindow: true,
+  },
   { href: "/contacts", label: "Contactos", icon: Users },
   { href: "/organizations", label: "Empresas", icon: Building2, minRole: "admin" },
   { href: "/leads", label: "Leads", icon: Target },
