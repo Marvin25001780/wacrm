@@ -218,11 +218,15 @@ export function PosSettingsDialog({
   const preview = useMemo(
     () => ({
       name: commercialName || "Tu comercio",
+      legalName: form.legal_name,
+      taxId: form.tax_id,
+      address: form.address,
       phone: form.phone,
       title: form.receipt_title || "Comprobante de venta",
       footer: form.receipt_footer,
       fields: form.receipt_fields,
       rate: toNumber(manualRate),
+      width: form.receipt_width,
     }),
     [commercialName, form, manualRate],
   );
@@ -557,11 +561,15 @@ export function PosSettingsDialog({
                       <div className="mt-2 rounded-xl bg-slate-100/70 p-4">
                         <ReceiptPreview
                           name={preview.name}
+                          legalName={preview.fields.legal_name ? preview.legalName : ""}
+                          taxId={preview.fields.tax_id ? preview.taxId : ""}
+                          address={preview.fields.address ? preview.address : ""}
                           phone={preview.fields.phone ? preview.phone : ""}
                           title={preview.title}
                           footer={preview.footer}
                           fields={preview.fields}
                           rate={preview.rate}
+                          width={preview.width}
                         />
                       </div>
                     </div>
@@ -1037,25 +1045,52 @@ function RateInput({
 
 function ReceiptPreview({
   name,
+  legalName,
+  taxId,
+  address,
   phone,
   title,
   footer,
   fields,
   rate,
+  width,
 }: {
   name: string;
+  legalName: string;
+  taxId: string;
+  address: string;
   phone: string;
   title: string;
   footer: string;
   fields: Record<string, boolean>;
   rate: number;
+  width: "58" | "80" | "letter";
 }) {
   const total = 10;
+  const maxWidth =
+    width === "58"
+      ? "max-w-[190px]"
+      : width === "letter"
+        ? "max-w-[300px]"
+        : "max-w-[240px]";
+  const bsValue = formatBs(usdToBs(total, rate)).replace(/^Bs\s*/, "");
+
   return (
-    <div className="relative mx-auto max-w-[240px] rounded-t-lg bg-white px-4 py-4 text-center shadow-sm">
+    <div
+      className={`relative mx-auto ${maxWidth} rounded-t-lg bg-white px-4 py-4 text-center shadow-sm`}
+    >
       <p className="text-xs font-bold text-slate-800">{name}</p>
-      {fields.phone && phone ? (
+      {legalName ? (
+        <p className="text-[10px] leading-snug text-slate-500">{legalName}</p>
+      ) : null}
+      {taxId ? (
+        <p className="text-[10px] text-slate-500">RIF: {taxId}</p>
+      ) : null}
+      {phone ? (
         <p className="text-[10px] text-slate-500">Tel: {phone}</p>
+      ) : null}
+      {address ? (
+        <p className="text-[9px] leading-snug text-slate-400">{address}</p>
       ) : null}
       <div className="my-2 border-t border-dashed border-slate-300" />
       <p className="text-[11px] font-semibold text-slate-700">{title}</p>
@@ -1068,9 +1103,7 @@ function ReceiptPreview({
       <div className="flex items-start justify-between text-[10px]">
         <div className="text-left">
           <p className="font-medium text-slate-700">1 Producto de ejemplo</p>
-          {fields.sku ? (
-            <p className="text-slate-400">SKU-001</p>
-          ) : null}
+          {fields.sku ? <p className="text-slate-400">SKU-001</p> : null}
         </div>
         <p className="font-semibold text-slate-800">{formatUsd(total)}</p>
       </div>
@@ -1082,7 +1115,7 @@ function ReceiptPreview({
       {fields.total_bs ? (
         <div className="flex items-center justify-between text-[10px] text-slate-500">
           <span>Total Bs</span>
-          <span>{formatBs(usdToBs(total, rate))}</span>
+          <span>{bsValue}</span>
         </div>
       ) : null}
       {fields.rate ? (
