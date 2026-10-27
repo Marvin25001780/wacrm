@@ -20,6 +20,8 @@ export interface OpenShift {
   opening_usd: number | string;
   opening_bs: number | string;
   rate_open: number | string;
+  register_id?: string | null;
+  register?: { name: string | null } | null;
 }
 
 interface ShiftContextValue {
@@ -37,7 +39,7 @@ export function notifyShiftChanged() {
 }
 
 export function PosShiftProvider({ children }: { children: ReactNode }) {
-  const { accountId } = useAuth();
+  const { accountId, user } = useAuth();
   const [shift, setShift] = useState<OpenShift | null>(null);
   const [loading, setLoading] = useState(true);
   const [missing, setMissing] = useState(false);
@@ -45,7 +47,27 @@ export function PosShiftProvider({ children }: { children: ReactNode }) {
   const refresh = useCallback(async () => {
     if (!accountId) return;
     const supabase = createClient();
-    const { data, error } = await supabase
+    const first = await supabase
+      .from("pos_shifts")
+      .select(
+        "id, number, status, opened_at, opening_usd, opening_bs, rate_open, register_id, register:pos_registers(name)",
+      )
+      .eq("account_id", accountId)
+      .eq("status", "open")
+      .eq("opened_by", user?.id ?? "")
+      .order("opened_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (!first.error) {
+      setMissing(false);
+      setShift((first.data as unknown as OpenShift | null) ?? null);
+      setLoading(false);
+      return;
+    }
+
+    // Compatibilidad mientras no se aplica la 099.
+    const fallback = await supabase
       .from("pos_shifts")
       .select(
         "id, number, status, opened_at, opening_usd, opening_bs, rate_open",
@@ -54,15 +76,15 @@ export function PosShiftProvider({ children }: { children: ReactNode }) {
       .eq("status", "open")
       .maybeSingle();
 
-    if (error) {
+    if (fallback.error) {
       setMissing(true);
       setShift(null);
     } else {
       setMissing(false);
-      setShift((data as OpenShift | null) ?? null);
+      setShift((fallback.data as OpenShift | null) ?? null);
     }
     setLoading(false);
-  }, [accountId]);
+  }, [accountId, user?.id]);
 
   useEffect(() => {
     void refresh();

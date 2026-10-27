@@ -13,6 +13,7 @@ import {
   Plus,
   Printer,
   Receipt,
+  Store,
   Wallet,
   X,
 } from "lucide-react";
@@ -29,6 +30,7 @@ import {
   type ShiftPrintData,
 } from "@/components/pos/shift-close-dialog";
 import { DenominationDialog } from "@/components/pos/denomination-dialog";
+import { RegisterDialog } from "@/components/pos/register-dialog";
 import { createClient } from "@/lib/supabase/client";
 import {
   PAYMENT_METHODS,
@@ -90,6 +92,19 @@ interface ShiftSale {
   created_at: string;
 }
 
+interface RegisterRow {
+  id: string;
+  name: string;
+  active: boolean;
+}
+
+interface OpenRegisterShift {
+  id: string;
+  number: number;
+  register_id: string | null;
+  opened_at: string;
+}
+
 const METHOD_LABEL: Record<string, string> = Object.fromEntries(
   PAYMENT_METHODS.map((method) => [method.value, method.label]),
 );
@@ -106,6 +121,10 @@ export default function TurnosPage() {
 
   const [summary, setSummary] = useState<Summary | null>(null);
   const [shiftReturns, setShiftReturns] = useState(0);
+  const [registers, setRegisters] = useState<RegisterRow[]>([]);
+  const [openShifts, setOpenShifts] = useState<OpenRegisterShift[]>([]);
+  const [registerDialogOpen, setRegisterDialogOpen] = useState(false);
+  const [initialRegisterId, setInitialRegisterId] = useState("");
   const [sales, setSales] = useState<ShiftSale[]>([]);
   const [history, setHistory] = useState<ShiftRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -189,6 +208,26 @@ export default function TurnosPage() {
       setHistory((historyData ?? []) as ShiftRow[]);
     }
 
+    const [registersRes, openShiftsRes] = await Promise.all([
+      supabase
+        .from("pos_registers")
+        .select("id, name, active")
+        .eq("account_id", accountId)
+        .order("created_at"),
+      supabase
+        .from("pos_shifts")
+        .select("id, number, register_id, opened_at")
+        .eq("account_id", accountId)
+        .eq("status", "open"),
+    ]);
+
+    if (!registersRes.error) {
+      setRegisters((registersRes.data ?? []) as RegisterRow[]);
+    }
+    if (!openShiftsRes.error) {
+      setOpenShifts((openShiftsRes.data ?? []) as OpenRegisterShift[]);
+    }
+
     setLoading(false);
   }, [accountId, shift?.id, missing]);
 
@@ -211,14 +250,19 @@ export default function TurnosPage() {
     usd: string;
     bs: string;
     note: string;
+    registerId: string;
   }) {
     const supabase = createClient();
-    const { error } = await supabase.rpc("pos_open_shift", {
+    const rpcPayload: Record<string, unknown> = {
       p_opening_usd: toNumber(payload.usd),
       p_opening_bs: toNumber(payload.bs),
       p_rate: rate,
       p_note: payload.note.trim() || null,
-    });
+    };
+    if (payload.registerId) {
+      rpcPayload.p_register_id = payload.registerId;
+    }
+    const { error } = await supabase.rpc("pos_open_shift", rpcPayload);
 
     if (error) return error.message;
 
@@ -376,6 +420,81 @@ export default function TurnosPage() {
         </div>
       ) : null}
 
+      {registers.length > 0 ? (
+        <section className="rounded-2xl border border-slate-200 bg-white p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <p className="text-sm font-bold text-slate-800">Cajas</p>
+              <p className="text-[11px] text-slate-500">
+                Cada caja tiene su turno y arqueo. El inventario es compartido.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setRegisterDialogOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-[11px] font-semibold text-slate-600 hover:bg-slate-50"
+            >
+              <Store className="h-3.5 w-3.5" />
+              Administrar cajas
+            </button>
+          </div>
+
+          <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+            {registers
+              .filter((register) => register.active)
+              .map((register) => {
+                const open = openShifts.find(
+                  (row) => row.register_id === register.id,
+                );
+                const mine = shift?.register_id === register.id;
+                const canOpen = !shift && !open;
+                return (
+                  <div
+                    key={register.id}
+                    className={`flex items-center justify-between gap-2 rounded-xl border px-3 py-2.5 ${
+                      mine
+                        ? "border-emerald-200 bg-emerald-50/50"
+                        : "border-slate-200"
+                    }`}
+                  >
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span
+                        className={`h-2 w-2 shrink-0 rounded-full ${
+                          open ? "bg-emerald-500" : "bg-slate-300"
+                        }`}
+                      />
+                      <div className="min-w-0">
+                        <p className="truncate text-xs font-bold text-slate-700">
+                          {register.name}
+                        </p>
+                        <p className="truncate text-[10px] text-slate-400">
+                          {open
+                            ? mine
+                              ? `Tu turno #${open.number}`
+                              : `Turno #${open.number}`
+                            : "Cerrada"}
+                        </p>
+                      </div>
+                    </div>
+                    {canOpen ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setInitialRegisterId(register.id);
+                          setOpenDialog(true);
+                        }}
+                        className="shrink-0 rounded-md border border-slate-200 px-2 py-1 text-[10px] font-bold text-slate-600 hover:bg-slate-50"
+                      >
+                        Abrir
+                      </button>
+                    ) : null}
+                  </div>
+                );
+              })}
+          </div>
+        </section>
+      ) : null}
+
       {closedResult ? (
         <div className="flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm">
           <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" />
@@ -422,7 +541,15 @@ export default function TurnosPage() {
               transferencias entren en el arqueo.
             </p>
             <div className="mt-5 flex justify-center">
-              <PosButton onClick={() => setOpenDialog(true)} disabled={missing}>
+              <PosButton
+                onClick={() => {
+                  setInitialRegisterId(
+                    registers.find((row) => row.active)?.id ?? "",
+                  );
+                  setOpenDialog(true);
+                }}
+                disabled={missing}
+              >
                 <Plus className="h-4 w-4" />
                 Abrir turno
               </PosButton>
@@ -831,8 +958,19 @@ export default function TurnosPage() {
       {openDialog ? (
         <OpenShiftDialog
           rate={rate}
+          registers={registers}
+          initialRegisterId={initialRegisterId}
           onClose={() => setOpenDialog(false)}
           onOpen={openShift}
+        />
+      ) : null}
+
+      {registerDialogOpen ? (
+        <RegisterDialog
+          accountId={accountId}
+          registers={registers}
+          onClose={() => setRegisterDialogOpen(false)}
+          onChanged={() => void load()}
         />
       ) : null}
 
@@ -858,27 +996,35 @@ export default function TurnosPage() {
 
 function OpenShiftDialog({
   rate,
+  registers,
+  initialRegisterId,
   onClose,
   onOpen,
 }: {
   rate: number;
+  registers: RegisterRow[];
+  initialRegisterId: string;
   onClose: () => void;
   onOpen: (payload: {
     usd: string;
     bs: string;
     note: string;
+    registerId: string;
   }) => Promise<string | null>;
 }) {
   const [usd, setUsd] = useState("0");
   const [bs, setBs] = useState("0");
   const [note, setNote] = useState("");
+  const [registerId, setRegisterId] = useState(
+    initialRegisterId || registers.find((row) => row.active)?.id || "",
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function submit() {
     setSaving(true);
     setError(null);
-    const message = await onOpen({ usd, bs, note });
+    const message = await onOpen({ usd, bs, note, registerId });
     setSaving(false);
     if (message) setError(message);
   }
@@ -903,6 +1049,25 @@ function OpenShiftDialog({
         </div>
 
         <div className="space-y-3 px-5 py-4">
+          {registers.length > 0 ? (
+            <label className="flex flex-col gap-1">
+              <span className="text-xs font-bold text-slate-700">Caja</span>
+              <select
+                value={registerId}
+                onChange={(event) => setRegisterId(event.target.value)}
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-[#3f3fd8]"
+              >
+                {registers
+                  .filter((row) => row.active)
+                  .map((row) => (
+                    <option key={row.id} value={row.id}>
+                      {row.name}
+                    </option>
+                  ))}
+              </select>
+            </label>
+          ) : null}
+
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="flex flex-col gap-1">
               <span className="text-xs font-bold text-slate-700">

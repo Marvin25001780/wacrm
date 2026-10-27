@@ -373,7 +373,10 @@ function ShiftChip() {
           shift ? "bg-emerald-500" : "bg-slate-300"
         }`}
       />
-      {shift ? `Caja #${String(shift.number).padStart(2, "0")}` : "Caja cerrada"}
+      {shift
+        ? shift.register?.name ??
+          `Caja #${String(shift.number).padStart(2, "0")}`
+        : "Caja cerrada"}
     </Link>
   );
 }
@@ -396,7 +399,8 @@ function ShiftCard({ onNavigate }: { onNavigate?: () => void }) {
               {loading
                 ? "Cargando caja…"
                 : shift
-                  ? `Caja #${String(shift.number).padStart(2, "0")}`
+                  ? shift.register?.name ??
+                    `Caja #${String(shift.number).padStart(2, "0")}`
                   : "Caja cerrada"}
             </p>
             <p
