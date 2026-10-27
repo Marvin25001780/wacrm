@@ -8,13 +8,21 @@ import {
   Plus,
   Search,
   SlidersHorizontal,
+  Star,
+  Tag,
+  Trash2,
   X,
 } from "lucide-react";
 
 import { PosButton } from "@/components/pos/pos-shell";
 import { createClient } from "@/lib/supabase/client";
 import { formatBs, formatUsd, round2, toNumber, usdToBs } from "@/lib/pos/money";
-import type { Category, Product } from "./types";
+import type {
+  Category,
+  PriceList,
+  Product,
+  ProductPrice,
+} from "./types";
 import { inputClass } from "./types";
 
 type Rounding = "none" | "0.05" | "0.10" | "up";
@@ -31,20 +39,50 @@ function marginOf(price: number, cost: number): number | null {
   return ((price - cost) / price) * 100;
 }
 
+function buildPriceIndex(prices: ProductPrice[]) {
+  const map = new Map<string, Map<string, number>>();
+  for (const row of prices) {
+    let byList = map.get(row.product_id);
+    if (!byList) {
+      byList = new Map();
+      map.set(row.product_id, byList);
+    }
+    byList.set(row.price_list_id, toNumber(row.price_usd));
+  }
+  return map;
+}
+
+function resolvePrice(
+  product: Product,
+  list: PriceList,
+  index: Map<string, Map<string, number>>,
+): number {
+  if (list.is_default) return toNumber(product.price_usd);
+  return index.get(product.id)?.get(list.id) ?? toNumber(product.price_usd);
+}
+
 export function PricesTab({
   accountId,
   products,
   categories,
+  priceLists,
+  prices,
   rate,
+  priceListsReady,
   onNewProduct,
   onChanged,
+  onPriceListsChanged,
 }: {
   accountId: string | null;
   products: Product[];
   categories: Category[];
+  priceLists: PriceList[];
+  prices: ProductPrice[];
   rate: number;
+  priceListsReady: boolean;
   onNewProduct: () => void;
   onChanged: () => void;
+  onPriceListsChanged: () => void;
 }) {
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<"active" | "all">("active");
@@ -52,6 +90,14 @@ export function PricesTab({
   const [pageSize, setPageSize] = useState(50);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [channelsOpen, setChannelsOpen] = useState(false);
+
+  const lists = useMemo(() => {
+    const active = priceLists.filter((list) => list.active);
+    return active.length > 0 ? active : priceLists;
+  }, [priceLists]);
+
+  const priceIndex = useMemo(() => buildPriceIndex(prices), [prices]);
 
   const categoriesById = useMemo(
     () => new Map(categories.map((category) => [category.id, category])),
@@ -79,7 +125,8 @@ export function PricesTab({
     (currentPage - 1) * pageSize,
     currentPage * pageSize,
   );
-  const allSelected = rows.length > 0 && rows.every((row) => selected.has(row.id));
+  const allSelected =
+    rows.length > 0 && rows.every((row) => selected.has(row.id));
 
   function toggleAll() {
     setSelected((current) => {
@@ -115,27 +162,24 @@ export function PricesTab({
       "Código de barras",
       "Categoría",
       "Costo USD",
-      "Precio USD",
-      "Margen %",
+      ...lists.map((list) => `${list.name} USD`),
       "Activo",
     ];
     const lines = filtered.map((product) => {
       const cost = toNumber(product.cost_usd);
-      const price = toNumber(product.price_usd);
-      const margin = marginOf(price, cost);
       return [
         product.name,
         product.sku ?? "",
         product.barcode ?? "",
         categoriesById.get(product.category_id ?? "")?.name ?? "",
         cost.toFixed(2),
-        price.toFixed(2),
-        margin == null ? "" : margin.toFixed(2),
+        ...lists.map((list) =>
+          resolvePrice(product, list, priceIndex).toFixed(2),
+        ),
         product.active ? "Sí" : "No",
       ];
     });
-    const escape = (value: string) =>
-      `"${value.replaceAll('"', '""')}"`;
+    const escape = (value: string) => `"${value.replaceAll('"', '""')}"`;
     const csv = [header, ...lines]
       .map((row) => row.map(escape).join(";"))
       .join("\r\n");
@@ -157,10 +201,10 @@ export function PricesTab({
         <div>
           <p className="text-base font-bold text-slate-900">Precios</p>
           <p className="text-xs text-slate-500">
-            Costo, precio y margen de cada producto.
+            Costo, precio y margen de cada producto en cada canal.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
             onClick={exportCsv}
@@ -170,6 +214,14 @@ export function PricesTab({
           >
             <Download className="h-4 w-4" />
           </button>
+          <PosButton
+            variant="outline"
+            onClick={() => setChannelsOpen(true)}
+            disabled={!priceListsReady}
+          >
+            <Tag className="h-4 w-4" />
+            Canales
+          </PosButton>
           <PosButton onClick={() => setDialogOpen(true)}>
             <SlidersHorizontal className="h-4 w-4" />
             Cambiar precios...
@@ -230,24 +282,27 @@ export function PricesTab({
                 </th>
                 <th className="px-4 py-2.5 font-semibold">Producto</th>
                 <th className="px-4 py-2.5 text-right font-semibold">Costo</th>
-                <th className="px-4 py-2.5 font-semibold">
-                  <span className="inline-flex items-center gap-1">
-                    Precios por canal
-                    <Info
-                      className="h-3 w-3 text-slate-400"
-                      aria-label="El POS usa el canal Principal"
-                    />
-                  </span>
-                </th>
-                <th className="px-4 py-2.5 text-right font-semibold">Margen</th>
+                {lists.map((list) => (
+                  <th
+                    key={list.id}
+                    className="px-3 py-2.5 text-right font-semibold"
+                  >
+                    <span className="inline-flex items-center gap-1">
+                      {list.name}
+                      {list.is_default ? (
+                        <span className="rounded bg-indigo-50 px-1 py-0.5 text-[8px] font-bold text-[#4338ca]">
+                          BASE
+                        </span>
+                      ) : null}
+                    </span>
+                  </th>
+                ))}
                 <th className="px-4 py-2.5 text-right font-semibold">Activo</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {rows.map((product) => {
                 const cost = toNumber(product.cost_usd);
-                const price = toNumber(product.price_usd);
-                const margin = marginOf(price, cost);
                 const category = categoriesById.get(product.category_id ?? "");
                 return (
                   <tr key={product.id} className="hover:bg-slate-50/60">
@@ -277,30 +332,26 @@ export function PricesTab({
                         <span className="block">Costo registrado</span>
                       </p>
                     </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-3">
-                        <span className="text-[11px] font-semibold text-slate-400">
-                          Principal
-                        </span>
-                        <PriceInput
-                          product={product}
-                          onSaved={onChanged}
-                        />
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      {margin == null ? (
-                        <span className="text-slate-300">—</span>
-                      ) : (
-                        <span
-                          className={`font-semibold ${
-                            margin >= 0 ? "text-slate-700" : "text-red-600"
-                          }`}
-                        >
-                          {margin.toFixed(2)} %
-                        </span>
-                      )}
-                    </td>
+                    {lists.map((list) => {
+                      const price = resolvePrice(product, list, priceIndex);
+                      const margin = marginOf(price, cost);
+                      return (
+                        <td key={list.id} className="px-3 py-3">
+                          <PriceInput
+                            accountId={accountId}
+                            product={product}
+                            list={list}
+                            value={price}
+                            onSaved={onChanged}
+                          />
+                          <p className="mt-0.5 text-right text-[10px] text-slate-400">
+                            {margin == null
+                              ? "Sin precio"
+                              : `${margin.toFixed(2)} % margen`}
+                          </p>
+                        </td>
+                      );
+                    })}
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-end gap-2">
                         <button
@@ -385,6 +436,8 @@ export function PricesTab({
           filtered={filtered}
           hasFilters={search.trim().length > 0 || status !== "active"}
           selected={products.filter((product) => selected.has(product.id))}
+          lists={lists}
+          prices={prices}
           onClose={() => setDialogOpen(false)}
           onApplied={() => {
             setDialogOpen(false);
@@ -393,54 +446,87 @@ export function PricesTab({
           }}
         />
       ) : null}
+
+      {channelsOpen ? (
+        <ChannelsDialog
+          accountId={accountId}
+          priceLists={priceLists}
+          onClose={() => setChannelsOpen(false)}
+          onChanged={onPriceListsChanged}
+        />
+      ) : null}
     </section>
   );
 }
 
 function PriceInput({
+  accountId,
   product,
+  list,
+  value,
   onSaved,
 }: {
+  accountId: string | null;
   product: Product;
+  list: PriceList;
+  value: number;
   onSaved: () => void;
 }) {
-  const [value, setValue] = useState(() => toNumber(product.price_usd).toFixed(2));
+  const [text, setText] = useState(() => value.toFixed(2));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(false);
 
   useEffect(() => {
-    setValue(toNumber(product.price_usd).toFixed(2));
-  }, [product.price_usd]);
+    setText(value.toFixed(2));
+  }, [value]);
 
   async function commit() {
-    const next = Math.max(round2(toNumber(value)), 0);
+    if (!accountId) return;
+    const next = Math.max(round2(toNumber(text)), 0);
     setError(false);
 
-    if (next === round2(toNumber(product.price_usd))) {
-      setValue(next.toFixed(2));
+    if (next === round2(value)) {
+      setText(next.toFixed(2));
       return;
     }
 
     setSaving(true);
     const supabase = createClient();
-    const { error: updateError } = await supabase
-      .from("pos_products")
-      .update({ price_usd: next })
-      .eq("id", product.id);
+    let saveError: { message: string } | null = null;
+
+    if (list.is_default) {
+      const result = await supabase
+        .from("pos_products")
+        .update({ price_usd: next })
+        .eq("id", product.id);
+      saveError = result.error;
+    } else {
+      const result = await supabase.from("pos_product_prices").upsert(
+        {
+          account_id: accountId,
+          product_id: product.id,
+          price_list_id: list.id,
+          price_usd: next,
+        },
+        { onConflict: "product_id,price_list_id" },
+      );
+      saveError = result.error;
+    }
+
     setSaving(false);
 
-    if (updateError) {
+    if (saveError) {
       setError(true);
-      setValue(toNumber(product.price_usd).toFixed(2));
+      setText(value.toFixed(2));
       return;
     }
-    setValue(next.toFixed(2));
+    setText(next.toFixed(2));
     onSaved();
   }
 
   return (
     <div
-      className={`flex items-center gap-1 rounded-lg border px-2 py-1.5 ${
+      className={`ml-auto flex items-center gap-1 rounded-lg border px-2 py-1.5 ${
         error ? "border-red-300" : "border-slate-200"
       }`}
     >
@@ -450,18 +536,18 @@ function PriceInput({
         <span className="text-xs text-slate-400">$</span>
       )}
       <input
-        value={value}
+        value={text}
         inputMode="decimal"
-        onChange={(event) => setValue(event.target.value)}
+        onChange={(event) => setText(event.target.value)}
         onBlur={() => void commit()}
         onKeyDown={(event) => {
           if (event.key === "Enter") event.currentTarget.blur();
           if (event.key === "Escape") {
-            setValue(toNumber(product.price_usd).toFixed(2));
+            setText(value.toFixed(2));
             event.currentTarget.blur();
           }
         }}
-        className="w-20 bg-transparent text-right text-sm font-semibold text-slate-800 outline-none"
+        className="w-16 bg-transparent text-right text-sm font-semibold text-slate-800 outline-none"
       />
     </div>
   );
@@ -473,6 +559,8 @@ function PriceChangeDialog({
   filtered,
   hasFilters,
   selected,
+  lists,
+  prices,
   onClose,
   onApplied,
 }: {
@@ -481,11 +569,16 @@ function PriceChangeDialog({
   filtered: Product[];
   hasFilters: boolean;
   selected: Product[];
+  lists: PriceList[];
+  prices: ProductPrice[];
   onClose: () => void;
   onApplied: () => void;
 }) {
   const [scope, setScope] = useState<"filtered" | "selected" | "all">(
     selected.length > 0 ? "selected" : "filtered",
+  );
+  const [channelId, setChannelId] = useState(
+    () => lists.find((list) => list.is_default)?.id ?? lists[0]?.id ?? "",
   );
   const [kind, setKind] = useState<"percent" | "fixed">("percent");
   const [value, setValue] = useState("-10");
@@ -496,25 +589,23 @@ function PriceChangeDialog({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const priceIndex = useMemo(() => buildPriceIndex(prices), [prices]);
+  const channel =
+    lists.find((list) => list.id === channelId) ?? lists[0] ?? null;
+
   const base = useMemo(() => {
     if (scope === "selected") return selected;
     if (scope === "all") return all;
     return filtered;
   }, [scope, selected, all, filtered]);
 
-  function calculate(): number {
-    const amount = toNumber(value);
-    if (amount === 0) return 0;
-    if (kind === "percent") return amount;
-    return amount;
-  }
-
   function previewRows() {
-    const amount = calculate();
+    if (!channel) return;
+    const amount = toNumber(value);
     const rows = base
       .filter((product) => product.kind !== "supply")
       .map((product) => {
-        const before = toNumber(product.price_usd);
+        const before = resolvePrice(product, channel, priceIndex);
         const raw =
           kind === "percent" ? before * (1 + amount / 100) : before + amount;
         let after = Math.max(raw, 0);
@@ -534,20 +625,31 @@ function PriceChangeDialog({
   }
 
   async function apply() {
-    if (!accountId || !preview || preview.length === 0) return;
+    if (!accountId || !channel || !preview || preview.length === 0) return;
     setSaving(true);
     setError(null);
     const supabase = createClient();
 
     for (const row of preview) {
-      const { error: updateError } = await supabase
-        .from("pos_products")
-        .update({ price_usd: row.after })
-        .eq("id", row.product.id);
-      if (updateError) {
+      const result = channel.is_default
+        ? await supabase
+            .from("pos_products")
+            .update({ price_usd: row.after })
+            .eq("id", row.product.id)
+        : await supabase.from("pos_product_prices").upsert(
+            {
+              account_id: accountId,
+              product_id: row.product.id,
+              price_list_id: channel.id,
+              price_usd: row.after,
+            },
+            { onConflict: "product_id,price_list_id" },
+          );
+
+      if (result.error) {
         setSaving(false);
         setError(
-          `Se aplicaron algunos precios. Falló "${row.product.name}": ${updateError.message}`,
+          `Se aplicaron algunos precios. Falló "${row.product.name}": ${result.error.message}`,
         );
         return;
       }
@@ -621,6 +723,24 @@ function PriceChangeDialog({
 
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="flex flex-col gap-1">
+              <span className="text-xs font-bold text-slate-700">Canal</span>
+              <select
+                value={channelId}
+                onChange={(event) => {
+                  setChannelId(event.target.value);
+                  setPreview(null);
+                }}
+                className={inputClass}
+              >
+                {lists.map((list) => (
+                  <option key={list.id} value={list.id}>
+                    {list.name}
+                    {list.is_default ? " (base)" : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1">
               <span className="text-xs font-bold text-slate-700">
                 Tipo de cambio
               </span>
@@ -652,7 +772,7 @@ function PriceChangeDialog({
                 5 %.
               </span>
             </label>
-            <label className="flex flex-col gap-1 sm:col-span-2">
+            <label className="flex flex-col gap-1">
               <span className="text-xs font-bold text-slate-700">
                 Redondeo del precio nuevo ($)
               </span>
@@ -741,6 +861,190 @@ function PriceChangeDialog({
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             Aplicar
           </PosButton>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ChannelsDialog({
+  accountId,
+  priceLists,
+  onClose,
+  onChanged,
+}: {
+  accountId: string | null;
+  priceLists: PriceList[];
+  onClose: () => void;
+  onChanged: () => void;
+}) {
+  const [newName, setNewName] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function addChannel() {
+    if (!accountId || newName.trim().length < 2) return;
+    setSaving(true);
+    setError(null);
+    const supabase = createClient();
+    const { error: dbError } = await supabase.from("pos_price_lists").insert({
+      account_id: accountId,
+      name: newName.trim(),
+      is_default: false,
+      active: true,
+    });
+    setSaving(false);
+    if (dbError) {
+      setError(
+        dbError.code === "23505"
+          ? "Ya existe un canal con ese nombre."
+          : dbError.message,
+      );
+      return;
+    }
+    setNewName("");
+    onChanged();
+  }
+
+  async function toggleActive(list: PriceList) {
+    if (list.is_default) return;
+    const supabase = createClient();
+    await supabase
+      .from("pos_price_lists")
+      .update({ active: !list.active })
+      .eq("id", list.id);
+    onChanged();
+  }
+
+  async function remove(list: PriceList) {
+    if (list.is_default) return;
+    if (!window.confirm(`¿Eliminar el canal "${list.name}"?`)) return;
+    const supabase = createClient();
+    const { error: dbError } = await supabase
+      .from("pos_price_lists")
+      .delete()
+      .eq("id", list.id);
+    if (dbError) {
+      setError(dbError.message);
+      return;
+    }
+    onChanged();
+  }
+
+  async function rename(list: PriceList, name: string) {
+    const next = name.trim();
+    if (!next || next === list.name) return;
+    const supabase = createClient();
+    const { error: dbError } = await supabase
+      .from("pos_price_lists")
+      .update({ name: next })
+      .eq("id", list.id);
+    if (dbError) {
+      setError(
+        dbError.code === "23505"
+          ? "Ya existe un canal con ese nombre."
+          : dbError.message,
+      );
+      return;
+    }
+    onChanged();
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/40 p-4 sm:items-center">
+      <div className="w-full max-w-xl rounded-2xl bg-white shadow-2xl">
+        <div className="flex items-start justify-between border-b border-slate-100 px-5 py-4">
+          <div>
+            <h2 className="text-xl font-black text-slate-900">
+              Canales de precio
+            </h2>
+            <p className="text-xs text-slate-500">
+              Un precio distinto para mayoristas, delivery o mostrador.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg p-1 text-slate-400 hover:bg-slate-100"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="space-y-3 px-5 py-4">
+          <div className="flex items-center gap-2">
+            <input
+              value={newName}
+              onChange={(event) => setNewName(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") void addChannel();
+              }}
+              placeholder="Nuevo canal (Mayorista, Delivery...)"
+              className={inputClass}
+            />
+            <PosButton
+              onClick={() => void addChannel()}
+              disabled={saving || newName.trim().length < 2}
+            >
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              Agregar
+            </PosButton>
+          </div>
+
+          <div className="divide-y divide-slate-100 rounded-xl border border-slate-200">
+            {priceLists.map((list) => (
+              <div key={list.id} className="flex items-center gap-2 px-3 py-2.5">
+                <input
+                  key={`${list.id}-${list.name}`}
+                  defaultValue={list.name}
+                  onBlur={(event) => void rename(list, event.target.value)}
+                  className="min-w-0 flex-1 rounded-lg border border-transparent px-2 py-1 text-sm font-semibold text-slate-800 outline-none hover:border-slate-200 focus:border-[#4338ca]"
+                />
+                {list.is_default ? (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-bold text-[#4338ca]">
+                    <Star className="h-3 w-3" />
+                    Predeterminado
+                  </span>
+                ) : null}
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={list.active}
+                  disabled={list.is_default}
+                  onClick={() => void toggleActive(list)}
+                  className={`relative h-5 w-9 rounded-full transition-colors disabled:opacity-50 ${
+                    list.active ? "bg-[#4338ca]" : "bg-slate-200"
+                  }`}
+                  title={list.active ? "Activo" : "Inactivo"}
+                >
+                  <span
+                    className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${
+                      list.active ? "left-[18px]" : "left-0.5"
+                    }`}
+                  />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void remove(list)}
+                  disabled={list.is_default}
+                  title="Eliminar canal"
+                  className="rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-30"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+
+          {error ? (
+            <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">
+              {error}
+            </p>
+          ) : null}
+        </div>
+
+        <div className="flex justify-end border-t border-slate-100 px-5 py-3">
+          <PosButton onClick={onClose}>Listo</PosButton>
         </div>
       </div>
     </div>

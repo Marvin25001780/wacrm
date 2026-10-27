@@ -7,6 +7,7 @@ import { Loader2, Plus, Receipt, Search, ShoppingCart } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { usePosRate } from "@/components/pos/rate-context";
 import { PosButton, PosPageHeader } from "@/components/pos/pos-shell";
+import { SaleReceiptDialog } from "@/components/pos/sale-receipt-dialog";
 import { createClient } from "@/lib/supabase/client";
 import { formatBs, formatUsd, toNumber } from "@/lib/pos/money";
 
@@ -34,6 +35,8 @@ export default function HistorialPage() {
   const [sales, setSales] = useState<SaleRow[]>([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
+  const [receiptOpen, setReceiptOpen] = useState(false);
+  const [receiptSaleId, setReceiptSaleId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!accountId) return;
@@ -143,7 +146,7 @@ export default function HistorialPage() {
           </Link>
         </div>
       ) : (
-        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+        <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
           <table className="w-full text-sm">
             <thead className="bg-slate-50 text-left text-[11px] uppercase tracking-wide text-slate-500">
               <tr>
@@ -154,6 +157,7 @@ export default function HistorialPage() {
                 <th className="px-4 py-2.5 text-right font-semibold">IGTF</th>
                 <th className="px-4 py-2.5 text-right font-semibold">Total</th>
                 <th className="px-4 py-2.5 text-right font-semibold">Saldo</th>
+                <th className="px-4 py-2.5 text-right font-semibold">Recibo</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -190,12 +194,31 @@ export default function HistorialPage() {
                       ? formatUsd(toNumber(sale.balance_usd))
                       : "—"}
                   </td>
+                  <td className="px-4 py-3 text-right">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setReceiptSaleId(sale.id);
+                        setReceiptOpen(true);
+                      }}
+                      className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-50"
+                    >
+                      <Receipt className="h-3 w-3" />
+                      Ver
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       )}
+
+      <SaleReceiptDialog
+        saleId={receiptSaleId}
+        open={receiptOpen}
+        onOpenChange={setReceiptOpen}
+      />
     </div>
   );
 }

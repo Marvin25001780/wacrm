@@ -8,6 +8,7 @@ import {
   Minus,
   Percent,
   Plus,
+  Receipt,
   Search,
   ShoppingCart,
   Trash2,
@@ -17,6 +18,7 @@ import {
 import { useAuth } from "@/hooks/use-auth";
 import { usePosRate } from "@/components/pos/rate-context";
 import { usePosShift } from "@/components/pos/shift-context";
+import { SaleReceiptDialog } from "@/components/pos/sale-receipt-dialog";
 import { PosButton, PosPageHeader } from "@/components/pos/pos-shell";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -66,6 +68,18 @@ interface SurchargeRow {
   name: string;
   kind: "percent" | "fixed";
   value: number | string;
+}
+
+interface PriceListRow {
+  id: string;
+  name: string;
+  is_default: boolean;
+}
+
+interface ProductPriceRow {
+  product_id: string;
+  price_list_id: string;
+  price_usd: number | string;
 }
 
 interface DiscountRow {
@@ -120,6 +134,10 @@ export default function VenderPage() {
   >([]);
   const [customers, setCustomers] = useState<{ id: string; name: string }[]>([]);
   const [surchargeOptions, setSurchargeOptions] = useState<SurchargeRow[]>([]);
+  const [priceLists, setPriceLists] = useState<PriceListRow[]>([]);
+  const [prices, setPrices] = useState<ProductPriceRow[]>([]);
+  const [priceListId, setPriceListId] = useState("");
+  const [priceListsReady, setPriceListsReady] = useState(false);
   const [selectedSurcharges, setSelectedSurcharges] = useState<string[]>([]);
   const [discountCode, setDiscountCode] = useState("");
   const [appliedDiscount, setAppliedDiscount] = useState<DiscountRow | null>(
@@ -135,17 +153,26 @@ export default function VenderPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<{
+    saleId: string;
     number: number;
     total: number;
   } | null>(null);
+  const [receiptOpen, setReceiptOpen] = useState(false);
+  const [receiptSaleId, setReceiptSaleId] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
     if (!accountId) return;
     const supabase = createClient();
     setLoading(true);
-    const [productsRes, accountsRes, customersRes, surchargesRes] =
-      await Promise.all([
+    const [
+      productsRes,
+      accountsRes,
+      customersRes,
+      surchargesRes,
+      listsRes,
+      pricesRes,
+    ] = await Promise.all([
         supabase
           .from("pos_products")
           .select(
@@ -174,6 +201,17 @@ export default function VenderPage() {
           .eq("active", true)
           .eq("charge_customer", true)
           .order("name"),
+        supabase
+          .from("pos_price_lists")
+          .select("id, name, is_default")
+          .eq("account_id", accountId)
+          .eq("active", true)
+          .order("is_default", { ascending: false })
+          .order("name"),
+        supabase
+          .from("pos_product_prices")
+          .select("product_id, price_list_id, price_usd")
+          .eq("account_id", accountId),
       ]);
     setProducts((productsRes.data ?? []) as Product[]);
     setAccounts(
@@ -181,6 +219,24 @@ export default function VenderPage() {
     );
     setCustomers((customersRes.data ?? []) as { id: string; name: string }[]);
     setSurchargeOptions((surchargesRes.data ?? []) as SurchargeRow[]);
+
+    if (listsRes.error) {
+      setPriceListsReady(false);
+      setPriceLists([
+        { id: "principal", name: "Principal", is_default: true },
+      ]);
+      setPriceListId("principal");
+      setPrices([]);
+    } else {
+      const lists = (listsRes.data ?? []) as PriceListRow[];
+      setPriceListsReady(true);
+      setPriceLists(lists);
+      setPriceListId(
+        (current) => current || lists.find((list) => list.is_default)?.id || lists[0]?.id || "",
+      );
+      setPrices((pricesRes.data ?? []) as ProductPriceRow[]);
+    }
+
     setLoading(false);
   }, [accountId]);
 
@@ -198,6 +254,30 @@ export default function VenderPage() {
     );
   }, [products, search]);
 
+  const priceIndex = useMemo(() => {
+    const map = new Map<string, Map<string, number>>();
+    for (const row of prices) {
+      let byList = map.get(row.product_id);
+      if (!byList) {
+        byList = new Map();
+        map.set(row.product_id, byList);
+      }
+      byList.set(row.price_list_id, toNumber(row.price_usd));
+    }
+    return map;
+  }, [prices]);
+
+  const channel =
+    priceLists.find((list) => list.id === priceListId) ?? priceLists[0] ?? null;
+
+  function channelPrice(product: Product): number {
+    if (!channel || channel.is_default) return toNumber(product.price_usd);
+    return (
+      priceIndex.get(product.id)?.get(channel.id) ??
+      toNumber(product.price_usd)
+    );
+  }
+
   function addProduct(product: Product) {
     setSuccess(null);
     setCart((current) => {
@@ -214,7 +294,7 @@ export default function VenderPage() {
         {
           productId: product.id,
           name: product.name,
-          unitPrice: toNumber(product.price_usd),
+          unitPrice: channelPrice(product),
           cost: toNumber(product.cost_usd),
           taxable: product.taxable,
           quantity: 1,
@@ -472,7 +552,18 @@ export default function VenderPage() {
         .eq("id", result.sale_id);
     }
 
-    setSuccess({ number: result.number, total: toNumber(result.total_usd) });
+    if (priceListsReady && channel) {
+      await supabase
+        .from("pos_sales")
+        .update({ price_list_id: channel.id })
+        .eq("id", result.sale_id);
+    }
+
+    setSuccess({
+      saleId: result.sale_id,
+      number: result.number,
+      total: toNumber(result.total_usd),
+    });
     setCart([]);
     setPayments([newPayment()]);
     setSearch("");
@@ -516,9 +607,9 @@ export default function VenderPage() {
       ) : null}
 
       {success ? (
-        <div className="mb-4 flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm">
+        <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm">
           <CheckCircle2 className="h-5 w-5 text-emerald-600" />
-          <div>
+          <div className="flex-1">
             <p className="font-bold text-emerald-800">
               Venta #{success.number} registrada
             </p>
@@ -527,6 +618,17 @@ export default function VenderPage() {
               {formatBs(usdToBs(success.total, rate))}
             </p>
           </div>
+          <button
+            type="button"
+            onClick={() => {
+              setReceiptSaleId(success.saleId);
+              setReceiptOpen(true);
+            }}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-white px-3 py-1.5 text-xs font-bold text-emerald-700 hover:bg-emerald-100"
+          >
+            <Receipt className="h-3.5 w-3.5" />
+            Ver recibo
+          </button>
         </div>
       ) : null}
 
@@ -548,6 +650,32 @@ export default function VenderPage() {
               className="w-full bg-transparent text-sm outline-none placeholder:text-slate-400"
             />
           </div>
+
+          {priceLists.length > 1 ? (
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 bg-slate-50/60 px-4 py-2">
+              <label className="flex items-center gap-2 text-[11px] font-semibold text-slate-500">
+                Canal de precio
+                <select
+                  value={priceListId}
+                  onChange={(event) => setPriceListId(event.target.value)}
+                  disabled={cart.length > 0}
+                  className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700 outline-none disabled:opacity-60"
+                >
+                  {priceLists.map((list) => (
+                    <option key={list.id} value={list.id}>
+                      {list.name}
+                      {list.is_default ? " (base)" : ""}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {cart.length > 0 ? (
+                <span className="text-[10px] text-slate-400">
+                  Vacía la cuenta para cambiar de canal
+                </span>
+              ) : null}
+            </div>
+          ) : null}
 
           {loading ? (
             <div className="flex justify-center py-20">
@@ -585,10 +713,10 @@ export default function VenderPage() {
                       : `${toNumber(product.stock)} ${product.unit} disponibles`}
                   </p>
                   <p className="mt-2 text-base font-black text-slate-900">
-                    {formatUsd(toNumber(product.price_usd))}
+                    {formatUsd(channelPrice(product))}
                   </p>
                   <p className="text-[10px] text-slate-400">
-                    {formatBs(usdToBs(toNumber(product.price_usd), rate))}
+                    {formatBs(usdToBs(channelPrice(product), rate))}
                   </p>
                 </button>
               ))}
@@ -943,6 +1071,12 @@ export default function VenderPage() {
           </section>
         </aside>
       </div>
+
+      <SaleReceiptDialog
+        saleId={receiptSaleId}
+        open={receiptOpen}
+        onOpenChange={setReceiptOpen}
+      />
     </div>
   );
 }

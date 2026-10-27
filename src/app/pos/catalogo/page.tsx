@@ -31,7 +31,9 @@ import {
   type Category,
   type Discount,
   type Kind,
+  type PriceList,
   type Product,
+  type ProductPrice,
   type Surcharge,
 } from "@/components/pos/catalog/types";
 
@@ -60,6 +62,9 @@ export default function CatalogoPage() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [discounts, setDiscounts] = useState<Discount[]>([]);
   const [surcharges, setSurcharges] = useState<Surcharge[]>([]);
+  const [priceLists, setPriceLists] = useState<PriceList[]>([]);
+  const [prices, setPrices] = useState<ProductPrice[]>([]);
+  const [priceListsReady, setPriceListsReady] = useState(false);
   const [missingMigrations, setMissingMigrations] = useState<string[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -136,23 +141,60 @@ export default function CatalogoPage() {
       categoriesData = (firstCategories.data ?? []) as Category[];
     }
 
-    const [discountsRes, surchargesRes] = await Promise.all([
-      supabase
-        .from("pos_discounts")
-        .select(
-          "id, name, code, kind, value, max_uses, used_count, valid_from, valid_to, active",
-        )
-        .eq("account_id", accountId)
-        .order("created_at", { ascending: false }),
-      supabase
-        .from("pos_surcharges")
-        .select("id, name, kind, value, charge_customer, active")
-        .eq("account_id", accountId)
-        .order("created_at", { ascending: false }),
-    ]);
+    const [discountsRes, surchargesRes, listsRes, pricesRes] =
+      await Promise.all([
+        supabase
+          .from("pos_discounts")
+          .select(
+            "id, name, code, kind, value, max_uses, used_count, valid_from, valid_to, active",
+          )
+          .eq("account_id", accountId)
+          .order("created_at", { ascending: false }),
+        supabase
+          .from("pos_surcharges")
+          .select("id, name, kind, value, charge_customer, active")
+          .eq("account_id", accountId)
+          .order("created_at", { ascending: false }),
+        supabase
+          .from("pos_price_lists")
+          .select("id, name, is_default, active")
+          .eq("account_id", accountId)
+          .order("is_default", { ascending: false })
+          .order("name"),
+        supabase
+          .from("pos_product_prices")
+          .select("product_id, price_list_id, price_usd")
+          .eq("account_id", accountId),
+      ]);
 
     if (discountsRes.error || surchargesRes.error) {
       missing.push("090");
+    }
+
+    if (listsRes.error) {
+      missing.push("092");
+      setPriceListsReady(false);
+      setPriceLists([
+        { id: "principal", name: "Principal", is_default: true, active: true },
+      ]);
+      setPrices([]);
+    } else {
+      const lists = (listsRes.data ?? []) as PriceList[];
+      setPriceListsReady(true);
+      setPriceLists(
+        lists.length > 0
+          ? lists
+          : [
+              {
+                id: "principal",
+                name: "Principal",
+                is_default: true,
+                active: true,
+              },
+            ],
+      );
+      setPrices((pricesRes.data ?? []) as ProductPrice[]);
+      if (lists.length === 0) missing.push("092");
     }
 
     setProducts(productsData);
@@ -286,6 +328,9 @@ export default function CatalogoPage() {
               : ""}
             {missingMigrations.includes("090")
               ? "La 090 agrega descuentos, recargos y el cobro con código. "
+              : ""}
+            {missingMigrations.includes("092")
+              ? "La 092 agrega los canales de precio; hasta entonces solo existe Principal. "
               : ""}
             Mientras tanto, el catálogo funciona con los campos anteriores.
           </p>
@@ -580,12 +625,16 @@ export default function CatalogoPage() {
           accountId={accountId}
           products={products}
           categories={categories}
+          priceLists={priceLists}
+          prices={prices}
           rate={rate}
+          priceListsReady={priceListsReady}
           onNewProduct={() => {
             setTab("productos");
             openCreate("product");
           }}
           onChanged={() => void load()}
+          onPriceListsChanged={() => void load()}
         />
       ) : null}
 

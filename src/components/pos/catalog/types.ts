@@ -47,6 +47,19 @@ export interface Surcharge {
   active: boolean;
 }
 
+export interface PriceList {
+  id: string;
+  name: string;
+  is_default: boolean;
+  active: boolean;
+}
+
+export interface ProductPrice {
+  product_id: string;
+  price_list_id: string;
+  price_usd: number | string;
+}
+
 export const KIND_LABEL: Record<Kind, string> = {
   product: "Para vender",
   supply: "Insumo",
