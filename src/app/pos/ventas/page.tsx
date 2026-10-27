@@ -2,14 +2,15 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Loader2, Plus, Receipt, Search, ShoppingCart } from "lucide-react";
+import { Loader2, Plus, Receipt, RotateCcw, Search, ShoppingCart } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
 import { usePosRate } from "@/components/pos/rate-context";
 import { PosButton, PosPageHeader } from "@/components/pos/pos-shell";
 import { SaleReceiptDialog } from "@/components/pos/sale-receipt-dialog";
+import { SaleReturnDialog } from "@/components/pos/sale-return-dialog";
 import { createClient } from "@/lib/supabase/client";
-import { formatBs, formatUsd, toNumber } from "@/lib/pos/money";
+import { formatBs, formatUsd, round2, toNumber } from "@/lib/pos/money";
 
 interface SaleRow {
   id: string;
@@ -20,6 +21,7 @@ interface SaleRow {
   tax_igtf_usd: number | string;
   total_usd: number | string;
   balance_usd: number | string;
+  returned_usd: number | string;
   created_at: string;
 }
 
@@ -37,20 +39,45 @@ export default function HistorialPage() {
   const [loading, setLoading] = useState(true);
   const [receiptOpen, setReceiptOpen] = useState(false);
   const [receiptSaleId, setReceiptSaleId] = useState<string | null>(null);
+  const [returnOpen, setReturnOpen] = useState(false);
+  const [returnSaleId, setReturnSaleId] = useState<string | null>(null);
+  const [returnsReady, setReturnsReady] = useState(false);
 
   const load = useCallback(async () => {
     if (!accountId) return;
     const supabase = createClient();
     setLoading(true);
-    const { data } = await supabase
+
+    const first = await supabase
       .from("pos_sales")
       .select(
-        "id, number, status, subtotal_usd, tax_iva_usd, tax_igtf_usd, total_usd, balance_usd, created_at",
+        "id, number, status, subtotal_usd, tax_iva_usd, tax_igtf_usd, total_usd, balance_usd, returned_usd, created_at",
       )
       .eq("account_id", accountId)
       .order("created_at", { ascending: false })
       .limit(200);
-    setSales((data ?? []) as SaleRow[]);
+
+    if (first.error) {
+      setReturnsReady(false);
+      const fallback = await supabase
+        .from("pos_sales")
+        .select(
+          "id, number, status, subtotal_usd, tax_iva_usd, tax_igtf_usd, total_usd, balance_usd, created_at",
+        )
+        .eq("account_id", accountId)
+        .order("created_at", { ascending: false })
+        .limit(200);
+      setSales(
+        (fallback.data ?? []).map((row) => ({
+          ...row,
+          returned_usd: 0,
+        })) as SaleRow[],
+      );
+    } else {
+      setReturnsReady(true);
+      setSales((first.data ?? []) as SaleRow[]);
+    }
+
     setLoading(false);
   }, [accountId]);
 
@@ -60,10 +87,17 @@ export default function HistorialPage() {
 
   const stats = useMemo(() => {
     const valid = sales.filter((sale) => sale.status !== "void");
-    const sold = valid.reduce((sum, sale) => sum + toNumber(sale.subtotal_usd), 0);
+    const gross = valid.reduce((sum, sale) => sum + toNumber(sale.total_usd), 0);
+    const returned = valid.reduce(
+      (sum, sale) => sum + toNumber(sale.returned_usd),
+      0,
+    );
+    const sold = round2(gross - returned);
     const credit = valid.reduce((sum, sale) => sum + toNumber(sale.balance_usd), 0);
     return {
       sold,
+      gross,
+      returned,
       count: valid.length,
       credit,
       avg: valid.length > 0 ? sold / valid.length : 0,
@@ -99,7 +133,11 @@ export default function HistorialPage() {
         <StatCard
           label="Vendido"
           usd={stats.sold}
-          hint={`${formatBs(stats.sold * rate)}`}
+          hint={`${formatBs(stats.sold * rate)}${
+            stats.returned > 0
+              ? ` · Devuelto ${formatUsd(stats.returned)}`
+              : ""
+          }`}
         />
         <StatCard
           label="Ventas"
@@ -156,8 +194,9 @@ export default function HistorialPage() {
                 <th className="px-4 py-2.5 text-right font-semibold">IVA</th>
                 <th className="px-4 py-2.5 text-right font-semibold">IGTF</th>
                 <th className="px-4 py-2.5 text-right font-semibold">Total</th>
+                <th className="px-4 py-2.5 text-right font-semibold">Devuelto</th>
                 <th className="px-4 py-2.5 text-right font-semibold">Saldo</th>
-                <th className="px-4 py-2.5 text-right font-semibold">Recibo</th>
+                <th className="px-4 py-2.5 text-right font-semibold">Acciones</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -189,23 +228,53 @@ export default function HistorialPage() {
                   <td className="px-4 py-3 text-right font-bold text-slate-900">
                     {formatUsd(toNumber(sale.total_usd))}
                   </td>
+                  <td className="px-4 py-3 text-right text-amber-700">
+                    {toNumber(sale.returned_usd) > 0.005
+                      ? formatUsd(toNumber(sale.returned_usd))
+                      : "—"}
+                  </td>
                   <td className="px-4 py-3 text-right text-slate-600">
                     {toNumber(sale.balance_usd) > 0.005
                       ? formatUsd(toNumber(sale.balance_usd))
                       : "—"}
                   </td>
-                  <td className="px-4 py-3 text-right">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setReceiptSaleId(sale.id);
-                        setReceiptOpen(true);
-                      }}
-                      className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-50"
-                    >
-                      <Receipt className="h-3 w-3" />
-                      Ver
-                    </button>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center justify-end gap-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setReceiptSaleId(sale.id);
+                          setReceiptOpen(true);
+                        }}
+                        className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-50"
+                      >
+                        <Receipt className="h-3 w-3" />
+                        Ver
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setReturnSaleId(sale.id);
+                          setReturnOpen(true);
+                        }}
+                        disabled={
+                          !returnsReady ||
+                          sale.status === "void" ||
+                          toNumber(sale.total_usd) -
+                            toNumber(sale.returned_usd) <=
+                            0.005
+                        }
+                        title={
+                          returnsReady
+                            ? "Registrar devolución"
+                            : "Falta aplicar la migración 093"
+                        }
+                        className="inline-flex items-center gap-1 rounded-lg border border-amber-200 px-2 py-1 text-[11px] font-semibold text-amber-700 hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        <RotateCcw className="h-3 w-3" />
+                        Devolver
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -218,6 +287,13 @@ export default function HistorialPage() {
         saleId={receiptSaleId}
         open={receiptOpen}
         onOpenChange={setReceiptOpen}
+      />
+
+      <SaleReturnDialog
+        saleId={returnSaleId}
+        open={returnOpen}
+        onOpenChange={setReturnOpen}
+        onReturned={() => void load()}
       />
     </div>
   );

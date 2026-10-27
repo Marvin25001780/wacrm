@@ -25,6 +25,7 @@ import {
   PAYMENT_METHODS,
   formatBs,
   formatUsd,
+  round2,
   toNumber,
   usdToBs,
 } from "@/lib/pos/money";
@@ -78,6 +79,12 @@ export default function PosHomePage() {
   const [yesterday, setYesterday] = useState<SaleRow[]>([]);
   const [payments, setPayments] = useState<PaymentRow[]>([]);
   const [products, setProducts] = useState<ProductRow[]>([]);
+  const [returnsToday, setReturnsToday] = useState<
+    { subtotal_usd: number | string; cost_usd: number | string }[]
+  >([]);
+  const [returnsYesterday, setReturnsYesterday] = useState<
+    { subtotal_usd: number | string; cost_usd: number | string }[]
+  >([]);
   const [loading, setLoading] = useState(true);
   const [closeOpen, setCloseOpen] = useState(false);
 
@@ -92,37 +99,61 @@ export default function PosHomePage() {
     const startYesterday = new Date(startToday);
     startYesterday.setDate(startYesterday.getDate() - 1);
 
-    const [todayRes, yesterdayRes, productsRes] = await Promise.all([
-      supabase
-        .from("pos_sales")
-        .select(
-          "id, number, subtotal_usd, unit_cost_usd, total_usd, balance_usd, status, created_at",
-        )
-        .eq("account_id", accountId)
-        .gte("created_at", startToday.toISOString())
-        .order("created_at", { ascending: false }),
-      supabase
-        .from("pos_sales")
-        .select(
-          "id, number, subtotal_usd, unit_cost_usd, total_usd, balance_usd, status, created_at",
-        )
-        .eq("account_id", accountId)
-        .gte("created_at", startYesterday.toISOString())
-        .lt("created_at", startToday.toISOString()),
-      supabase
-        .from("pos_products")
-        .select("id, name, stock, min_stock, unit")
-        .eq("account_id", accountId)
-        .eq("active", true)
-        .eq("kind", "product")
-        .order("stock", { ascending: true })
-        .limit(40),
-    ]);
+    const [todayRes, yesterdayRes, productsRes, returnsTodayRes, returnsYesterdayRes] =
+      await Promise.all([
+        supabase
+          .from("pos_sales")
+          .select(
+            "id, number, subtotal_usd, unit_cost_usd, total_usd, balance_usd, status, created_at",
+          )
+          .eq("account_id", accountId)
+          .gte("created_at", startToday.toISOString())
+          .order("created_at", { ascending: false }),
+        supabase
+          .from("pos_sales")
+          .select(
+            "id, number, subtotal_usd, unit_cost_usd, total_usd, balance_usd, status, created_at",
+          )
+          .eq("account_id", accountId)
+          .gte("created_at", startYesterday.toISOString())
+          .lt("created_at", startToday.toISOString()),
+        supabase
+          .from("pos_products")
+          .select("id, name, stock, min_stock, unit")
+          .eq("account_id", accountId)
+          .eq("active", true)
+          .eq("kind", "product")
+          .order("stock", { ascending: true })
+          .limit(40),
+        supabase
+          .from("pos_sale_returns")
+          .select("subtotal_usd, cost_usd")
+          .eq("account_id", accountId)
+          .gte("created_at", startToday.toISOString()),
+        supabase
+          .from("pos_sale_returns")
+          .select("subtotal_usd, cost_usd")
+          .eq("account_id", accountId)
+          .gte("created_at", startYesterday.toISOString())
+          .lt("created_at", startToday.toISOString()),
+      ]);
 
     const todayRows = (todayRes.data ?? []) as SaleRow[];
     setToday(todayRows);
     setYesterday((yesterdayRes.data ?? []) as SaleRow[]);
     setProducts((productsRes.data ?? []) as ProductRow[]);
+    setReturnsToday(
+      (returnsTodayRes.data ?? []) as {
+        subtotal_usd: number | string;
+        cost_usd: number | string;
+      }[],
+    );
+    setReturnsYesterday(
+      (returnsYesterdayRes.data ?? []) as {
+        subtotal_usd: number | string;
+        cost_usd: number | string;
+      }[],
+    );
 
     if (todayRows.length > 0) {
       const { data: paymentData } = await supabase
@@ -144,8 +175,14 @@ export default function PosHomePage() {
     void load();
   }, [load]);
 
-  const stats = useMemo(() => metrics(today), [today]);
-  const prevStats = useMemo(() => metrics(yesterday), [yesterday]);
+  const stats = useMemo(
+    () => withReturns(metrics(today), returnsToday),
+    [today, returnsToday],
+  );
+  const prevStats = useMemo(
+    () => withReturns(metrics(yesterday), returnsYesterday),
+    [yesterday, returnsYesterday],
+  );
 
   const hourly = useMemo(() => {
     const buckets = new Array(13).fill(0) as number[];
@@ -578,6 +615,27 @@ function metrics(sales: SaleRow[]) {
     net,
     profit: net - cost,
     avg: count > 0 ? net / count : 0,
+  };
+}
+
+function withReturns(
+  base: ReturnType<typeof metrics>,
+  returns: { subtotal_usd: number | string; cost_usd: number | string }[],
+) {
+  const returnedNet = returns.reduce(
+    (sum, row) => sum + toNumber(row.subtotal_usd),
+    0,
+  );
+  const returnedCost = returns.reduce(
+    (sum, row) => sum + toNumber(row.cost_usd),
+    0,
+  );
+  const net = round2(base.net - returnedNet);
+  return {
+    ...base,
+    net,
+    profit: round2(base.profit - (returnedNet - returnedCost)),
+    avg: base.count > 0 ? net / base.count : 0,
   };
 }
 

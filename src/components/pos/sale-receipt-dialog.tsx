@@ -26,6 +26,7 @@ interface SaleDetail {
   total_usd: number | string;
   paid_usd: number | string;
   balance_usd: number | string;
+  returned_usd?: number | string;
   exchange_rate_used: number | string;
   notes: string | null;
   created_at: string;
@@ -381,6 +382,12 @@ export function SaleReceiptDialog({
                   <ReceiptRow
                     label="Saldo pendiente"
                     value={formatUsd(toNumber(sale.balance_usd))}
+                  />
+                ) : null}
+                {toNumber(sale.returned_usd) > 0.005 ? (
+                  <ReceiptRow
+                    label="Devuelto"
+                    value={formatUsd(toNumber(sale.returned_usd))}
                   />
                 ) : null}
               </div>

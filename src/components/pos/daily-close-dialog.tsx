@@ -47,6 +47,14 @@ export function DailyCloseDialog({
   const [sales, setSales] = useState<SaleRow[]>([]);
   const [payments, setPayments] = useState<PaymentRow[]>([]);
   const [expenses, setExpenses] = useState(0);
+  const [returns, setReturns] = useState<
+    {
+      subtotal_usd: number | string;
+      tax_iva_usd: number | string;
+      total_usd: number | string;
+      cost_usd: number | string;
+    }[]
+  >([]);
   const [shifts, setShifts] = useState<
     { number: number; difference_usd: number | string; difference_bs: number | string }[]
   >([]);
@@ -87,6 +95,22 @@ export function DailyCloseDialog({
         (sum, row) => sum + toNumber(row.amount_usd),
         0,
       ),
+    );
+
+    const { data: returnsData } = await supabase
+      .from("pos_sale_returns")
+      .select("subtotal_usd, tax_iva_usd, total_usd, cost_usd")
+      .eq("account_id", accountId)
+      .gte("created_at", start.toISOString())
+      .lt("created_at", end.toISOString());
+
+    setReturns(
+      (returnsData ?? []) as {
+        subtotal_usd: number | string;
+        tax_iva_usd: number | string;
+        total_usd: number | string;
+        cost_usd: number | string;
+      }[],
     );
 
     const { data: shiftsData } = await supabase
@@ -136,11 +160,24 @@ export function DailyCloseDialog({
   }, [open]);
 
   const summary = useMemo(() => {
-    const net = sales.reduce((sum, sale) => sum + toNumber(sale.subtotal_usd), 0);
-    const cost = sales.reduce(
+    const soldNet = sales.reduce(
+      (sum, sale) => sum + toNumber(sale.subtotal_usd),
+      0,
+    );
+    const soldCost = sales.reduce(
       (sum, sale) => sum + toNumber(sale.unit_cost_usd),
       0,
     );
+    const returnedNet = returns.reduce(
+      (sum, row) => sum + toNumber(row.subtotal_usd),
+      0,
+    );
+    const returnedCost = returns.reduce(
+      (sum, row) => sum + toNumber(row.cost_usd),
+      0,
+    );
+    const net = soldNet - returnedNet;
+    const cost = soldCost - returnedCost;
     const credit = sales.reduce(
       (sum, sale) => sum + toNumber(sale.balance_usd),
       0,
@@ -162,11 +199,12 @@ export function DailyCloseDialog({
       cost,
       credit,
       count,
+      returns: returnedNet,
       avg: count > 0 ? net / count : 0,
       gross: net - cost,
       byMethod: [...byMethod.entries()].sort((a, b) => b[1] - a[1]),
     };
-  }, [sales, payments]);
+  }, [sales, payments, returns]);
 
   const text = useMemo(() => {
     const shiftsWithDifference = shifts.filter(
@@ -178,6 +216,7 @@ export function DailyCloseDialog({
       `*Cierre del día · ${accountName || "Mi negocio"}*`,
       date,
       `Ventas netas (${summary.count}): ${formatUsd(summary.net)} (${formatBs(usdToBs(summary.net, rate))})`,
+      `Devoluciones: ${formatUsd(summary.returns)} (${formatBs(usdToBs(summary.returns, rate))})`,
       `Ticket promedio: ${formatUsd(summary.avg)} (${formatBs(usdToBs(summary.avg, rate))})`,
       "Cobros por cuenta:",
     ];
