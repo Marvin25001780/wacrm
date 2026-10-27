@@ -101,7 +101,7 @@ export default function FinanzasPage() {
         .limit(300),
       supabase
         .from("pos_sales")
-        .select("id, number, total_usd, balance_usd, created_at, customer:contacts(name)")
+        .select("id, number, total_usd, balance_usd, created_at, customer:pos_customers(name)")
         .eq("account_id", accountId)
         .eq("status", "credit")
         .gt("balance_usd", 0)

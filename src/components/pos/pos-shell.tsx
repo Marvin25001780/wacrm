@@ -56,7 +56,7 @@ const NAV: NavGroup[] = [
   },
   { href: "/pos/catalogo", label: "Catálogo", icon: Tags },
   { href: "/pos/inventario", label: "Inventario", icon: Boxes } as NavLeaf,
-  { href: "/contacts", label: "Contactos", icon: Users },
+  { href: "/pos/contactos", label: "Contactos", icon: Users },
   { href: "/pos/finanzas", label: "Finanzas", icon: Wallet } as NavLeaf,
   { href: "/pos/informes", label: "Informes", icon: ChartNoAxesColumn } as NavLeaf,
 ];

@@ -69,6 +69,8 @@ export default function VenderPage() {
   const [accounts, setAccounts] = useState<
     { id: string; name: string; currency: "USD" | "VES" }[]
   >([]);
+  const [customers, setCustomers] = useState<{ id: string; name: string }[]>([]);
+  const [customerId, setCustomerId] = useState("");
   const [search, setSearch] = useState("");
   const [cart, setCart] = useState<Line[]>([]);
   const [payments, setPayments] = useState<Payment[]>([newPayment()]);
@@ -85,7 +87,7 @@ export default function VenderPage() {
     if (!accountId) return;
     const supabase = createClient();
     setLoading(true);
-    const [productsRes, accountsRes] = await Promise.all([
+    const [productsRes, accountsRes, customersRes] = await Promise.all([
       supabase
         .from("pos_products")
         .select(
@@ -101,11 +103,18 @@ export default function VenderPage() {
         .eq("account_id", accountId)
         .eq("active", true)
         .order("name"),
+      supabase
+        .from("pos_customers")
+        .select("id, name")
+        .eq("account_id", accountId)
+        .eq("active", true)
+        .order("name"),
     ]);
     setProducts((productsRes.data ?? []) as Product[]);
     setAccounts(
       (accountsRes.data ?? []) as { id: string; name: string; currency: "USD" | "VES" }[],
     );
+    setCustomers((customersRes.data ?? []) as { id: string; name: string }[]);
     setLoading(false);
   }, [accountId]);
 
@@ -257,11 +266,25 @@ export default function VenderPage() {
       return;
     }
 
-    const result = data as { number: number; total_usd: number };
+    const result = data as {
+      sale_id: string;
+      number: number;
+      total_usd: number;
+    };
+
+    // El cliente del POS se enlaza después: la venta ya está cobrada.
+    if (customerId) {
+      await supabase
+        .from("pos_sales")
+        .update({ pos_customer_id: customerId })
+        .eq("id", result.sale_id);
+    }
+
     setSuccess({ number: result.number, total: toNumber(result.total_usd) });
     setCart([]);
     setPayments([newPayment()]);
     setSearch("");
+    setCustomerId("");
     void load();
     searchRef.current?.focus();
   }
@@ -367,6 +390,24 @@ export default function VenderPage() {
                   Vaciar
                 </button>
               ) : null}
+            </div>
+
+            <div className="border-b border-slate-100 px-4 py-2">
+              <label className="flex items-center gap-2 text-[11px] font-semibold text-slate-500">
+                Cliente
+                <select
+                  value={customerId}
+                  onChange={(event) => setCustomerId(event.target.value)}
+                  className="min-w-0 flex-1 rounded-lg border border-slate-200 px-2 py-1.5 text-xs font-medium text-slate-700 outline-none focus:border-[#3f3fd8]"
+                >
+                  <option value="">Consumidor final</option>
+                  {customers.map((customer) => (
+                    <option key={customer.id} value={customer.id}>
+                      {customer.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
 
             {cart.length === 0 ? (
