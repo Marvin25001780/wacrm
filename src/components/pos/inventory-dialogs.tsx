@@ -5,6 +5,7 @@ import { Loader2, Plus, Trash2, X } from "lucide-react";
 
 import { createClient } from "@/lib/supabase/client";
 import { formatUsd, toNumber, usdToBs } from "@/lib/pos/money";
+import { usePosRate } from "@/components/pos/rate-context";
 
 export interface DialogProduct {
   id: string;
@@ -195,13 +196,17 @@ export function PurchaseDialog({
   onSaved: () => void;
 }) {
   const { lines, add, remove, update } = useLines(products);
+  const { rate } = usePosRate();
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [dueDate, setDueDate] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("cash");
   const [accountId, setAccountId] = useState(accounts[0]?.id ?? "");
+  const [supplierName, setSupplierName] = useState("");
   const [invoice, setInvoice] = useState("");
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const isCredit = paymentMethod === "credit";
 
   const total = useMemo(
     () =>
@@ -225,6 +230,10 @@ export function PurchaseDialog({
       setError("Agrega al menos una línea con cantidad.");
       return;
     }
+    if (!isCredit && !accountId) {
+      setError("Elige la cuenta de donde sale el pago.");
+      return;
+    }
 
     setSaving(true);
     setError(null);
@@ -233,9 +242,12 @@ export function PurchaseDialog({
       p_payload: {
         doc_date: date,
         payment_method: paymentMethod,
-        pos_account_id: accountId || null,
+        pos_account_id: isCredit ? null : accountId || null,
+        due_date: isCredit ? dueDate || null : null,
+        supplier_name: supplierName.trim() || null,
         invoice_number: invoice || null,
         note: note || null,
+        rate,
         items,
       },
     });
@@ -297,22 +309,14 @@ export function PurchaseDialog({
         </label>
         <label className="flex flex-col gap-1">
           <span className="text-[11px] font-semibold text-slate-500">
-            Cuenta *
+            Proveedor
           </span>
-          <select
-            value={accountId}
-            onChange={(event) => setAccountId(event.target.value)}
+          <input
+            value={supplierName}
+            onChange={(event) => setSupplierName(event.target.value)}
+            placeholder="Nombre del proveedor"
             className={inputClass}
-          >
-            {accounts.length === 0 ? (
-              <option value="">Sin cuentas</option>
-            ) : null}
-            {accounts.map((account) => (
-              <option key={account.id} value={account.id}>
-                {account.name}
-              </option>
-            ))}
-          </select>
+          />
         </label>
         <label className="flex flex-col gap-1">
           <span className="text-[11px] font-semibold text-slate-500">
@@ -325,7 +329,47 @@ export function PurchaseDialog({
             className={inputClass}
           />
         </label>
+        {isCredit ? (
+          <label className="flex flex-col gap-1">
+            <span className="text-[11px] font-semibold text-slate-500">
+              Vence
+            </span>
+            <input
+              type="date"
+              value={dueDate}
+              onChange={(event) => setDueDate(event.target.value)}
+              className={inputClass}
+            />
+          </label>
+        ) : (
+          <label className="flex flex-col gap-1">
+            <span className="text-[11px] font-semibold text-slate-500">
+              Cuenta del pago *
+            </span>
+            <select
+              value={accountId}
+              onChange={(event) => setAccountId(event.target.value)}
+              className={inputClass}
+            >
+              {accounts.length === 0 ? (
+                <option value="">Sin cuentas</option>
+              ) : null}
+              {accounts.map((account) => (
+                <option key={account.id} value={account.id}>
+                  {account.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
       </div>
+
+      {isCredit ? (
+        <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
+          Queda como cuenta por pagar. No sale dinero de una cuenta hasta que
+          registres el pago en Inventario → Por pagar.
+        </p>
+      ) : null}
 
       <label className="mt-3 flex flex-col gap-1">
         <span className="text-[11px] font-semibold text-slate-500">
@@ -767,6 +811,145 @@ export function AdjustmentDialog({
         </div>
       </div>
 
+      {error ? (
+        <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">
+          {error}
+        </p>
+      ) : null}
+    </DialogShell>
+  );
+}
+
+export function SupplierPaymentDialog({
+  doc,
+  accounts,
+  onClose,
+  onSaved,
+}: {
+  doc: {
+    id: string;
+    invoice_number?: string | null;
+    supplier_name?: string | null;
+    total_usd: number | string;
+    balance_usd?: number | string;
+  };
+  accounts: DialogAccount[];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const { rate } = usePosRate();
+  const [amount, setAmount] = useState(String(toNumber(doc.balance_usd)));
+  const [accountId, setAccountId] = useState(accounts[0]?.id ?? "");
+  const [reference, setReference] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function save() {
+    if (!accountId) {
+      setError("Elige la cuenta de donde sale el pago.");
+      return;
+    }
+    const value = toNumber(amount);
+    if (value <= 0) {
+      setError("Escribe un monto mayor a cero.");
+      return;
+    }
+    if (value > toNumber(doc.balance_usd) + 0.005) {
+      setError("El pago supera el saldo de la compra.");
+      return;
+    }
+
+    setSaving(true);
+    setError(null);
+    const supabase = createClient();
+    const { error: rpcError } = await supabase.rpc("pos_pay_supplier", {
+      p_doc_id: doc.id,
+      p_amount: value,
+      p_account_id: accountId,
+      p_reference: reference.trim() || null,
+      p_rate: rate,
+    });
+    setSaving(false);
+    if (rpcError) {
+      setError(rpcError.message);
+      return;
+    }
+    onSaved();
+  }
+
+  return (
+    <DialogShell
+      title="Pagar compra"
+      subtitle={`${doc.supplier_name ?? "Proveedor"} · ${
+        doc.invoice_number ? `Factura ${doc.invoice_number}` : "Sin factura"
+      }`}
+      onClose={onClose}
+      footer={
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-xs text-slate-500">
+            Saldo {formatUsd(toNumber(doc.balance_usd))}
+          </p>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg px-3 py-2 text-sm font-semibold text-slate-500 hover:bg-slate-50"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={() => void save()}
+              disabled={saving}
+              className="inline-flex items-center gap-2 rounded-xl bg-[#3f3fd8] px-4 py-2 text-sm font-bold text-white disabled:opacity-60"
+            >
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              Registrar pago
+            </button>
+          </div>
+        </div>
+      }
+    >
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className="flex flex-col gap-1">
+          <span className="text-[11px] font-semibold text-slate-500">
+            Monto a pagar
+          </span>
+          <input
+            value={amount}
+            onChange={(event) => setAmount(event.target.value)}
+            inputMode="decimal"
+            className={inputClass}
+          />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-[11px] font-semibold text-slate-500">
+            Cuenta
+          </span>
+          <select
+            value={accountId}
+            onChange={(event) => setAccountId(event.target.value)}
+            className={inputClass}
+          >
+            {accounts.map((account) => (
+              <option key={account.id} value={account.id}>
+                {account.name} ({account.currency})
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <label className="mt-3 flex flex-col gap-1">
+        <span className="text-[11px] font-semibold text-slate-500">
+          Referencia
+        </span>
+        <input
+          value={reference}
+          onChange={(event) => setReference(event.target.value)}
+          placeholder="Opcional"
+          className={inputClass}
+        />
+      </label>
       {error ? (
         <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">
           {error}

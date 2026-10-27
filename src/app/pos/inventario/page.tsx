@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  ArrowDownLeft,
   ArrowDownToLine,
   ArrowUpFromLine,
   Boxes,
@@ -9,6 +10,7 @@ import {
   Package,
   Search,
   SlidersHorizontal,
+  Wallet,
 } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
@@ -18,6 +20,7 @@ import {
   AdjustmentDialog,
   PurchaseDialog,
   ReturnDialog,
+  SupplierPaymentDialog,
   type DialogAccount,
   type DialogProduct,
 } from "@/components/pos/inventory-dialogs";
@@ -55,12 +58,23 @@ interface Doc {
   invoice_number: string | null;
   note: string | null;
   total_usd: number | string;
+  supplier_name?: string | null;
+  status?: "paid" | "credit" | null;
+  paid_usd?: number | string;
+  balance_usd?: number | string;
+  due_date?: string | null;
   created_at: string;
   created_by: string | null;
   items?: { count: number }[];
 }
 
-type Tab = "existencias" | "movimientos" | "compras" | "devoluciones" | "ajustes";
+type Tab =
+  | "existencias"
+  | "movimientos"
+  | "compras"
+  | "por_pagar"
+  | "devoluciones"
+  | "ajustes";
 type DialogState =
   | { mode: "purchase" }
   | { mode: "return" }
@@ -72,6 +86,7 @@ const TABS: { key: Tab; label: string }[] = [
   { key: "existencias", label: "Existencias" },
   { key: "movimientos", label: "Movimientos" },
   { key: "compras", label: "Compras" },
+  { key: "por_pagar", label: "Por pagar" },
   { key: "devoluciones", label: "Devoluciones" },
   { key: "ajustes", label: "Ajustes de inventario" },
 ];
@@ -86,6 +101,7 @@ export default function InventarioPage() {
   const [categories, setCategories] = useState<{ id: string; name: string }[]>([]);
   const [movements, setMovements] = useState<Movement[]>([]);
   const [docs, setDocs] = useState<Doc[]>([]);
+  const [payDoc, setPayDoc] = useState<Doc | null>(null);
   const [accounts, setAccounts] = useState<DialogAccount[]>([]);
   const [team, setTeam] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
@@ -122,7 +138,7 @@ export default function InventarioPage() {
         supabase
           .from("pos_inventory_docs")
           .select(
-            "id, kind, adjustment_type, doc_date, invoice_number, note, total_usd, created_at, created_by, items:pos_inventory_doc_items(count)",
+            "id, kind, adjustment_type, doc_date, invoice_number, note, total_usd, supplier_name, status, paid_usd, balance_usd, due_date, created_at, created_by, items:pos_inventory_doc_items(count)",
           )
           .eq("account_id", accountId)
           .order("created_at", { ascending: false })
@@ -220,6 +236,15 @@ export default function InventarioPage() {
 
   const dialogProducts = products.filter(
     (product) => product.kind !== "service",
+  );
+
+  const payables = useMemo(
+    () =>
+      docs.filter(
+        (doc) =>
+          doc.kind === "purchase" && toNumber(doc.balance_usd) > 0.005,
+      ),
+    [docs],
   );
 
   return (
@@ -539,6 +564,108 @@ export default function InventarioPage() {
             />
           ) : null}
 
+          {tab === "por_pagar" ? (
+            <section className="rounded-2xl border border-slate-200 bg-white">
+              <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 px-4 py-3">
+                <div>
+                  <p className="text-sm font-bold text-slate-800">
+                    Cuentas por pagar
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    Compras a crédito pendientes de pago.
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-[10px] font-semibold uppercase text-slate-400">
+                    Total por pagar
+                  </p>
+                  <p className="text-lg font-black text-amber-700">
+                    {formatUsd(
+                      payables.reduce(
+                        (sum, doc) => sum + toNumber(doc.balance_usd),
+                        0,
+                      ),
+                    )}
+                  </p>
+                </div>
+              </div>
+
+              {payables.length === 0 ? (
+                <div className="px-6 py-16 text-center">
+                  <Wallet className="mx-auto h-8 w-8 text-slate-300" />
+                  <p className="mt-3 text-sm font-bold text-slate-800">
+                    No hay compras por pagar
+                  </p>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Cuando registres una compra a crédito, aparecerá aquí.
+                  </p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-slate-50 text-left text-[10px] uppercase tracking-wide text-slate-500">
+                      <tr>
+                        <th className="px-4 py-2.5 font-semibold">Proveedor</th>
+                        <th className="px-4 py-2.5 font-semibold">Factura</th>
+                        <th className="px-4 py-2.5 font-semibold">Fecha</th>
+                        <th className="px-4 py-2.5 font-semibold">Vence</th>
+                        <th className="px-4 py-2.5 text-right font-semibold">
+                          Total
+                        </th>
+                        <th className="px-4 py-2.5 text-right font-semibold">
+                          Pagado
+                        </th>
+                        <th className="px-4 py-2.5 text-right font-semibold">
+                          Saldo
+                        </th>
+                        <th className="px-4 py-2.5 text-right font-semibold">
+                          Pagar
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {payables.map((doc) => (
+                        <tr key={doc.id} className="hover:bg-slate-50/60">
+                          <td className="px-4 py-3 font-medium text-slate-700">
+                            {doc.supplier_name ?? "Proveedor"}
+                          </td>
+                          <td className="px-4 py-3 text-slate-500">
+                            {doc.invoice_number ?? "—"}
+                          </td>
+                          <td className="px-4 py-3 text-slate-500">
+                            {formatDate(doc.doc_date)}
+                          </td>
+                          <td className="px-4 py-3 text-slate-500">
+                            {doc.due_date ? formatDate(doc.due_date) : "—"}
+                          </td>
+                          <td className="px-4 py-3 text-right text-slate-600">
+                            {formatUsd(toNumber(doc.total_usd))}
+                          </td>
+                          <td className="px-4 py-3 text-right text-slate-600">
+                            {formatUsd(toNumber(doc.paid_usd))}
+                          </td>
+                          <td className="px-4 py-3 text-right font-bold text-amber-700">
+                            {formatUsd(toNumber(doc.balance_usd))}
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            <button
+                              type="button"
+                              onClick={() => setPayDoc(doc)}
+                              className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 px-2 py-1 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-50"
+                            >
+                              <ArrowDownLeft className="h-3 w-3" />
+                              Pagar
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+          ) : null}
+
           {tab === "devoluciones" ? (
             <DocsTable
               title="Devoluciones"
@@ -630,6 +757,18 @@ export default function InventarioPage() {
           onClose={() => setDialog(null)}
           onSaved={() => {
             setDialog(null);
+            void load();
+          }}
+        />
+      ) : null}
+
+      {payDoc ? (
+        <SupplierPaymentDialog
+          doc={payDoc}
+          accounts={accounts}
+          onClose={() => setPayDoc(null)}
+          onSaved={() => {
+            setPayDoc(null);
             void load();
           }}
         />
