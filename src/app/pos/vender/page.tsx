@@ -38,6 +38,7 @@ interface Product {
   id: string;
   name: string;
   sku: string | null;
+  barcode: string | null;
   kind: "product" | "supply" | "service";
   unit: string;
   cost_usd: number | string;
@@ -61,6 +62,7 @@ interface Payment {
   method: PaymentMethod;
   amount: string;
   accountId: string;
+  reference: string;
 }
 
 interface SurchargeRow {
@@ -91,7 +93,13 @@ interface DiscountRow {
 }
 
 function newPayment(method: PaymentMethod = "cash_usd", accountId = ""): Payment {
-  return { id: crypto.randomUUID(), method, amount: "", accountId };
+  return {
+    id: crypto.randomUUID(),
+    method,
+    amount: "",
+    accountId,
+    reference: "",
+  };
 }
 
 /** Reparte un descuento global entre las líneas, proporcional al importe. */
@@ -176,7 +184,7 @@ export default function VenderPage() {
         supabase
           .from("pos_products")
           .select(
-            "id, name, sku, kind, unit, cost_usd, price_usd, stock, taxable",
+            "id, name, sku, barcode, kind, unit, cost_usd, price_usd, stock, taxable",
           )
           .eq("account_id", accountId)
           .eq("active", true)
@@ -250,7 +258,8 @@ export default function VenderPage() {
     return products.filter(
       (product) =>
         product.name.toLowerCase().includes(term) ||
-        (product.sku ?? "").toLowerCase().includes(term),
+        (product.sku ?? "").toLowerCase().includes(term) ||
+        (product.barcode ?? "").toLowerCase().includes(term),
     );
   }, [products, search]);
 
@@ -511,7 +520,7 @@ export default function VenderPage() {
           currency: payment.currency,
           amount: toNumber(payment.amount),
           amount_usd: payment.amountUsd,
-          reference: null,
+          reference: payment.reference.trim() || null,
           pos_account_id: payment.accountId || null,
         })),
       p_customer_id: null,
@@ -646,7 +655,7 @@ export default function VenderPage() {
                   setSearch("");
                 }
               }}
-              placeholder="Buscar o escanear SKU y presionar Enter"
+              placeholder="Buscar o escanear nombre, SKU o código de barras"
               className="w-full bg-transparent text-sm outline-none placeholder:text-slate-400"
             />
           </div>
@@ -969,6 +978,7 @@ export default function VenderPage() {
                             method: next,
                             amount: "",
                             accountId: account?.id ?? "",
+                            reference: "",
                           });
                         }}
                         className="w-32 rounded-lg border border-slate-200 px-2 py-1.5 text-xs outline-none focus:border-[#3f3fd8]"
@@ -1026,6 +1036,19 @@ export default function VenderPage() {
                           </option>
                         ))}
                     </select>
+                    {method.value !== "cash_usd" &&
+                    method.value !== "cash_bs" ? (
+                      <input
+                        value={payment.reference}
+                        onChange={(event) =>
+                          updatePayment(payment.id, {
+                            reference: event.target.value,
+                          })
+                        }
+                        placeholder="Referencia: últimos dígitos, Zelle..."
+                        className="mt-1.5 w-full rounded-lg border border-slate-200 px-2 py-1 text-[11px] text-slate-600 outline-none focus:border-[#3f3fd8]"
+                      />
+                    ) : null}
                   </div>
                 );
               })}

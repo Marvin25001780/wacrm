@@ -101,6 +101,7 @@ export default function TurnosPage() {
     usePosShift();
 
   const [summary, setSummary] = useState<Summary | null>(null);
+  const [shiftReturns, setShiftReturns] = useState(0);
   const [sales, setSales] = useState<ShiftSale[]>([]);
   const [history, setHistory] = useState<ShiftRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -145,9 +146,24 @@ export default function TurnosPage() {
         .order("created_at", { ascending: false })
         .limit(8);
       if (!salesError) setSales((salesData ?? []) as ShiftSale[]);
+
+      const { data: returnsData, error: returnsError } = await supabase
+        .from("pos_sale_returns")
+        .select("total_usd")
+        .eq("shift_id", shift.id);
+      setShiftReturns(
+        returnsError
+          ? 0
+          : (returnsData ?? []).reduce(
+              (sum, row) =>
+                sum + toNumber((row as { total_usd: number | string }).total_usd),
+              0,
+            ),
+      );
     } else {
       setSummary(null);
       setSales([]);
+      setShiftReturns(0);
     }
 
     const { data: historyData, error: historyError } = await supabase
@@ -296,6 +312,9 @@ export default function TurnosPage() {
   }
 
   const rateForShift = toNumber(summary?.rate_open) || rate;
+  const netShiftSales = round2(
+    toNumber(summary?.sales_usd) - shiftReturns,
+  );
 
   return (
     <div className="space-y-4">
@@ -392,10 +411,12 @@ export default function TurnosPage() {
           <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <Kpi
               label="Ventas del turno"
-              value={formatUsd(toNumber(summary?.sales_usd))}
-              hint={formatBs(
-                usdToBs(toNumber(summary?.sales_usd), rateForShift),
-              )}
+              value={formatUsd(netShiftSales)}
+              hint={`${formatBs(usdToBs(netShiftSales, rateForShift))}${
+                shiftReturns > 0
+                  ? ` · Devoluciones ${formatUsd(shiftReturns)}`
+                  : ""
+              }`}
               icon={<Wallet className="h-4 w-4" />}
             />
             <Kpi
@@ -404,7 +425,7 @@ export default function TurnosPage() {
               hint={
                 summary && summary.sales_count > 0
                   ? `Promedio ${formatUsd(
-                      toNumber(summary.sales_usd) / summary.sales_count,
+                      netShiftSales / summary.sales_count,
                     )}`
                   : "Sin ventas todavía"
               }

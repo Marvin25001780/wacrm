@@ -21,6 +21,12 @@ interface SaleRow {
   created_at: string;
 }
 
+interface ReturnRow {
+  subtotal_usd: number | string;
+  cost_usd: number | string;
+  created_at?: string;
+}
+
 interface TxRow {
   category: string;
   kind: "in" | "out";
@@ -84,6 +90,9 @@ export default function InformesPage() {
   const [tab, setTab] = useState<Tab>("resultados");
   const [sales, setSales] = useState<SaleRow[]>([]);
   const [prevSales, setPrevSales] = useState<SaleRow[]>([]);
+  const [returns, setReturns] = useState<ReturnRow[]>([]);
+  const [prevReturns, setPrevReturns] = useState<ReturnRow[]>([]);
+  const [yearReturns, setYearReturns] = useState<ReturnRow[]>([]);
   const [txs, setTxs] = useState<TxRow[]>([]);
   const [prevTxs, setPrevTxs] = useState<TxRow[]>([]);
   const [losses, setLosses] = useState<LossRow[]>([]);
@@ -102,8 +111,17 @@ export default function InformesPage() {
       1,
     );
 
-    const [salesRes, prevSalesRes, txRes, prevTxRes, lossRes, yearRes] =
-      await Promise.all([
+    const [
+      salesRes,
+      prevSalesRes,
+      txRes,
+      prevTxRes,
+      lossRes,
+      yearRes,
+      returnsRes,
+      prevReturnsRes,
+      yearReturnsRes,
+    ] = await Promise.all([
         supabase
           .from("pos_sales")
           .select(
@@ -147,6 +165,23 @@ export default function InformesPage() {
           .eq("account_id", accountId)
           .gte("created_at", yearStart.toISOString())
           .neq("status", "void"),
+        supabase
+          .from("pos_sale_returns")
+          .select("subtotal_usd, cost_usd")
+          .eq("account_id", accountId)
+          .gte("created_at", start.toISOString())
+          .lt("created_at", end.toISOString()),
+        supabase
+          .from("pos_sale_returns")
+          .select("subtotal_usd, cost_usd")
+          .eq("account_id", accountId)
+          .gte("created_at", prevStart.toISOString())
+          .lt("created_at", start.toISOString()),
+        supabase
+          .from("pos_sale_returns")
+          .select("subtotal_usd, created_at")
+          .eq("account_id", accountId)
+          .gte("created_at", yearStart.toISOString()),
       ]);
 
     setSales((salesRes.data ?? []) as SaleRow[]);
@@ -155,6 +190,9 @@ export default function InformesPage() {
     setPrevTxs((prevTxRes.data ?? []) as TxRow[]);
     setLosses((lossRes.data ?? []) as LossRow[]);
     setYearSales((yearRes.data ?? []) as SaleRow[]);
+    setReturns((returnsRes.data ?? []) as ReturnRow[]);
+    setPrevReturns((prevReturnsRes.data ?? []) as ReturnRow[]);
+    setYearReturns((yearReturnsRes.data ?? []) as ReturnRow[]);
     setLoading(false);
   }, [accountId, period]);
 
@@ -162,10 +200,13 @@ export default function InformesPage() {
     void load();
   }, [load]);
 
-  const stats = useMemo(() => compute(sales, txs, losses), [sales, txs, losses]);
+  const stats = useMemo(
+    () => compute(sales, txs, losses, returns),
+    [sales, txs, losses, returns],
+  );
   const prevStats = useMemo(
-    () => compute(prevSales, prevTxs, []),
-    [prevSales, prevTxs],
+    () => compute(prevSales, prevTxs, [], prevReturns),
+    [prevSales, prevTxs, prevReturns],
   );
 
   const monthly = useMemo(() => {
@@ -186,8 +227,15 @@ export default function InformesPage() {
       const bucket = byKey.get(key);
       if (bucket) bucket.value += toNumber(sale.subtotal_usd);
     }
+    for (const row of yearReturns) {
+      if (!row.created_at) continue;
+      const date = new Date(row.created_at);
+      const key = `${date.getFullYear()}-${date.getMonth()}`;
+      const bucket = byKey.get(key);
+      if (bucket) bucket.value -= toNumber(row.subtotal_usd);
+    }
     return months;
-  }, [yearSales]);
+  }, [yearSales, yearReturns]);
 
   const maxMonth = Math.max(...monthly.map((month) => month.value), 0.01);
 
@@ -391,12 +439,30 @@ export default function InformesPage() {
   );
 }
 
-function compute(sales: SaleRow[], txs: TxRow[], losses: LossRow[]) {
-  const net = sales.reduce((sum, sale) => sum + toNumber(sale.subtotal_usd), 0);
-  const cogs = sales.reduce(
+function compute(
+  sales: SaleRow[],
+  txs: TxRow[],
+  losses: LossRow[],
+  returns: ReturnRow[] = [],
+) {
+  const soldNet = sales.reduce(
+    (sum, sale) => sum + toNumber(sale.subtotal_usd),
+    0,
+  );
+  const soldCost = sales.reduce(
     (sum, sale) => sum + toNumber(sale.unit_cost_usd),
     0,
   );
+  const returnedNet = returns.reduce(
+    (sum, row) => sum + toNumber(row.subtotal_usd),
+    0,
+  );
+  const returnedCost = returns.reduce(
+    (sum, row) => sum + toNumber(row.cost_usd),
+    0,
+  );
+  const net = soldNet - returnedNet;
+  const cogs = soldCost - returnedCost;
   const credit = sales.reduce(
     (sum, sale) => sum + toNumber(sale.balance_usd),
     0,

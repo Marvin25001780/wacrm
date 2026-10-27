@@ -13,12 +13,14 @@ import {
   LayoutDashboard,
   Loader2,
   LogOut,
+  Menu,
   RefreshCw,
   Settings,
   ShoppingCart,
   Tags,
   Users,
   Wallet,
+  X,
 } from "lucide-react";
 
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
@@ -89,6 +91,7 @@ function PosFrame({ children }: { children: ReactNode }) {
   const { rate, refresh } = usePosRate();
   const [rateOpen, setRateOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [settingsSection, setSettingsSection] =
     useState<PosSettingsSection>("negocio");
   const router = useRouter();
@@ -118,6 +121,14 @@ function PosFrame({ children }: { children: ReactNode }) {
     <div className="min-h-screen bg-[#f5f6fb] text-slate-800">
       <header className="sticky top-0 z-40 border-b border-slate-200/80 bg-white/95 backdrop-blur">
         <div className="flex h-16 items-center gap-4 px-4 sm:px-6">
+          <button
+            type="button"
+            onClick={() => setMenuOpen(true)}
+            className="rounded-lg border border-slate-200 p-2 text-slate-600 hover:bg-slate-50 lg:hidden"
+            aria-label="Abrir menú"
+          >
+            <Menu className="h-4 w-4" />
+          </button>
           <Link href="/pos" className="flex items-center gap-2">
             <span className="text-lg font-black tracking-tight text-[#3f3fd8]">
               NEXUS
@@ -160,6 +171,41 @@ function PosFrame({ children }: { children: ReactNode }) {
         </div>
       </header>
 
+      {menuOpen ? (
+        <div className="fixed inset-0 z-50 lg:hidden">
+          <button
+            type="button"
+            onClick={() => setMenuOpen(false)}
+            className="absolute inset-0 bg-slate-900/40"
+            aria-label="Cerrar menú"
+          />
+          <div className="absolute left-0 top-0 h-full w-72 overflow-y-auto bg-white p-3 shadow-xl">
+            <div className="mb-2 flex items-center justify-between px-2 py-2">
+              <span className="text-sm font-black text-[#3f3fd8]">
+                NEXUS <span className="text-slate-400">POS</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => setMenuOpen(false)}
+                className="rounded-lg p-1 text-slate-400 hover:bg-slate-100"
+                aria-label="Cerrar menú"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <Sidebar
+              mobile
+              onNavigate={() => setMenuOpen(false)}
+              onOpenSettings={() => {
+                setSettingsSection("negocio");
+                setSettingsOpen(true);
+                setMenuOpen(false);
+              }}
+            />
+          </div>
+        </div>
+      ) : null}
+
       <div className="mx-auto flex w-full max-w-[1600px] gap-4 px-3 py-4 sm:px-5">
         <Sidebar
           onOpenSettings={() => {
@@ -181,15 +227,29 @@ function PosFrame({ children }: { children: ReactNode }) {
   );
 }
 
-function Sidebar({ onOpenSettings }: { onOpenSettings: () => void }) {
+function Sidebar({
+  onOpenSettings,
+  mobile = false,
+  onNavigate,
+}: {
+  onOpenSettings: () => void;
+  mobile?: boolean;
+  onNavigate?: () => void;
+}) {
   const pathname = usePathname();
   const [openSales, setOpenSales] = useState(
     pathname.startsWith("/pos/vender") || pathname.startsWith("/pos/ventas"),
   );
 
   return (
-    <aside className="hidden w-60 shrink-0 lg:block">
-      <div className="sticky top-20 rounded-2xl border border-slate-200 bg-white p-2">
+    <aside className={mobile ? "w-full" : "hidden w-60 shrink-0 lg:block"}>
+      <div
+        className={
+          mobile
+            ? ""
+            : "sticky top-20 rounded-2xl border border-slate-200 bg-white p-2"
+        }
+      >
         <nav className="space-y-0.5">
           {NAV.map((item) => {
             const isGroup = Boolean(item.children);
@@ -224,6 +284,7 @@ function Sidebar({ onOpenSettings }: { onOpenSettings: () => void }) {
                         <Link
                           key={child.href}
                           href={child.href}
+                          onClick={onNavigate}
                           className={`flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-[13px] font-medium transition-colors ${
                             isActive(pathname, child.href)
                               ? "bg-indigo-50 font-semibold text-[#3f3fd8]"
@@ -261,6 +322,7 @@ function Sidebar({ onOpenSettings }: { onOpenSettings: () => void }) {
               <Link
                 key={leaf.href}
                 href={leaf.href}
+                onClick={onNavigate}
                 className={`flex items-center gap-2.5 rounded-xl px-3 py-2 text-sm font-semibold transition-colors ${
                   active
                     ? "bg-[#3f3fd8] text-white"
@@ -275,13 +337,16 @@ function Sidebar({ onOpenSettings }: { onOpenSettings: () => void }) {
         </nav>
 
         <div className="mt-3">
-          <ShiftCard />
+          <ShiftCard onNavigate={onNavigate} />
         </div>
 
         <div className="mt-2 border-t border-slate-100 pt-2">
           <button
             type="button"
-            onClick={onOpenSettings}
+            onClick={() => {
+              onOpenSettings();
+              onNavigate?.();
+            }}
             className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
           >
             <Settings className="h-4 w-4" />
@@ -313,7 +378,7 @@ function ShiftChip() {
   );
 }
 
-function ShiftCard() {
+function ShiftCard({ onNavigate }: { onNavigate?: () => void }) {
   const { shift, loading, missing } = usePosShift();
   if (missing) return null;
 
@@ -349,6 +414,7 @@ function ShiftCard() {
         </div>
         <Link
           href="/pos/turnos"
+          onClick={onNavigate}
           className="shrink-0 rounded-md border border-slate-200 bg-white px-2 py-1 text-[10px] font-bold text-slate-600 hover:text-[#3f3fd8]"
         >
           {shift ? "Cierre" : "Abrir"}

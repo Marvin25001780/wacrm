@@ -15,6 +15,10 @@ import {
 import { useAuth } from "@/hooks/use-auth";
 import { usePosRate } from "@/components/pos/rate-context";
 import { PosButton, PosPageHeader } from "@/components/pos/pos-shell";
+import {
+  CollectCreditDialog,
+  type CollectSale,
+} from "@/components/pos/collect-credit-dialog";
 import { createClient } from "@/lib/supabase/client";
 import { formatBs, formatUsd, toNumber, usdToBs } from "@/lib/pos/money";
 
@@ -74,6 +78,7 @@ export default function FinanzasPage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [transactions, setTransactions] = useState<Tx[]>([]);
   const [pending, setPending] = useState<PendingSale[]>([]);
+  const [collectSale, setCollectSale] = useState<CollectSale | null>(null);
   const [loading, setLoading] = useState(true);
   const [dialog, setDialog] = useState<"account" | "expense" | "transfer" | null>(
     null,
@@ -336,6 +341,7 @@ export default function FinanzasPage() {
                   <th className="px-4 py-2.5 font-semibold">Fecha</th>
                   <th className="px-4 py-2.5 text-right font-semibold">Total</th>
                   <th className="px-4 py-2.5 text-right font-semibold">Saldo</th>
+                  <th className="px-4 py-2.5 text-right font-semibold">Cobrar</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -359,12 +365,31 @@ export default function FinanzasPage() {
                     <td className="px-4 py-3 text-right font-bold text-amber-700">
                       {formatUsd(toNumber(sale.balance_usd))}
                     </td>
+                    <td className="px-4 py-3 text-right">
+                      <button
+                        type="button"
+                        onClick={() => setCollectSale(sale)}
+                        className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 px-2 py-1 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-50"
+                      >
+                        <ArrowDownLeft className="h-3 w-3" />
+                        Cobrar
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
         )
+      ) : null}
+
+      {collectSale ? (
+        <CollectCreditDialog
+          sale={collectSale}
+          accounts={accounts}
+          onClose={() => setCollectSale(null)}
+          onSaved={() => void load()}
+        />
       ) : null}
 
       {dialog === "account" ? (
