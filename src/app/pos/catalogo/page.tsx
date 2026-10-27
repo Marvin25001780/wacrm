@@ -738,9 +738,9 @@ function ProductForm({
     (category) => category.id === categoryId,
   );
   const previewColor = previewCategory?.color ?? "#4338ca";
-  const previewInitials = (name.trim() || "?")
-    .slice(0, 2)
-    .toUpperCase();
+  const previewInitials =
+    (name.trim() || "?").charAt(0).toUpperCase() +
+    (name.trim() || "?").slice(1, 2).toLowerCase();
 
   async function save() {
     if (!accountId) return;
@@ -989,6 +989,8 @@ function ProductForm({
                         Aviso cuando quede por debajo
                       </span>
                     </label>
+
+                    <div className="hidden sm:block" aria-hidden="true" />
 
                     {product ? (
                       <div className="flex flex-col gap-1">
