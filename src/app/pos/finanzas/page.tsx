@@ -2,12 +2,17 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  Archive,
   ArrowDownLeft,
   ArrowLeftRight,
   ArrowUpRight,
   Banknote,
+  ChevronDown,
   Loader2,
+  Pencil,
   Plus,
+  RotateCcw,
+  Trash2,
   Wallet,
   X,
 } from "lucide-react";
@@ -28,6 +33,7 @@ interface Account {
   kind: string;
   currency: "USD" | "VES";
   opening_balance: number | string;
+  active: boolean;
 }
 
 interface Tx {
@@ -70,6 +76,45 @@ const KIND_LABEL: Record<string, string> = {
   other: "Otra",
 };
 
+/**
+ * Cuenta las referencias de una cuenta en todo el POS. Si tiene alguna,
+ * borrarla dejaría el historial sin cuenta, así que se archiva en su lugar.
+ * Devuelve null si no se pudo verificar (tabla inexistente se ignora).
+ */
+async function accountUsageCount(
+  supabase: ReturnType<typeof createClient>,
+  id: string,
+): Promise<number | null> {
+  const checks = [
+    { table: "pos_transactions", column: "pos_account_id" },
+    { table: "pos_sale_payments", column: "pos_account_id" },
+    { table: "pos_inventory_docs", column: "pos_account_id" },
+    { table: "pos_supplier_payments", column: "pos_account_id" },
+    { table: "pos_sale_returns", column: "refund_account_id" },
+  ] as const;
+
+  const results = await Promise.all(
+    checks.map(({ table, column }) =>
+      supabase
+        .from(table)
+        .select("id", { count: "exact", head: true })
+        .eq(column, id),
+    ),
+  );
+
+  let total = 0;
+  for (const result of results) {
+    if (result.error) {
+      const missing =
+        result.error.code === "42P01" || result.error.code === "PGRST205";
+      if (!missing) return null;
+      continue;
+    }
+    total += result.count ?? 0;
+  }
+  return total;
+}
+
 export default function FinanzasPage() {
   const { accountId } = useAuth();
   const { rate } = usePosRate();
@@ -83,6 +128,19 @@ export default function FinanzasPage() {
   const [dialog, setDialog] = useState<"account" | "expense" | "transfer" | null>(
     null,
   );
+  const [balances, setBalances] = useState<Map<string, number>>(new Map());
+  const [editState, setEditState] = useState<{
+    account: Account;
+    used: boolean;
+  } | null>(null);
+  const [deleteState, setDeleteState] = useState<{
+    account: Account;
+    usage: number;
+  } | null>(null);
+  const [busyAccountId, setBusyAccountId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
 
   const load = useCallback(async () => {
     if (!accountId) return;
@@ -92,9 +150,8 @@ export default function FinanzasPage() {
     const [accountsRes, txRes, pendingRes] = await Promise.all([
       supabase
         .from("pos_accounts")
-        .select("id, name, kind, currency, opening_balance")
+        .select("id, name, kind, currency, opening_balance, active")
         .eq("account_id", accountId)
-        .eq("active", true)
         .order("name"),
       supabase
         .from("pos_transactions")
@@ -113,9 +170,32 @@ export default function FinanzasPage() {
         .order("created_at", { ascending: false }),
     ]);
 
-    setAccounts((accountsRes.data ?? []) as Account[]);
-    setTransactions((txRes.data ?? []) as Tx[]);
+    const list = (accountsRes.data ?? []) as Account[];
+    const txRows = (txRes.data ?? []) as Tx[];
+    setAccounts(list);
+    setTransactions(txRows);
     setPending((pendingRes.data ?? []) as unknown as PendingSale[]);
+
+    // El saldo sale de la RPC para no depender del límite de movimientos
+    // que se cargan en la tabla. Si la RPC falla, se calcula en memoria.
+    const entries = await Promise.all(
+      list.map(async (account) => {
+        const { data, error } = await supabase.rpc("pos_account_balance", {
+          p_account_id: account.id,
+        });
+        if (!error) {
+          return [account.id, toNumber(data)] as const;
+        }
+        let total = toNumber(account.opening_balance);
+        for (const tx of txRows) {
+          if (tx.pos_account_id !== account.id) continue;
+          total += tx.kind === "in" ? toNumber(tx.amount) : -toNumber(tx.amount);
+        }
+        return [account.id, total] as const;
+      }),
+    );
+
+    setBalances(new Map(entries));
     setLoading(false);
   }, [accountId]);
 
@@ -123,24 +203,18 @@ export default function FinanzasPage() {
     void load();
   }, [load]);
 
-  const balances = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const account of accounts) {
-      map.set(account.id, toNumber(account.opening_balance));
-    }
-    for (const tx of transactions) {
-      if (!tx.pos_account_id) continue;
-      const current = map.get(tx.pos_account_id);
-      if (current == null) continue;
-      const value = toNumber(tx.amount);
-      map.set(tx.pos_account_id, current + (tx.kind === "in" ? value : -value));
-    }
-    return map;
-  }, [accounts, transactions]);
+  const activeAccounts = useMemo(
+    () => accounts.filter((account) => account.active),
+    [accounts],
+  );
+  const archivedAccounts = useMemo(
+    () => accounts.filter((account) => !account.active),
+    [accounts],
+  );
 
   const totalUsd = useMemo(() => {
     let total = 0;
-    for (const account of accounts) {
+    for (const account of activeAccounts) {
       const balance = balances.get(account.id) ?? 0;
       total +=
         account.currency === "USD"
@@ -150,7 +224,90 @@ export default function FinanzasPage() {
             : 0;
     }
     return total;
-  }, [accounts, balances, rate]);
+  }, [activeAccounts, balances, rate]);
+
+  async function startEdit(account: Account) {
+    setActionError(null);
+    setBusyAccountId(account.id);
+    const usage = await accountUsageCount(createClient(), account.id);
+    setBusyAccountId(null);
+    if (usage == null) {
+      setActionError(
+        "No se pudo verificar el uso de la cuenta. Intenta de nuevo.",
+      );
+      return;
+    }
+    setEditState({ account, used: usage > 0 });
+  }
+
+  async function startDelete(account: Account) {
+    setActionError(null);
+    setBusyAccountId(account.id);
+    const usage = await accountUsageCount(createClient(), account.id);
+    setBusyAccountId(null);
+    if (usage == null) {
+      setActionError(
+        "No se pudo verificar el uso de la cuenta. Intenta de nuevo.",
+      );
+      return;
+    }
+    setDeleteState({ account, usage });
+  }
+
+  async function confirmDelete() {
+    if (!deleteState || !accountId) return;
+    const { account, usage } = deleteState;
+    const balance = balances.get(account.id) ?? 0;
+
+    if (usage > 0 && Math.abs(balance) > 0.005) {
+      setDeleteState(null);
+      setActionError(
+        `La cuenta tiene ${account.currency === "USD" ? formatUsd(balance) : formatBs(balance)}. Transfiere el saldo a otra cuenta antes de archivarla.`,
+      );
+      return;
+    }
+
+    setDeleting(true);
+    const supabase = createClient();
+    const { error } =
+      usage > 0
+        ? await supabase
+            .from("pos_accounts")
+            .update({ active: false })
+            .eq("id", account.id)
+            .eq("account_id", accountId)
+        : await supabase
+            .from("pos_accounts")
+            .delete()
+            .eq("id", account.id)
+            .eq("account_id", accountId);
+    setDeleting(false);
+
+    if (error) {
+      setActionError(error.message);
+      return;
+    }
+    setDeleteState(null);
+    void load();
+  }
+
+  async function reactivate(account: Account) {
+    if (!accountId) return;
+    setBusyAccountId(account.id);
+    setActionError(null);
+    const supabase = createClient();
+    const { error } = await supabase
+      .from("pos_accounts")
+      .update({ active: true })
+      .eq("id", account.id)
+      .eq("account_id", accountId);
+    setBusyAccountId(null);
+    if (error) {
+      setActionError(error.message);
+      return;
+    }
+    void load();
+  }
 
   const accountName = useCallback(
     (id: string | null) =>
@@ -201,7 +358,7 @@ export default function FinanzasPage() {
             Cuentas
           </p>
           <p className="mt-1 text-2xl font-black text-slate-900">
-            {accounts.length}
+            {activeAccounts.length}
           </p>
           <p className="text-[11px] text-slate-500">Activas</p>
         </div>
@@ -219,6 +376,20 @@ export default function FinanzasPage() {
           </p>
         </div>
       </div>
+
+      {actionError ? (
+        <div className="mb-4 flex items-start justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-700">
+          <p>{actionError}</p>
+          <button
+            type="button"
+            onClick={() => setActionError(null)}
+            className="rounded p-0.5 text-red-400 hover:bg-red-100"
+            aria-label="Cerrar aviso"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      ) : null}
 
       <div className="mb-4 flex flex-wrap gap-1 rounded-xl border border-slate-200 bg-white p-1">
         {TABS.map((item) => (
@@ -242,7 +413,7 @@ export default function FinanzasPage() {
           <Loader2 className="h-5 w-5 animate-spin text-[#3f3fd8]" />
         </div>
       ) : tab === "cuentas" ? (
-        accounts.length === 0 ? (
+        activeAccounts.length === 0 && archivedAccounts.length === 0 ? (
           <Empty
             title="Todavía no hay cuentas"
             description="Crea tu primera cuenta para registrar cobros, pagos y gastos."
@@ -253,51 +424,158 @@ export default function FinanzasPage() {
             }
           />
         ) : (
-          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
-            <table className="w-full text-sm">
-              <thead className="bg-slate-50 text-left text-[10px] uppercase tracking-wide text-slate-500">
-                <tr>
-                  <th className="px-4 py-2.5 font-semibold">Cuenta</th>
-                  <th className="px-4 py-2.5 font-semibold">Tipo</th>
-                  <th className="px-4 py-2.5 font-semibold">Moneda</th>
-                  <th className="px-4 py-2.5 text-right font-semibold">Saldo</th>
-                  <th className="px-4 py-2.5 text-right font-semibold">En USD</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {accounts.map((account) => {
-                  const balance = balances.get(account.id) ?? 0;
-                  const usd =
-                    account.currency === "USD"
-                      ? balance
-                      : rate > 0
-                        ? balance / rate
-                        : 0;
-                  return (
-                    <tr key={account.id} className="hover:bg-slate-50/60">
-                      <td className="px-4 py-3 font-semibold text-slate-800">
-                        {account.name}
-                      </td>
-                      <td className="px-4 py-3 text-slate-500">
-                        {KIND_LABEL[account.kind] ?? account.kind}
-                      </td>
-                      <td className="px-4 py-3 text-slate-500">
-                        {account.currency}
-                      </td>
-                      <td className="px-4 py-3 text-right font-bold text-slate-900">
-                        {account.currency === "USD"
-                          ? formatUsd(balance)
-                          : formatBs(balance)}
-                      </td>
-                      <td className="px-4 py-3 text-right text-slate-500">
-                        {formatUsd(usd)}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+          <>
+            <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50 text-left text-[10px] uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th className="px-4 py-2.5 font-semibold">Cuenta</th>
+                    <th className="px-4 py-2.5 font-semibold">Tipo</th>
+                    <th className="px-4 py-2.5 font-semibold">Moneda</th>
+                    <th className="px-4 py-2.5 text-right font-semibold">
+                      Saldo
+                    </th>
+                    <th className="px-4 py-2.5 text-right font-semibold">
+                      En USD
+                    </th>
+                    <th className="px-4 py-2.5 text-right font-semibold">
+                      Acciones
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {activeAccounts.map((account) => {
+                    const balance = balances.get(account.id) ?? 0;
+                    const usd =
+                      account.currency === "USD"
+                        ? balance
+                        : rate > 0
+                          ? balance / rate
+                          : 0;
+                    return (
+                      <tr key={account.id} className="hover:bg-slate-50/60">
+                        <td className="px-4 py-3 font-semibold text-slate-800">
+                          {account.name}
+                        </td>
+                        <td className="px-4 py-3 text-slate-500">
+                          {KIND_LABEL[account.kind] ?? account.kind}
+                        </td>
+                        <td className="px-4 py-3 text-slate-500">
+                          {account.currency}
+                        </td>
+                        <td className="px-4 py-3 text-right font-bold text-slate-900">
+                          {account.currency === "USD"
+                            ? formatUsd(balance)
+                            : formatBs(balance)}
+                        </td>
+                        <td className="px-4 py-3 text-right text-slate-500">
+                          {formatUsd(usd)}
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center justify-end gap-1">
+                            <button
+                              type="button"
+                              title="Editar cuenta"
+                              onClick={() => void startEdit(account)}
+                              disabled={busyAccountId === account.id}
+                              className="rounded-lg border border-slate-200 p-1.5 text-slate-500 hover:bg-slate-50 disabled:opacity-40"
+                            >
+                              {busyAccountId === account.id ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <Pencil className="h-3.5 w-3.5" />
+                              )}
+                            </button>
+                            <button
+                              type="button"
+                              title="Eliminar o archivar"
+                              onClick={() => void startDelete(account)}
+                              disabled={busyAccountId === account.id}
+                              className="rounded-lg border border-slate-200 p-1.5 text-red-500 hover:bg-red-50 disabled:opacity-40"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              {activeAccounts.length === 0 ? (
+                <p className="px-4 py-8 text-center text-xs text-slate-500">
+                  No hay cuentas activas. Reactiva una archivada o crea una
+                  nueva.
+                </p>
+              ) : null}
+            </div>
+
+            {archivedAccounts.length > 0 ? (
+              <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-white">
+                <button
+                  type="button"
+                  onClick={() => setShowArchived((value) => !value)}
+                  className="flex w-full items-center justify-between px-4 py-3 text-left hover:bg-slate-50"
+                >
+                  <span className="flex items-center gap-2 text-xs font-bold text-slate-600">
+                    <Archive className="h-3.5 w-3.5 text-slate-400" />
+                    Cuentas archivadas ({archivedAccounts.length})
+                  </span>
+                  <ChevronDown
+                    className={`h-4 w-4 text-slate-400 transition-transform ${
+                      showArchived ? "" : "-rotate-90"
+                    }`}
+                  />
+                </button>
+                {showArchived ? (
+                  <table className="w-full border-t border-slate-100 text-sm">
+                    <thead className="bg-slate-50 text-left text-[10px] uppercase tracking-wide text-slate-500">
+                      <tr>
+                        <th className="px-4 py-2.5 font-semibold">Cuenta</th>
+                        <th className="px-4 py-2.5 font-semibold">Tipo</th>
+                        <th className="px-4 py-2.5 font-semibold">Moneda</th>
+                        <th className="px-4 py-2.5 text-right font-semibold">
+                          Acciones
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {archivedAccounts.map((account) => (
+                        <tr key={account.id}>
+                          <td className="px-4 py-3 text-slate-600">
+                            {account.name}
+                          </td>
+                          <td className="px-4 py-3 text-slate-500">
+                            {KIND_LABEL[account.kind] ?? account.kind}
+                          </td>
+                          <td className="px-4 py-3 text-slate-500">
+                            {account.currency}
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex justify-end">
+                              <button
+                                type="button"
+                                onClick={() => void reactivate(account)}
+                                disabled={busyAccountId === account.id}
+                                className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+                              >
+                                {busyAccountId === account.id ? (
+                                  <Loader2 className="h-3 w-3 animate-spin" />
+                                ) : (
+                                  <RotateCcw className="h-3 w-3" />
+                                )}
+                                Reactivar
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : null}
+              </div>
+            ) : null}
+          </>
         )
       ) : null}
 
@@ -386,7 +664,7 @@ export default function FinanzasPage() {
       {collectSale ? (
         <CollectCreditDialog
           sale={collectSale}
-          accounts={accounts}
+          accounts={activeAccounts}
           onClose={() => setCollectSale(null)}
           onSaved={() => void load()}
         />
@@ -403,9 +681,96 @@ export default function FinanzasPage() {
         />
       ) : null}
 
+      {editState ? (
+        <AccountDialog
+          accountId={accountId}
+          account={editState.account}
+          used={editState.used}
+          onClose={() => setEditState(null)}
+          onSaved={() => {
+            setEditState(null);
+            void load();
+          }}
+        />
+      ) : null}
+
+      {deleteState ? (
+        <Modal
+          title={
+            deleteState.usage > 0 ? "Archivar cuenta" : "Eliminar cuenta"
+          }
+          subtitle={deleteState.account.name}
+          onClose={() => (deleting ? null : setDeleteState(null))}
+          footer={
+            <>
+              <button
+                type="button"
+                onClick={() => setDeleteState(null)}
+                disabled={deleting}
+                className="rounded-lg px-3 py-2 text-sm font-semibold text-slate-500 hover:bg-slate-50 disabled:opacity-40"
+              >
+                Cancelar
+              </button>
+              {deleteState.usage > 0 &&
+              Math.abs(balances.get(deleteState.account.id) ?? 0) > 0.005 ? (
+                <PosButton onClick={() => setDeleteState(null)}>
+                  Entendido
+                </PosButton>
+              ) : (
+                <PosButton
+                  onClick={() => void confirmDelete()}
+                  disabled={deleting}
+                  className={
+                    deleteState.usage > 0
+                      ? ""
+                      : "!bg-red-600 hover:!bg-red-700"
+                  }
+                >
+                  {deleting ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : null}
+                  {deleteState.usage > 0 ? "Archivar" : "Eliminar"}
+                </PosButton>
+              )}
+            </>
+          }
+        >
+          <div className="space-y-3 text-sm text-slate-600">
+            {deleteState.usage > 0 ? (
+              <>
+                <p>
+                  Esta cuenta tiene movimientos registrados. Se archivará para
+                  conservar el historial: dejará de aparecer en cobros, gastos y
+                  transferencias, y podrás reactivarla cuando quieras.
+                </p>
+                {Math.abs(balances.get(deleteState.account.id) ?? 0) >
+                0.005 ? (
+                  <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                    Tiene un saldo de{" "}
+                    {deleteState.account.currency === "USD"
+                      ? formatUsd(
+                          balances.get(deleteState.account.id) ?? 0,
+                        )
+                      : formatBs(
+                          balances.get(deleteState.account.id) ?? 0,
+                        )}
+                    . Transfiérelo a otra cuenta antes de archivarla.
+                  </p>
+                ) : null}
+              </>
+            ) : (
+              <p>
+                Esta cuenta no tiene movimientos ni referencias. Se eliminará
+                definitivamente.
+              </p>
+            )}
+          </div>
+        </Modal>
+      ) : null}
+
       {dialog === "expense" ? (
         <ExpenseDialog
-          accounts={accounts}
+          accounts={activeAccounts}
           rate={rate}
           onClose={() => setDialog(null)}
           onSaved={() => {
@@ -417,7 +782,7 @@ export default function FinanzasPage() {
 
       {dialog === "transfer" ? (
         <TransferDialog
-          accounts={accounts}
+          accounts={activeAccounts}
           rate={rate}
           onClose={() => setDialog(null)}
           onSaved={() => {
@@ -563,17 +928,27 @@ function Modal({
 
 function AccountDialog({
   accountId,
+  account,
+  used = false,
   onClose,
   onSaved,
 }: {
   accountId: string | null;
+  account?: Account | null;
+  used?: boolean;
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const [name, setName] = useState("");
-  const [kind, setKind] = useState("cash_usd");
-  const [currency, setCurrency] = useState<"USD" | "VES">("USD");
-  const [opening, setOpening] = useState("0");
+  const editing = Boolean(account);
+  const currencyLocked = editing && used;
+  const [name, setName] = useState(account?.name ?? "");
+  const [kind, setKind] = useState(account?.kind ?? "cash_usd");
+  const [currency, setCurrency] = useState<"USD" | "VES">(
+    account?.currency ?? "USD",
+  );
+  const [opening, setOpening] = useState(
+    account ? String(account.opening_balance) : "0",
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -585,16 +960,24 @@ function AccountDialog({
     }
     setSaving(true);
     const supabase = createClient();
-    const { error: insertError } = await supabase.from("pos_accounts").insert({
-      account_id: accountId,
+    const payload = {
       name: name.trim(),
       kind,
       currency,
       opening_balance: toNumber(opening),
-    });
+    };
+    const { error: saveError } = account
+      ? await supabase
+          .from("pos_accounts")
+          .update(payload)
+          .eq("id", account.id)
+          .eq("account_id", accountId)
+      : await supabase
+          .from("pos_accounts")
+          .insert({ account_id: accountId, ...payload });
     setSaving(false);
-    if (insertError) {
-      setError(insertError.message);
+    if (saveError) {
+      setError(saveError.message);
       return;
     }
     onSaved();
@@ -602,7 +985,7 @@ function AccountDialog({
 
   return (
     <Modal
-      title="Nueva cuenta"
+      title={editing ? "Editar cuenta" : "Nueva cuenta"}
       subtitle="Efectivo, banco, Pago Móvil o Zelle."
       onClose={onClose}
       footer={
@@ -616,7 +999,7 @@ function AccountDialog({
           </button>
           <PosButton onClick={() => void save()} disabled={saving}>
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            Crear cuenta
+            {editing ? "Guardar cambios" : "Crear cuenta"}
           </PosButton>
         </>
       }
@@ -642,12 +1025,14 @@ function AccountDialog({
               value={kind}
               onChange={(event) => {
                 setKind(event.target.value);
-                setCurrency(
-                  event.target.value === "cash_bs" ||
-                    event.target.value === "mobile"
-                    ? "VES"
-                    : "USD",
-                );
+                if (!currencyLocked) {
+                  setCurrency(
+                    event.target.value === "cash_bs" ||
+                      event.target.value === "mobile"
+                      ? "VES"
+                      : "USD",
+                  );
+                }
               }}
               className={inputClass}
             >
@@ -665,16 +1050,23 @@ function AccountDialog({
             </span>
             <select
               value={currency}
+              disabled={currencyLocked}
               onChange={(event) =>
                 setCurrency(event.target.value as "USD" | "VES")
               }
-              className={inputClass}
+              className={`${inputClass} disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400`}
             >
               <option value="USD">Dólares</option>
               <option value="VES">Bolívares</option>
             </select>
           </label>
         </div>
+        {currencyLocked ? (
+          <p className="rounded-lg bg-slate-50 px-3 py-2 text-[11px] text-slate-500">
+            La moneda no se puede cambiar porque la cuenta ya tiene
+            movimientos. Si necesitas otra moneda, crea una cuenta nueva.
+          </p>
+        ) : null}
         <label className="flex flex-col gap-1">
           <span className="text-[11px] font-semibold text-slate-500">
             Saldo inicial
@@ -685,6 +1077,11 @@ function AccountDialog({
             inputMode="decimal"
             className={inputClass}
           />
+          <span className="text-[10px] text-slate-400">
+            {editing
+              ? "Cambiarlo ajusta el saldo actual de la cuenta."
+              : "Es el punto de partida; no genera un movimiento."}
+          </span>
         </label>
       </div>
       {error ? (
