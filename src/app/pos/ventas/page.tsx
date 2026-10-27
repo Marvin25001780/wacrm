@@ -2,13 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Ban, Loader2, Plus, Receipt, RotateCcw, Search, ShoppingCart } from "lucide-react";
+import { Ban, FileCheck2, Loader2, Plus, Receipt, RotateCcw, Search, ShoppingCart } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
 import { usePosRate } from "@/components/pos/rate-context";
 import { PosButton, PosPageHeader } from "@/components/pos/pos-shell";
 import { SaleReceiptDialog } from "@/components/pos/sale-receipt-dialog";
 import { SaleReturnDialog } from "@/components/pos/sale-return-dialog";
+import { FiscalInvoiceDialog } from "@/components/pos/fiscal-invoice-dialog";
 import { createClient } from "@/lib/supabase/client";
 import { formatBs, formatUsd, round2, toNumber } from "@/lib/pos/money";
 
@@ -22,6 +23,8 @@ interface SaleRow {
   total_usd: number | string;
   balance_usd: number | string;
   returned_usd: number | string;
+  fiscal_status: "none" | "fiscal" | "void";
+  invoice_number: number | string | null;
   created_at: string;
 }
 
@@ -43,6 +46,12 @@ export default function HistorialPage() {
   const [returnSaleId, setReturnSaleId] = useState<string | null>(null);
   const [returnAll, setReturnAll] = useState(false);
   const [returnsReady, setReturnsReady] = useState(false);
+  const [fiscalEnabled, setFiscalEnabled] = useState(false);
+  const [fiscalSale, setFiscalSale] = useState<{
+    id: string;
+    number: number;
+    total_usd: number | string;
+  } | null>(null);
 
   const load = useCallback(async () => {
     if (!accountId) return;
@@ -52,7 +61,7 @@ export default function HistorialPage() {
     const first = await supabase
       .from("pos_sales")
       .select(
-        "id, number, status, subtotal_usd, tax_iva_usd, tax_igtf_usd, total_usd, balance_usd, returned_usd, created_at",
+        "id, number, status, subtotal_usd, tax_iva_usd, tax_igtf_usd, total_usd, balance_usd, returned_usd, fiscal_status, invoice_number, created_at",
       )
       .eq("account_id", accountId)
       .order("created_at", { ascending: false })
@@ -72,6 +81,8 @@ export default function HistorialPage() {
         (fallback.data ?? []).map((row) => ({
           ...row,
           returned_usd: 0,
+          fiscal_status: "none",
+          invoice_number: null,
         })) as SaleRow[],
       );
     } else {
@@ -80,6 +91,14 @@ export default function HistorialPage() {
     }
 
     setLoading(false);
+    void (async () => {
+      const { data: fiscalData } = await supabase
+        .from("pos_fiscal_settings")
+        .select("enabled")
+        .eq("account_id", accountId)
+        .maybeSingle();
+      setFiscalEnabled(Boolean((fiscalData as { enabled: boolean } | null)?.enabled));
+    })();
   }, [accountId]);
 
   useEffect(() => {
@@ -208,6 +227,11 @@ export default function HistorialPage() {
                       <Receipt className="h-3.5 w-3.5 text-slate-400" />
                       #{sale.number}
                     </span>
+                    {sale.fiscal_status === "fiscal" ? (
+                      <span className="block text-[10px] font-semibold text-[#3f3fd8]">
+                        Factura #{sale.invoice_number}
+                      </span>
+                    ) : null}
                   </td>
                   <td className="px-4 py-3 text-slate-500">
                     {new Intl.DateTimeFormat("es-VE", {
@@ -240,7 +264,25 @@ export default function HistorialPage() {
                       : "—"}
                   </td>
                   <td className="px-4 py-3">
-                    <div className="flex items-center justify-end gap-1">
+                    <div className="flex flex-wrap items-center justify-end gap-1">
+                      {fiscalEnabled &&
+                      sale.fiscal_status !== "fiscal" &&
+                      sale.status !== "void" ? (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setFiscalSale({
+                              id: sale.id,
+                              number: sale.number,
+                              total_usd: sale.total_usd,
+                            })
+                          }
+                          className="inline-flex items-center gap-1 rounded-lg border border-indigo-200 px-2 py-1 text-[11px] font-semibold text-[#3f3fd8] hover:bg-indigo-50"
+                        >
+                          <FileCheck2 className="h-3 w-3" />
+                          Facturar
+                        </button>
+                      ) : null}
                       <button
                         type="button"
                         onClick={() => {
@@ -326,6 +368,17 @@ export default function HistorialPage() {
         initialAll={returnAll}
         initialReason={returnAll ? "Anulación de venta" : ""}
       />
+
+      {fiscalSale ? (
+        <FiscalInvoiceDialog
+          sale={fiscalSale}
+          onClose={() => setFiscalSale(null)}
+          onSaved={() => {
+            setFiscalSale(null);
+            void load();
+          }}
+        />
+      ) : null}
     </div>
   );
 }

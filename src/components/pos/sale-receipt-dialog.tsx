@@ -36,6 +36,15 @@ interface SaleDetail {
   pos_customer_id: string | null;
   price_list_id: string | null;
   user_id: string | null;
+  invoice_number?: number | string | null;
+  control_number?: string | null;
+  fiscal_serial?: string | null;
+  fiscal_machine?: string | null;
+  fiscal_issued_at?: string | null;
+  fiscal_status?: "none" | "fiscal" | "void";
+  customer_tax_id?: string | null;
+  customer_legal_name?: string | null;
+  customer_address?: string | null;
 }
 
 interface ItemRow {
@@ -63,6 +72,17 @@ interface SettingsRow {
   receipt_footer: string | null;
   receipt_width: string | null;
   receipt_fields: Record<string, boolean> | null;
+}
+
+interface FiscalSettingsRow {
+  legal_name: string | null;
+  tax_id: string | null;
+  fiscal_address: string | null;
+  economic_activity: string | null;
+  printer_serial: string | null;
+  machine_number: string | null;
+  invoice_series: string | null;
+  legend: string | null;
 }
 
 const METHOD_LABEL: Record<string, string> = Object.fromEntries(
@@ -95,6 +115,7 @@ export function SaleReceiptDialog({
   const [items, setItems] = useState<ItemRow[]>([]);
   const [payments, setPayments] = useState<PaymentRow[]>([]);
   const [settings, setSettings] = useState<SettingsRow | null>(null);
+  const [fiscal, setFiscal] = useState<FiscalSettingsRow | null>(null);
   const [customerName, setCustomerName] = useState("");
   const [shiftNumber, setShiftNumber] = useState<number | null>(null);
   const [channelName, setChannelName] = useState("");
@@ -111,26 +132,34 @@ export function SaleReceiptDialog({
       setError(null);
       const supabase = createClient();
 
-      const [saleRes, itemsRes, paymentsRes, settingsRes] = await Promise.all([
-        supabase.from("pos_sales").select("*").eq("id", saleId).maybeSingle(),
-        supabase
-          .from("pos_sale_items")
-          .select(
-            "name, quantity, unit_price_usd, discount_usd, line_total_usd",
-          )
-          .eq("sale_id", saleId),
-        supabase
-          .from("pos_sale_payments")
-          .select("method, currency, amount, amount_usd, igtf_usd")
-          .eq("sale_id", saleId),
-        supabase
-          .from("pos_settings")
-          .select(
-            "legal_name, tax_id, address, phone, receipt_title, receipt_footer, receipt_width, receipt_fields",
-          )
-          .eq("account_id", accountId ?? "")
-          .maybeSingle(),
-      ]);
+      const [saleRes, itemsRes, paymentsRes, settingsRes, fiscalRes] =
+        await Promise.all([
+          supabase.from("pos_sales").select("*").eq("id", saleId).maybeSingle(),
+          supabase
+            .from("pos_sale_items")
+            .select(
+              "name, quantity, unit_price_usd, discount_usd, line_total_usd",
+            )
+            .eq("sale_id", saleId),
+          supabase
+            .from("pos_sale_payments")
+            .select("method, currency, amount, amount_usd, igtf_usd")
+            .eq("sale_id", saleId),
+          supabase
+            .from("pos_settings")
+            .select(
+              "legal_name, tax_id, address, phone, receipt_title, receipt_footer, receipt_width, receipt_fields",
+            )
+            .eq("account_id", accountId ?? "")
+            .maybeSingle(),
+          supabase
+            .from("pos_fiscal_settings")
+            .select(
+              "legal_name, tax_id, fiscal_address, economic_activity, printer_serial, machine_number, invoice_series, legend",
+            )
+            .eq("account_id", accountId ?? "")
+            .maybeSingle(),
+        ]);
 
       if (!alive) return;
 
@@ -145,6 +174,7 @@ export function SaleReceiptDialog({
       setItems((itemsRes.data ?? []) as ItemRow[]);
       setPayments((paymentsRes.data ?? []) as PaymentRow[]);
       setSettings((settingsRes.data as SettingsRow | null) ?? null);
+      setFiscal((fiscalRes.data as FiscalSettingsRow | null) ?? null);
 
       if (detail.pos_customer_id) {
         const { data } = await supabase
@@ -212,6 +242,10 @@ export function SaleReceiptDialog({
     ...DEFAULT_FIELDS,
     ...(settings?.receipt_fields ?? {}),
   };
+  const isFiscal = sale?.fiscal_status === "fiscal";
+  const legalName = fiscal?.legal_name ?? settings?.legal_name;
+  const taxId = fiscal?.tax_id ?? settings?.tax_id;
+  const fiscalAddress = fiscal?.fiscal_address ?? settings?.address;
   const rate = toNumber(sale?.exchange_rate_used);
   const gross = toNumber(sale?.subtotal_usd) + toNumber(sale?.discount_usd);
   const width = settings?.receipt_width ?? "80";
@@ -272,39 +306,70 @@ export function SaleReceiptDialog({
               <p className="text-xs font-bold text-slate-800">
                 {account?.name ?? "Mi negocio"}
               </p>
-              {fields.legal_name && settings?.legal_name ? (
+              {legalName ? (
                 <p className="text-[10px] leading-snug text-slate-500">
-                  {settings.legal_name}
+                  {legalName}
                 </p>
               ) : null}
-              {fields.tax_id && settings?.tax_id ? (
-                <p className="text-[10px] text-slate-500">
-                  RIF: {settings.tax_id}
-                </p>
+              {taxId ? (
+                <p className="text-[10px] text-slate-500">RIF: {taxId}</p>
               ) : null}
               {fields.phone && settings?.phone ? (
                 <p className="text-[10px] text-slate-500">
                   Tel: {settings.phone}
                 </p>
               ) : null}
-              {fields.address && settings?.address ? (
+              {fiscalAddress ? (
                 <p className="text-[9px] leading-snug text-slate-400">
-                  {settings.address}
+                  {fiscalAddress}
+                </p>
+              ) : null}
+              {isFiscal && fiscal?.economic_activity ? (
+                <p className="text-[9px] leading-snug text-slate-400">
+                  {fiscal.economic_activity}
                 </p>
               ) : null}
 
               <div className="my-2 border-t border-dashed border-slate-300" />
 
-              <p className="text-[11px] font-semibold text-slate-700">
-                {settings?.receipt_title || "Comprobante de venta"}
+              <p className="text-[11px] font-bold text-slate-800">
+                {isFiscal
+                  ? "FACTURA"
+                  : settings?.receipt_title || "Comprobante de venta"}
               </p>
+              {isFiscal ? (
+                <p className="text-[10px] font-semibold text-slate-600">
+                  Factura N° {sale.invoice_number} · Control{" "}
+                  {sale.control_number ?? "—"}
+                </p>
+              ) : (
+                <p className="text-[9px] font-semibold text-slate-400">
+                  Documento no fiscal
+                </p>
+              )}
               <div className="mt-1 text-left text-[9px] leading-snug text-slate-500">
                 <p>Ticket #{sale.number}</p>
                 <p>{formatDate(sale.created_at)}</p>
                 {cashier ? <p>Cajero: {cashier}</p> : null}
                 {shiftNumber ? <p>Turno: #{shiftNumber}</p> : null}
                 {channelName ? <p>Canal: {channelName}</p> : null}
-                {fields.customer ? (
+                {isFiscal ? (
+                  <>
+                    <p>
+                      Cliente:{" "}
+                      {sale.customer_legal_name || "Consumidor final"}
+                    </p>
+                    <p>RIF: {sale.customer_tax_id ?? "—"}</p>
+                    {sale.customer_address ? (
+                      <p>{sale.customer_address}</p>
+                    ) : null}
+                    <p>
+                      Serie: {fiscal?.invoice_series ?? "—"} · Máquina:{" "}
+                      {fiscal?.machine_number ?? "—"}
+                    </p>
+                    <p>Serial: {fiscal?.printer_serial ?? "—"}</p>
+                  </>
+                ) : fields.customer ? (
                   <p>Cliente: {customerName || "Consumidor final"}</p>
                 ) : null}
               </div>
@@ -446,6 +511,11 @@ export function SaleReceiptDialog({
               {settings?.receipt_footer ? (
                 <p className="mt-3 text-[9px] italic text-slate-500">
                   {settings.receipt_footer}
+                </p>
+              ) : null}
+              {isFiscal && fiscal?.legend ? (
+                <p className="mt-2 text-[8px] leading-snug text-slate-500">
+                  {fiscal.legend}
                 </p>
               ) : null}
 
