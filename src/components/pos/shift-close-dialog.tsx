@@ -36,6 +36,8 @@ export interface ShiftPrintData {
   difference_usd?: number | string;
   difference_bs?: number | string;
   by_method: ShiftPrintMethod[];
+  usd_breakdown?: Record<string, number>;
+  bs_breakdown?: Record<string, number>;
   notes?: string | null;
 }
 
@@ -95,6 +97,12 @@ export function ShiftCloseDialog({
   const isClosed = data.status === "closed";
   const differenceUsd = toNumber(data.difference_usd);
   const differenceBs = toNumber(data.difference_bs);
+  const usdEntries = Object.entries(data.usd_breakdown ?? {})
+    .filter(([, count]) => Number(count) > 0)
+    .sort((a, b) => Number(b[0]) - Number(a[0]));
+  const bsEntries = Object.entries(data.bs_breakdown ?? {})
+    .filter(([, count]) => Number(count) > 0)
+    .sort((a, b) => Number(b[0]) - Number(a[0]));
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/40 p-4 sm:items-center">
@@ -287,6 +295,35 @@ export function ShiftCloseDialog({
                   </p>
                 )}
               </div>
+
+              {isClosed && (usdEntries.length > 0 || bsEntries.length > 0) ? (
+                <>
+                  <div className="my-2 border-t border-dashed border-slate-300" />
+                  <p className="text-left text-[10px] font-semibold text-slate-600">
+                    Desglose contado
+                  </p>
+                  <div className="mt-1 space-y-0.5 text-[9px]">
+                    {usdEntries.map(([denom, count]) => (
+                      <Row
+                        key={`u-${denom}`}
+                        label={`${formatUsd(Number(denom))} × ${count}`}
+                        value={formatUsd(
+                          Number(denom) * Number(count),
+                        )}
+                      />
+                    ))}
+                    {bsEntries.map(([denom, count]) => (
+                      <Row
+                        key={`b-${denom}`}
+                        label={`${formatBs(Number(denom))} × ${count}`}
+                        value={formatBs(
+                          Number(denom) * Number(count),
+                        )}
+                      />
+                    ))}
+                  </div>
+                </>
+              ) : null}
 
               {data.notes ? (
                 <>

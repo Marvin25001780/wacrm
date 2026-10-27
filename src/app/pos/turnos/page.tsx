@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ArrowDownRight,
   ArrowUpRight,
+  Calculator,
   CheckCircle2,
   Clock,
   Loader2,
@@ -27,6 +28,7 @@ import {
   ShiftCloseDialog,
   type ShiftPrintData,
 } from "@/components/pos/shift-close-dialog";
+import { DenominationDialog } from "@/components/pos/denomination-dialog";
 import { createClient } from "@/lib/supabase/client";
 import {
   PAYMENT_METHODS,
@@ -70,6 +72,8 @@ interface ShiftRow {
   expected_bs: number | string;
   counted_usd: number | string | null;
   counted_bs: number | string | null;
+  counted_usd_breakdown?: Record<string, number>;
+  counted_bs_breakdown?: Record<string, number>;
   difference_usd: number | string;
   difference_bs: number | string;
   sales_usd: number | string;
@@ -110,6 +114,9 @@ export default function TurnosPage() {
   const [openDialog, setOpenDialog] = useState(false);
   const [countedUsd, setCountedUsd] = useState("0");
   const [countedBs, setCountedBs] = useState("0");
+  const [denominationOpen, setDenominationOpen] = useState(false);
+  const [usdBreakdown, setUsdBreakdown] = useState<Record<string, number>>({});
+  const [bsBreakdown, setBsBreakdown] = useState<Record<string, number>>({});
   const [closeNote, setCloseNote] = useState("");
   const [closing, setClosing] = useState(false);
   const [closeError, setCloseError] = useState<string | null>(null);
@@ -169,7 +176,7 @@ export default function TurnosPage() {
     const { data: historyData, error: historyError } = await supabase
       .from("pos_shifts")
       .select(
-        "id, number, status, opened_at, closed_at, opening_usd, opening_bs, rate_open, expected_usd, expected_bs, counted_usd, counted_bs, difference_usd, difference_bs, sales_usd, sales_count, by_method, notes_close",
+        "id, number, status, opened_at, closed_at, opening_usd, opening_bs, rate_open, expected_usd, expected_bs, counted_usd, counted_bs, counted_usd_breakdown, counted_bs_breakdown, difference_usd, difference_bs, sales_usd, sales_count, by_method, notes_close",
       )
       .eq("account_id", accountId)
       .eq("status", "closed")
@@ -242,12 +249,24 @@ export default function TurnosPage() {
     setClosing(true);
     setCloseError(null);
     const supabase = createClient();
-    const { data, error } = await supabase.rpc("pos_close_shift", {
+    const closePayload: Record<string, unknown> = {
       p_shift_id: shift.id,
       p_counted_usd: toNumber(countedUsd),
       p_counted_bs: toNumber(countedBs),
       p_note: closeNote.trim() || null,
-    });
+    };
+    if (
+      Object.keys(usdBreakdown).length > 0 ||
+      Object.keys(bsBreakdown).length > 0
+    ) {
+      closePayload.p_usd_breakdown = usdBreakdown;
+      closePayload.p_bs_breakdown = bsBreakdown;
+    }
+
+    const { data, error } = await supabase.rpc(
+      "pos_close_shift",
+      closePayload,
+    );
     setClosing(false);
 
     if (error) {
@@ -263,6 +282,8 @@ export default function TurnosPage() {
     setClosedResult(result);
     setCountedUsd("0");
     setCountedBs("0");
+    setUsdBreakdown({});
+    setBsBreakdown({});
     setCloseNote("");
     notifyShiftChanged();
     await refreshShift();
@@ -283,6 +304,8 @@ export default function TurnosPage() {
       sales_count: summary.sales_count,
       expected_usd: summary.expected_usd,
       expected_bs: summary.expected_bs,
+      usd_breakdown: usdBreakdown,
+      bs_breakdown: bsBreakdown,
       by_method: summary.by_method,
     });
     setPrintOpen(true);
@@ -303,6 +326,8 @@ export default function TurnosPage() {
       expected_bs: row.expected_bs,
       counted_usd: row.counted_usd,
       counted_bs: row.counted_bs,
+      usd_breakdown: row.counted_usd_breakdown ?? {},
+      bs_breakdown: row.counted_bs_breakdown ?? {},
       difference_usd: row.difference_usd,
       difference_bs: row.difference_bs,
       by_method: row.by_method ?? [],
@@ -588,6 +613,21 @@ export default function TurnosPage() {
                   </div>
                 </div>
 
+                <button
+                  type="button"
+                  onClick={() => setDenominationOpen(true)}
+                  className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-slate-300 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50"
+                >
+                  <Calculator className="h-3.5 w-3.5" />
+                  Contar por billetes y monedas
+                </button>
+                {Object.keys(usdBreakdown).length > 0 ||
+                Object.keys(bsBreakdown).length > 0 ? (
+                  <p className="text-[10px] font-semibold text-emerald-700">
+                    Desglose aplicado. Si cambias los totales, se descarta.
+                  </p>
+                ) : null}
+
                 <label className="flex flex-col gap-1">
                   <span className="text-xs font-bold text-slate-700">
                     Efectivo contado en dólares
@@ -596,7 +636,10 @@ export default function TurnosPage() {
                     <span className="text-sm text-slate-400">$</span>
                     <input
                       value={countedUsd}
-                      onChange={(event) => setCountedUsd(event.target.value)}
+                      onChange={(event) => {
+                        setCountedUsd(event.target.value);
+                        setUsdBreakdown({});
+                      }}
                       inputMode="decimal"
                       className="w-full bg-transparent text-right text-sm outline-none"
                     />
@@ -611,7 +654,10 @@ export default function TurnosPage() {
                     <span className="text-sm text-slate-400">Bs</span>
                     <input
                       value={countedBs}
-                      onChange={(event) => setCountedBs(event.target.value)}
+                      onChange={(event) => {
+                        setCountedBs(event.target.value);
+                        setBsBreakdown({});
+                      }}
                       inputMode="decimal"
                       className="w-full bg-transparent text-right text-sm outline-none"
                     />
@@ -789,6 +835,17 @@ export default function TurnosPage() {
           onOpen={openShift}
         />
       ) : null}
+
+      <DenominationDialog
+        open={denominationOpen}
+        onClose={() => setDenominationOpen(false)}
+        onApply={(payload) => {
+          setCountedUsd(payload.usd.toFixed(2));
+          setCountedBs(payload.bs.toFixed(2));
+          setUsdBreakdown(payload.usdBreakdown);
+          setBsBreakdown(payload.bsBreakdown);
+        }}
+      />
 
       <ShiftCloseDialog
         data={printData}
