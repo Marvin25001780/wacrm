@@ -996,8 +996,7 @@ function ProductForm({
                           Existencia actual
                         </span>
                         <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-600">
-                          {toNumber(product.stock)}{" "}
-                          {unitShort(product.unit)}
+                          {toNumber(product.stock)} {unitShort(unit)}
                         </p>
                         <span className="text-[10px] text-slate-400">
                           Se cambia con compras o ajustes
@@ -1198,7 +1197,7 @@ function ProductForm({
                     <Package className="mt-0.5 h-3 w-3 shrink-0" />
                     {product
                       ? `Tiene ${toNumber(product.stock)} ${unitShort(
-                          product.unit,
+                          unit,
                         )} en existencia.`
                       : previewStock > 0
                         ? `Entra con ${previewStock} ${unitShort(
