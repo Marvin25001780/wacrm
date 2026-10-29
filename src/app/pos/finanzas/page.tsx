@@ -24,6 +24,7 @@ import {
   CollectCreditDialog,
   type CollectSale,
 } from "@/components/pos/collect-credit-dialog";
+import { FixedExpensesTab } from "@/components/pos/fixed-expenses-tab";
 import { createClient } from "@/lib/supabase/client";
 import { formatBs, formatUsd, toNumber, usdToBs } from "@/lib/pos/money";
 
@@ -57,13 +58,20 @@ interface PendingSale {
   customer?: { name: string | null } | null;
 }
 
-type Tab = "cuentas" | "movimientos" | "transferencias" | "gastos" | "pendientes";
+type Tab =
+  | "cuentas"
+  | "movimientos"
+  | "transferencias"
+  | "gastos"
+  | "fijos"
+  | "pendientes";
 
 const TABS: { key: Tab; label: string }[] = [
   { key: "cuentas", label: "Cuentas" },
   { key: "movimientos", label: "Movimientos" },
   { key: "transferencias", label: "Transferencias" },
   { key: "gastos", label: "Gastos" },
+  { key: "fijos", label: "Gastos fijos" },
   { key: "pendientes", label: "Pendientes" },
 ];
 
@@ -600,6 +608,18 @@ export default function FinanzasPage() {
           rows={gastos}
           accountName={accountName}
           empty="Los gastos que registres aparecerán aquí."
+        />
+      ) : null}
+
+      {!loading && tab === "fijos" ? (
+        <FixedExpensesTab
+          accountId={accountId}
+          rate={rate}
+          accounts={activeAccounts.map((account) => ({
+            id: account.id,
+            name: account.name,
+            currency: account.currency,
+          }))}
         />
       ) : null}
 

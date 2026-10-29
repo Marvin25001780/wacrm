@@ -26,6 +26,13 @@ import {
   type AgingBucket,
   type InventoryProduct,
 } from "@/lib/pos/inventory-report";
+import {
+  computeBreakEven,
+  fixedByCategory,
+  fixedTotal,
+  type BreakEven,
+  type FixedExpense,
+} from "@/lib/pos/break-even";
 
 type Period = "month" | "lastMonth" | "days30" | "year";
 type Tab = "resultados" | "inventario" | "ventas" | "finanzas";
@@ -86,6 +93,12 @@ interface CreditRow {
   created_at: string;
 }
 
+interface FixedPaymentRow {
+  fixed_expense_id: string;
+  amount_usd: number | string;
+  paid_at: string;
+}
+
 const PERIODS: { key: Period; label: string }[] = [
   { key: "month", label: "Este mes" },
   { key: "lastMonth", label: "Mes anterior" },
@@ -100,8 +113,13 @@ const TABS: { key: Tab; label: string }[] = [
   { key: "finanzas", label: "Finanzas" },
 ];
 
-function rangeFor(period: Period): { start: Date; end: Date; prevStart: Date } {
+/** Primer día del mes actual, en formato YYYY-MM-01. */
+function currentPeriod(): string {
   const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+}
+
+function rangeFor(period: Period): { start: Date; end: Date; prevStart: Date } {  const now = new Date();
   const end = new Date(now);
   let start: Date;
   let prevStart: Date;
@@ -159,6 +177,10 @@ export default function InformesPage() {
   const [balances, setBalances] = useState<Map<string, number>>(new Map());
   const [payables, setPayables] = useState<PayableRow[]>([]);
   const [creditSales, setCreditSales] = useState<CreditRow[]>([]);
+  const [fixedExpenses, setFixedExpenses] = useState<FixedExpense[]>([]);
+  const [fixedPayments, setFixedPayments] = useState<Map<string, FixedPaymentRow>>(
+    new Map(),
+  );
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
@@ -193,6 +215,8 @@ export default function InformesPage() {
       accountsRes,
       payablesRes,
       creditRes,
+      fixedRes,
+      fixedPaymentsRes,
     ] = await Promise.all([
         supabase
           .from("pos_sales")
@@ -319,6 +343,16 @@ export default function InformesPage() {
           .eq("status", "credit")
           .gt("balance_usd", 0)
           .order("created_at", { ascending: true }),
+        supabase
+          .from("pos_fixed_expenses")
+          .select("id, name, category, amount_usd, due_day, active")
+          .eq("account_id", accountId)
+          .order("amount_usd", { ascending: false }),
+        supabase
+          .from("pos_fixed_expense_payments")
+          .select("fixed_expense_id, amount_usd, paid_at")
+          .eq("account_id", accountId)
+          .eq("period_month", currentPeriod()),
       ]);
 
     const salesRows = (salesRes.data ?? []) as SaleRow[];
@@ -399,6 +433,15 @@ export default function InformesPage() {
     setProducts(productRows);
     setPayables((payablesRes.data ?? []) as PayableRow[]);
     setCreditSales((creditRes.data ?? []) as CreditRow[]);
+    setFixedExpenses((fixedRes.data ?? []) as FixedExpense[]);
+    setFixedPayments(
+      new Map(
+        ((fixedPaymentsRes.data ?? []) as FixedPaymentRow[]).map((row) => [
+          row.fixed_expense_id,
+          row,
+        ]),
+      ),
+    );
 
     // Saldos por cuenta: la RPC manda; si falla, se calcula con el inicial.
     const accountRows = (accountsRes.data ?? []) as AccountRow[];
@@ -534,6 +577,22 @@ export default function InformesPage() {
     [accountRows],
   );
 
+  const monthlyFixed = useMemo(() => fixedTotal(fixedExpenses), [fixedExpenses]);
+  const fixedCategories = useMemo(
+    () => fixedByCategory(fixedExpenses),
+    [fixedExpenses],
+  );
+  const breakEven = useMemo(
+    () =>
+      computeBreakEven(
+        monthlyFixed,
+        stats.net,
+        stats.cogs,
+        daysInPeriod,
+      ),
+    [monthlyFixed, stats.net, stats.cogs, daysInPeriod],
+  );
+
   const monthly = useMemo(() => {
     const months: { key: string; label: string; value: number }[] = [];
     const now = new Date();
@@ -633,6 +692,14 @@ export default function InformesPage() {
               highlight
             />
           </div>
+
+          <BreakEvenCard
+            breakEven={breakEven}
+            fixedExpenses={fixedExpenses}
+            categories={fixedCategories}
+            rate={rate}
+            onOpenFinanzas={() => setTab("finanzas")}
+          />
 
           <div className="rounded-2xl border border-slate-200 bg-white p-5">
             <p className="text-sm font-bold text-slate-800">
@@ -997,6 +1064,81 @@ export default function InformesPage() {
             />
           </div>
 
+          <section className="rounded-2xl border border-slate-200 bg-white p-5">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <div>
+                <p className="text-sm font-bold text-slate-800">
+                  Gastos fijos del mes
+                </p>
+                <p className="text-xs text-slate-500">
+                  Qué está pagado y qué falta, con su fecha de vencimiento.
+                </p>
+              </div>
+              <p className="text-xs text-slate-500">
+                {formatUsd(monthlyFixed)} al mes
+              </p>
+            </div>
+            {fixedExpenses.length === 0 ? (
+              <p className="mt-3 text-xs text-slate-500">
+                Todavía no hay gastos fijos cargados. Se registran en Finanzas →
+                Gastos fijos.
+              </p>
+            ) : (
+              <table className="mt-3 w-full text-sm">
+                <thead className="text-left text-[10px] uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th className="pb-2 font-semibold">Gasto</th>
+                    <th className="pb-2 text-right font-semibold">Vence</th>
+                    <th className="pb-2 text-right font-semibold">Mensual</th>
+                    <th className="pb-2 text-right font-semibold">Estado</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {fixedExpenses.map((row) => {
+                    const payment = fixedPayments.get(row.id);
+                    const overdue =
+                      row.active &&
+                      !payment &&
+                      Number(row.due_day) < new Date().getDate();
+                    return (
+                      <tr key={row.id}>
+                        <td className="py-2 text-slate-700">
+                          {row.name}
+                          {row.active ? null : (
+                            <span className="ml-2 text-[10px] uppercase text-slate-400">
+                              pausado
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-2 text-right text-slate-500">
+                          Día {row.due_day}
+                        </td>
+                        <td className="py-2 text-right font-semibold text-slate-900">
+                          {formatUsd(toNumber(row.amount_usd))}
+                        </td>
+                        <td className="py-2 text-right">
+                          {payment ? (
+                            <span className="text-[11px] font-semibold text-emerald-700">
+                              Pagado
+                            </span>
+                          ) : overdue ? (
+                            <span className="text-[11px] font-semibold text-red-600">
+                              Vencido
+                            </span>
+                          ) : (
+                            <span className="text-[11px] font-semibold text-amber-700">
+                              Pendiente
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </section>
+
           <div className="rounded-2xl border border-slate-200 bg-white p-5">
             <p className="text-sm font-bold text-slate-800">Gastos por categoría</p>
             {stats.expensesByCategory.length === 0 ? (
@@ -1198,8 +1340,197 @@ function Mini({
   );
 }
 
-function AgingCard({
-  title,
+function BreakEvenCard({
+  breakEven,
+  fixedExpenses,
+  categories,
+  rate,
+  onOpenFinanzas,
+}: {
+  breakEven: BreakEven;
+  fixedExpenses: FixedExpense[];
+  categories: { label: string; total: number }[];
+  rate: number;
+  onOpenFinanzas: () => void;
+}) {
+  const { monthlyFixed, dailyNeeded, currentDaily, coveragePct, projectedProfit } =
+    breakEven;
+
+  if (monthlyFixed <= 0) {
+    return (
+      <section className="rounded-2xl border border-indigo-200 bg-indigo-50/50 p-5">
+        <p className="text-sm font-bold text-slate-800">Punto de equilibrio</p>
+        <p className="mt-1 text-xs text-slate-600">
+          Carga tus gastos fijos del mes (alquiler, internet, sueldos...) y aquí
+          verás cuánto necesitas vender al día para cubrirlos y empezar a ganar.
+        </p>
+        <button
+          type="button"
+          onClick={onOpenFinanzas}
+          className="mt-3 rounded-lg bg-[#3f3fd8] px-3 py-1.5 text-xs font-bold text-white hover:bg-[#3535b8]"
+        >
+          Ir a gastos fijos
+        </button>
+      </section>
+    );
+  }
+
+  const coverage = coveragePct == null ? null : Math.round(coveragePct * 100);
+  const status =
+    coverage == null
+      ? { label: "Sin margen", tone: "bg-slate-100 text-slate-600" }
+      : coverage >= 100
+        ? { label: "Cubierto", tone: "bg-emerald-50 text-emerald-700" }
+        : coverage >= 70
+          ? { label: "Cerca", tone: "bg-amber-50 text-amber-700" }
+          : { label: "Por debajo", tone: "bg-red-50 text-red-600" };
+
+  const activeFixed = fixedExpenses
+    .filter((row) => row.active)
+    .slice(0, 3);
+
+  return (
+    <section className="rounded-2xl border border-slate-200 bg-white p-5">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <p className="text-sm font-bold text-slate-800">Punto de equilibrio</p>
+          <p className="text-xs text-slate-500">
+            Con {formatUsd(monthlyFixed)} de gastos fijos al mes y un margen
+            bruto de {(breakEven.marginPct * 100).toFixed(0)}%
+            {breakEven.monthlyNeeded != null
+              ? `, necesitas vender ${formatUsd(breakEven.monthlyNeeded)} al mes.`
+              : "."}
+          </p>
+        </div>
+        <span
+          className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${status.tone}`}
+        >
+          {status.label}
+        </span>
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="rounded-xl border border-slate-200 p-3">
+          <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+            Venta diaria necesaria
+          </p>
+          <p className="mt-1 text-lg font-black text-slate-900">
+            {dailyNeeded == null ? "—" : formatUsd(dailyNeeded)}
+          </p>
+          <p className="text-[10px] text-slate-400">
+            {dailyNeeded == null
+              ? "Sin margen registrado"
+              : formatBs(usdToBs(dailyNeeded, rate))}
+          </p>
+        </div>
+        <div className="rounded-xl border border-slate-200 p-3">
+          <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+            Venta diaria actual
+          </p>
+          <p className="mt-1 text-lg font-black text-slate-900">
+            {formatUsd(currentDaily)}
+          </p>
+          <p className="text-[10px] text-slate-400">
+            Promedio del período elegido
+          </p>
+        </div>
+        <div className="rounded-xl border border-slate-200 p-3">
+          <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+            Cobertura
+          </p>
+          <p
+            className={`mt-1 text-lg font-black ${
+              coverage == null
+                ? "text-slate-900"
+                : coverage >= 100
+                  ? "text-emerald-700"
+                  : "text-red-600"
+            }`}
+          >
+            {coverage == null ? "—" : `${coverage}%`}
+          </p>
+          <p className="text-[10px] text-slate-400">
+            De lo que necesitas vender
+          </p>
+        </div>
+        <div className="rounded-xl border border-slate-200 p-3">
+          <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+            Utilidad mensual estimada
+          </p>
+          <p
+            className={`mt-1 text-lg font-black ${
+              projectedProfit >= 0 ? "text-slate-900" : "text-red-600"
+            }`}
+          >
+            {formatUsd(projectedProfit)}
+          </p>
+          <p className="text-[10px] text-slate-400">
+            Al ritmo de ventas actual
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-4">
+        <div className="h-2.5 w-full rounded-full bg-slate-100">
+          <div
+            className={`h-2.5 rounded-full ${
+              coverage == null
+                ? "bg-slate-300"
+                : coverage >= 100
+                  ? "bg-emerald-500"
+                  : coverage >= 70
+                    ? "bg-amber-500"
+                    : "bg-red-500"
+            }`}
+            style={{ width: `${Math.min(100, Math.max(coverage ?? 0, 2))}%` }}
+          />
+        </div>
+        <p className="mt-1 text-[10px] text-slate-400">
+          {coverage == null
+            ? "Registra ventas para calcular tu margen."
+            : coverage >= 100
+              ? "Tu ritmo actual cubre los gastos fijos y deja utilidad."
+              : `Te faltan ${formatUsd(Math.max(0, (dailyNeeded ?? 0) - currentDaily))} de venta diaria para cubrir los fijos.`}
+        </p>
+      </div>
+
+      {activeFixed.length > 0 ? (
+        <div className="mt-5 border-t border-slate-100 pt-4">
+          <p className="text-xs font-bold text-slate-700">
+            Dónde más pesa tu compromiso
+          </p>
+          <ul className="mt-2 space-y-1.5">
+            {activeFixed.map((row) => {
+              const share =
+                monthlyFixed > 0
+                  ? (toNumber(row.amount_usd) / monthlyFixed) * 100
+                  : 0;
+              return (
+                <li
+                  key={row.id}
+                  className="flex items-center justify-between text-xs"
+                >
+                  <span className="text-slate-600">{row.name}</span>
+                  <span className="font-semibold text-slate-900">
+                    {formatUsd(toNumber(row.amount_usd))} · {share.toFixed(0)}%
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+          {categories.length > 1 ? (
+            <p className="mt-2 text-[10px] text-slate-400">
+              Categoría más pesada: {categories[0].label} (
+              {formatUsd(categories[0].total)}).
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function AgingCard({  title,
   subtitle,
   rows,
   rate,
