@@ -6,19 +6,42 @@ import { Loader2, TrendingDown, TrendingUp } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { usePosRate } from "@/components/pos/rate-context";
 import { PosPageHeader } from "@/components/pos/pos-shell";
+import {
+  BreakdownCard,
+  HeatmapCard,
+  ProductsCard,
+} from "@/components/pos/sales-report-blocks";
 import { createClient } from "@/lib/supabase/client";
 import { formatBs, formatUsd, toNumber, usdToBs } from "@/lib/pos/money";
+import {
+  buildSalesReport,
+  keepRatio,
+  type ReportNames,
+  type SaleItemFact,
+  type SalePaymentFact,
+} from "@/lib/pos/sales-report";
+import {
+  bucketAging,
+  buildInventoryReport,
+  type AgingBucket,
+  type InventoryProduct,
+} from "@/lib/pos/inventory-report";
 
 type Period = "month" | "lastMonth" | "days30" | "year";
-type Tab = "resultados" | "ventas" | "finanzas";
+type Tab = "resultados" | "inventario" | "ventas" | "finanzas";
 
 interface SaleRow {
+  id: string;
   subtotal_usd: number | string;
   unit_cost_usd: number | string;
   total_usd: number | string;
   balance_usd: number | string;
+  returned_usd: number | string;
   status: string;
   created_at: string;
+  price_list_id: string | null;
+  pos_customer_id: string | null;
+  user_id: string | null;
 }
 
 interface ReturnRow {
@@ -41,6 +64,28 @@ interface LossRow {
   created_at: string;
 }
 
+interface AccountRow {
+  id: string;
+  name: string;
+  currency: "USD" | "VES";
+  opening_balance: number | string;
+}
+
+interface PayableRow {
+  id: string;
+  invoice_number: string | null;
+  supplier_name: string | null;
+  due_date: string | null;
+  balance_usd: number | string;
+}
+
+interface CreditRow {
+  id: string;
+  number: number;
+  balance_usd: number | string;
+  created_at: string;
+}
+
 const PERIODS: { key: Period; label: string }[] = [
   { key: "month", label: "Este mes" },
   { key: "lastMonth", label: "Mes anterior" },
@@ -50,6 +95,7 @@ const PERIODS: { key: Period; label: string }[] = [
 
 const TABS: { key: Tab; label: string }[] = [
   { key: "resultados", label: "Resultados" },
+  { key: "inventario", label: "Inventario" },
   { key: "ventas", label: "Ventas" },
   { key: "finanzas", label: "Finanzas" },
 ];
@@ -97,6 +143,22 @@ export default function InformesPage() {
   const [prevTxs, setPrevTxs] = useState<TxRow[]>([]);
   const [losses, setLosses] = useState<LossRow[]>([]);
   const [yearSales, setYearSales] = useState<SaleRow[]>([]);
+  const [items, setItems] = useState<SaleItemFact[]>([]);
+  const [payments, setPayments] = useState<SalePaymentFact[]>([]);
+  const [names, setNames] = useState<ReportNames>({
+    priceLists: new Map(),
+    customers: new Map(),
+    users: new Map(),
+    defaultChannelName: null,
+  });
+  const [channelBySale, setChannelBySale] = useState<Map<string, string>>(
+    new Map(),
+  );
+  const [products, setProducts] = useState<InventoryProduct[]>([]);
+  const [accounts, setAccounts] = useState<AccountRow[]>([]);
+  const [balances, setBalances] = useState<Map<string, number>>(new Map());
+  const [payables, setPayables] = useState<PayableRow[]>([]);
+  const [creditSales, setCreditSales] = useState<CreditRow[]>([]);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
@@ -121,11 +183,21 @@ export default function InformesPage() {
       returnsRes,
       prevReturnsRes,
       yearReturnsRes,
+      itemsRes,
+      paymentsRes,
+      priceListsRes,
+      customersRes,
+      saleChannelsRes,
+      saleChannelRowsRes,
+      productsRes,
+      accountsRes,
+      payablesRes,
+      creditRes,
     ] = await Promise.all([
         supabase
           .from("pos_sales")
           .select(
-            "subtotal_usd, unit_cost_usd, total_usd, balance_usd, status, created_at",
+            "id, subtotal_usd, unit_cost_usd, total_usd, balance_usd, returned_usd, status, created_at, price_list_id, pos_customer_id, user_id",
           )
           .eq("account_id", accountId)
           .gte("created_at", start.toISOString())
@@ -134,7 +206,7 @@ export default function InformesPage() {
         supabase
           .from("pos_sales")
           .select(
-            "subtotal_usd, unit_cost_usd, total_usd, balance_usd, status, created_at",
+            "id, subtotal_usd, unit_cost_usd, total_usd, balance_usd, returned_usd, status, created_at, price_list_id, pos_customer_id, user_id",
           )
           .eq("account_id", accountId)
           .gte("created_at", prevStart.toISOString())
@@ -182,9 +254,167 @@ export default function InformesPage() {
           .select("subtotal_usd, created_at")
           .eq("account_id", accountId)
           .gte("created_at", yearStart.toISOString()),
+        supabase
+          .from("pos_sale_items")
+          .select(
+            "sale_id, product_id, name, quantity, unit_cost_usd, line_total_usd, sale:pos_sales!inner(total_usd, returned_usd, status, created_at), product:pos_products(category:pos_categories(name))",
+          )
+          .eq("account_id", accountId)
+          .gte("sale.created_at", start.toISOString())
+          .lt("sale.created_at", end.toISOString())
+          .neq("sale.status", "void"),
+        supabase
+          .from("pos_sale_payments")
+          .select("method, amount_usd, sale:pos_sales!inner(created_at, status)")
+          .eq("account_id", accountId)
+          .gte("sale.created_at", start.toISOString())
+          .lt("sale.created_at", end.toISOString())
+          .neq("sale.status", "void"),
+        supabase
+          .from("pos_price_lists")
+          .select("id, name")
+          .eq("account_id", accountId),
+        supabase
+          .from("pos_customers")
+          .select("id, name")
+          .eq("account_id", accountId),
+        supabase
+          .from("pos_sale_channels")
+          .select("id, name, is_default")
+          .eq("account_id", accountId),
+        supabase
+          .from("pos_sales")
+          .select("id, sale_channel_id")
+          .eq("account_id", accountId)
+          .gte("created_at", start.toISOString())
+          .lt("created_at", end.toISOString())
+          .neq("status", "void"),
+        supabase
+          .from("pos_products")
+          .select(
+            "id, name, sku, kind, stock, min_stock, cost_usd, price_usd",
+          )
+          .eq("account_id", accountId)
+          .eq("active", true)
+          .eq("is_parent", false),
+        supabase
+          .from("pos_accounts")
+          .select("id, name, currency, opening_balance")
+          .eq("account_id", accountId)
+          .eq("active", true)
+          .order("name"),
+        supabase
+          .from("pos_inventory_docs")
+          .select(
+            "id, invoice_number, supplier_name, due_date, balance_usd",
+          )
+          .eq("account_id", accountId)
+          .eq("kind", "purchase")
+          .eq("status", "credit")
+          .gt("balance_usd", 0),
+        supabase
+          .from("pos_sales")
+          .select("id, number, balance_usd, created_at")
+          .eq("account_id", accountId)
+          .eq("status", "credit")
+          .gt("balance_usd", 0)
+          .order("created_at", { ascending: true }),
       ]);
 
-    setSales((salesRes.data ?? []) as SaleRow[]);
+    const salesRows = (salesRes.data ?? []) as SaleRow[];
+    const userIds = [
+      ...new Set(
+        salesRows
+          .map((sale) => sale.user_id)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    ];
+    const profilesRes =
+      userIds.length > 0
+        ? await supabase
+            .from("profiles")
+            .select("user_id, full_name")
+            .in("user_id", userIds)
+        : { data: [] as { user_id: string; full_name: string }[] };
+
+    const saleChannels = (saleChannelsRes.data ?? []) as {
+      id: string;
+      name: string;
+      is_default: boolean;
+    }[];
+    const channelNames = new Map(
+      saleChannels.map((row) => [row.id, row.name]),
+    );
+    const defaultChannelName = saleChannelsRes.error
+      ? null
+      : (saleChannels.find((row) => row.is_default)?.name ??
+        saleChannels[0]?.name ??
+        null);
+
+    setChannelBySale(
+      new Map(
+        ((saleChannelRowsRes.data ?? []) as {
+          id: string;
+          sale_channel_id: string | null;
+        }[])
+          .filter((row) => row.sale_channel_id)
+          .map((row) => [
+            row.id,
+            channelNames.get(row.sale_channel_id as string) ?? "Sin canal",
+          ]),
+      ),
+    );
+
+    setNames({
+      priceLists: new Map(
+        ((priceListsRes.data ?? []) as { id: string; name: string }[]).map(
+          (row) => [row.id, row.name],
+        ),
+      ),
+      customers: new Map(
+        ((customersRes.data ?? []) as { id: string; name: string }[]).map(
+          (row) => [row.id, row.name],
+        ),
+      ),
+      users: new Map(
+        ((profilesRes.data ?? []) as { user_id: string; full_name: string }[]).map(
+          (row) => [row.user_id, row.full_name],
+        ),
+      ),
+      defaultChannelName,
+    });
+    setItems((itemsRes.data ?? []) as unknown as SaleItemFact[]);
+    setPayments((paymentsRes.data ?? []) as unknown as SalePaymentFact[]);
+
+    // `is_parent` llega con la 097; si no está aplicada, se lee sin ella.
+    let productRows = (productsRes.data ?? []) as InventoryProduct[];
+    if (productsRes.error) {
+      const fallback = await supabase
+        .from("pos_products")
+        .select("id, name, sku, kind, stock, min_stock, cost_usd, price_usd")
+        .eq("account_id", accountId)
+        .eq("active", true);
+      productRows = (fallback.data ?? []) as InventoryProduct[];
+    }
+    setProducts(productRows);
+    setPayables((payablesRes.data ?? []) as PayableRow[]);
+    setCreditSales((creditRes.data ?? []) as CreditRow[]);
+
+    // Saldos por cuenta: la RPC manda; si falla, se calcula con el inicial.
+    const accountRows = (accountsRes.data ?? []) as AccountRow[];
+    setAccounts(accountRows);
+    const balanceEntries = await Promise.all(
+      accountRows.map(async (account) => {
+        const { data, error } = await supabase.rpc("pos_account_balance", {
+          p_account_id: account.id,
+        });
+        if (!error) return [account.id, toNumber(data)] as const;
+        return [account.id, toNumber(account.opening_balance)] as const;
+      }),
+    );
+    setBalances(new Map(balanceEntries));
+
+    setSales(salesRows);
     setPrevSales((prevSalesRes.data ?? []) as SaleRow[]);
     setTxs((txRes.data ?? []) as TxRow[]);
     setPrevTxs((prevTxRes.data ?? []) as TxRow[]);
@@ -207,6 +437,101 @@ export default function InformesPage() {
   const prevStats = useMemo(
     () => compute(prevSales, prevTxs, [], prevReturns),
     [prevSales, prevTxs, prevReturns],
+  );
+
+  const report = useMemo(
+    () => buildSalesReport(sales, items, payments, names, channelBySale),
+    [sales, items, payments, names, channelBySale],
+  );
+
+  const daysInPeriod = useMemo(() => {
+    const { start, end } = rangeFor(period);
+    return Math.max(
+      1,
+      Math.round((end.getTime() - start.getTime()) / 86400000),
+    );
+  }, [period]);
+
+  const soldByProduct = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const item of items) {
+      if (!item.product_id) continue;
+      const ratio = item.sale
+        ? keepRatio(
+            toNumber(item.sale.total_usd),
+            toNumber(item.sale.returned_usd),
+          )
+        : 1;
+      map.set(
+        item.product_id,
+        (map.get(item.product_id) ?? 0) + toNumber(item.quantity) * ratio,
+      );
+    }
+    return map;
+  }, [items]);
+
+  const inventory = useMemo(
+    () => buildInventoryReport(products, soldByProduct, daysInPeriod),
+    [products, soldByProduct, daysInPeriod],
+  );
+
+  const receivableAging = useMemo(() => {
+    const today = Date.now();
+    return bucketAging(
+      creditSales.map((sale) => ({
+        amount: toNumber(sale.balance_usd),
+        daysOverdue: Math.floor(
+          (today - new Date(sale.created_at).getTime()) / 86400000,
+        ),
+      })),
+    );
+  }, [creditSales]);
+
+  const payableAging = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return bucketAging(
+      payables.map((row) => ({
+        amount: toNumber(row.balance_usd),
+        daysOverdue: row.due_date
+          ? Math.floor(
+              (today.getTime() - new Date(row.due_date).getTime()) / 86400000,
+            )
+          : null,
+      })),
+    );
+  }, [payables]);
+
+  const receivableTotal = useMemo(
+    () =>
+      creditSales.reduce((sum, sale) => sum + toNumber(sale.balance_usd), 0),
+    [creditSales],
+  );
+  const payableTotal = useMemo(
+    () => payables.reduce((sum, row) => sum + toNumber(row.balance_usd), 0),
+    [payables],
+  );
+
+  const accountRows = useMemo(
+    () =>
+      accounts.map((account) => {
+        const balance = balances.get(account.id) ?? 0;
+        return {
+          ...account,
+          balance,
+          usd:
+            account.currency === "USD"
+              ? balance
+              : rate > 0
+                ? balance / rate
+                : 0,
+        };
+      }),
+    [accounts, balances, rate],
+  );
+  const totalAccountsUsd = useMemo(
+    () => accountRows.reduce((sum, account) => sum + account.usd, 0),
+    [accountRows],
   );
 
   const monthly = useMemo(() => {
@@ -375,6 +700,122 @@ export default function InformesPage() {
         </div>
       ) : null}
 
+      {!loading && tab === "inventario" ? (
+        <div className="space-y-4">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <Mini
+              label="Inventario a costo"
+              value={formatUsd(inventory.costValue)}
+              hint={formatBs(usdToBs(inventory.costValue, rate))}
+            />
+            <Mini
+              label="Inventario a venta"
+              value={formatUsd(inventory.saleValue)}
+              hint={formatBs(usdToBs(inventory.saleValue, rate))}
+            />
+            <Mini
+              label="Margen potencial"
+              value={formatUsd(inventory.marginValue)}
+              hint={
+                inventory.saleValue > 0
+                  ? `${((inventory.marginValue / inventory.saleValue) * 100).toFixed(0)}% sobre la venta`
+                  : "Sin inventario"
+              }
+            />
+            <Mini
+              label="Bajo el mínimo"
+              value={String(inventory.lowStock.length)}
+              hint={
+                inventory.lowStock.length === 0
+                  ? "Todo por encima del mínimo"
+                  : "Productos por reponer"
+              }
+            />
+          </div>
+
+          <section className="rounded-2xl border border-slate-200 bg-white p-5">
+            <p className="text-sm font-bold text-slate-800">Reponer pronto</p>
+            <p className="text-xs text-slate-500">
+              Productos en o por debajo del stock mínimo.
+            </p>
+            {inventory.lowStock.length === 0 ? (
+              <p className="mt-4 text-xs text-slate-500">
+                Ningún producto está bajo el mínimo.
+              </p>
+            ) : (
+              <table className="mt-3 w-full text-sm">
+                <thead className="text-left text-[10px] uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th className="pb-2 font-semibold">Producto</th>
+                    <th className="pb-2 text-right font-semibold">Stock</th>
+                    <th className="pb-2 text-right font-semibold">Mínimo</th>
+                    <th className="pb-2 text-right font-semibold">Falta</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {inventory.lowStock.slice(0, 10).map((row) => (
+                    <tr key={row.id}>
+                      <td className="py-2 text-slate-700">{row.name}</td>
+                      <td className="py-2 text-right text-slate-500">
+                        {row.stock}
+                      </td>
+                      <td className="py-2 text-right text-slate-500">{row.min}</td>
+                      <td className="py-2 text-right font-semibold text-red-600">
+                        {row.missing > 0 ? row.missing : "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </section>
+
+          <section className="rounded-2xl border border-slate-200 bg-white p-5">
+            <p className="text-sm font-bold text-slate-800">
+              Rotación del período
+            </p>
+            <p className="text-xs text-slate-500">
+              Unidades vendidas contra el stock actual. Los días restantes
+              estiman cuánto dura el inventario a ese ritmo.
+            </p>
+            {inventory.rotation.length === 0 ? (
+              <p className="mt-4 text-xs text-slate-500">
+                Sin ventas de productos en el período.
+              </p>
+            ) : (
+              <table className="mt-3 w-full text-sm">
+                <thead className="text-left text-[10px] uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th className="pb-2 font-semibold">Producto</th>
+                    <th className="pb-2 text-right font-semibold">Vendidos</th>
+                    <th className="pb-2 text-right font-semibold">Stock</th>
+                    <th className="pb-2 text-right font-semibold">
+                      Días restantes
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {inventory.rotation.slice(0, 12).map((row) => (
+                    <tr key={row.id}>
+                      <td className="py-2 text-slate-700">{row.name}</td>
+                      <td className="py-2 text-right text-slate-500">
+                        {Math.round(row.sold)}
+                      </td>
+                      <td className="py-2 text-right text-slate-500">
+                        {row.stock}
+                      </td>
+                      <td className="py-2 text-right font-semibold text-slate-900">
+                        {row.daysLeft == null ? "—" : row.daysLeft}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </section>
+        </div>
+      ) : null}
+
       {!loading && tab === "ventas" ? (
         <div className="space-y-4">
           <div className="grid gap-3 sm:grid-cols-4">
@@ -391,6 +832,72 @@ export default function InformesPage() {
               hint={`${stats.credit > 0 ? "Saldo pendiente" : "Ninguno"}`}
             />
           </div>
+          <div className="grid gap-4 lg:grid-cols-2">
+            <BreakdownCard
+              title="Por canal de venta"
+              subtitle="Tienda, delivery u otro canal con el que se registró la venta."
+              rows={report.byChannel}
+              rate={rate}
+              countLabel="Ventas"
+            />
+            <BreakdownCard
+              title="Por lista de precios"
+              subtitle="Precios base o de mayorista aplicados en la venta."
+              rows={report.byPriceList}
+              rate={rate}
+              countLabel="Ventas"
+            />
+            <BreakdownCard
+              title="Por cliente"
+              subtitle="Ventas netas por cliente registrado."
+              rows={report.byCustomer}
+              rate={rate}
+              countLabel="Ventas"
+            />
+            <BreakdownCard
+              title="Por usuario"
+              subtitle="Quién registró las ventas."
+              rows={report.byUser}
+              rate={rate}
+              countLabel="Ventas"
+            />
+            <BreakdownCard
+              title="Por forma de pago"
+              subtitle="Cobrado en cada forma de pago, antes de devoluciones."
+              rows={report.byPayment}
+              rate={rate}
+              countLabel="Pagos"
+            />
+            <BreakdownCard
+              title="Por categoría"
+              subtitle="Ventas netas de cada categoría de producto."
+              rows={report.byCategory}
+              rate={rate}
+              countLabel="Unid."
+            />
+          </div>
+          <div className="grid gap-4 lg:grid-cols-2">
+            <ProductsCard
+              title="Más vendidos"
+              subtitle="Los cinco productos con más ventas netas."
+              rows={report.topProducts}
+              rate={rate}
+            />
+            {report.lessProducts.length > 0 ? (
+              <ProductsCard
+                title="Menos vendidos"
+                subtitle="Los cinco productos con menos unidades vendidas."
+                rows={report.lessProducts}
+                rate={rate}
+              />
+            ) : null}
+          </div>
+          <HeatmapCard
+            title="Horas y días pico"
+            subtitle="Cantidad de ventas por día y hora (hora de Venezuela). Más color, más ventas."
+            heat={report.heat}
+            max={report.heatMax}
+          />
           <p className="rounded-xl border border-slate-200 bg-white px-4 py-6 text-center text-xs text-slate-500">
             Para el detalle venta por venta, abre <strong>POS → Ventas → Historial</strong>.
           </p>
@@ -399,7 +906,7 @@ export default function InformesPage() {
 
       {!loading && tab === "finanzas" ? (
         <div className="space-y-4">
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <Mini
               label="Ingresos cobrados"
               value={formatUsd(stats.income)}
@@ -410,7 +917,86 @@ export default function InformesPage() {
               value={formatUsd(stats.expenses)}
               hint={formatBs(usdToBs(stats.expenses, rate))}
             />
+            <Mini
+              label="Por cobrar"
+              value={formatUsd(receivableTotal)}
+              hint={`${creditSales.length} venta(s) a crédito`}
+            />
+            <Mini
+              label="Por pagar"
+              value={formatUsd(payableTotal)}
+              hint={`${payables.length} compra(s) a crédito`}
+            />
           </div>
+
+          <section className="rounded-2xl border border-slate-200 bg-white p-5">
+            <div className="flex items-baseline justify-between">
+              <div>
+                <p className="text-sm font-bold text-slate-800">
+                  Saldos por cuenta
+                </p>
+                <p className="text-xs text-slate-500">
+                  Saldo real de cada cuenta en su moneda.
+                </p>
+              </div>
+              <p className="text-sm font-black text-slate-900">
+                {formatUsd(totalAccountsUsd)}
+              </p>
+            </div>
+            {accountRows.length === 0 ? (
+              <p className="mt-4 text-xs text-slate-500">
+                No hay cuentas activas en Finanzas.
+              </p>
+            ) : (
+              <ul className="mt-3 divide-y divide-slate-100 text-sm">
+                {accountRows.map((account) => (
+                  <li
+                    key={account.id}
+                    className="flex items-center justify-between py-2"
+                  >
+                    <div>
+                      <p className="font-semibold text-slate-800">
+                        {account.name}
+                      </p>
+                      <p className="text-[11px] text-slate-500">
+                        {account.currency === "USD" ? "Dólares" : "Bolívares"}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p
+                        className={`font-semibold ${
+                          account.balance < 0 ? "text-red-600" : "text-slate-900"
+                        }`}
+                      >
+                        {account.currency === "USD"
+                          ? formatUsd(account.balance)
+                          : formatBs(account.balance)}
+                      </p>
+                      <p className="text-[10px] text-slate-400">
+                        {formatUsd(account.usd)}
+                      </p>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <AgingCard
+              title="Antigüedad por cobrar"
+              subtitle="Días desde la venta a crédito."
+              rows={receivableAging}
+              rate={rate}
+            />
+            <AgingCard
+              title="Antigüedad por pagar"
+              subtitle="Días vencidos según la fecha de pago."
+              rows={payableAging}
+              rate={rate}
+            />
+          </div>
+
           <div className="rounded-2xl border border-slate-200 bg-white p-5">
             <p className="text-sm font-bold text-slate-800">Gastos por categoría</p>
             {stats.expensesByCategory.length === 0 ? (
@@ -473,8 +1059,9 @@ function compute(
     .filter((tx) => tx.category === "expense" && tx.kind === "out")
     .reduce((sum, tx) => sum + toNumber(tx.amount_usd), 0);
 
+  // Las transferencias entre cuentas mueven dinero pero no son ingresos.
   const income = txs
-    .filter((tx) => tx.kind === "in")
+    .filter((tx) => tx.kind === "in" && tx.category !== "transfer")
     .reduce((sum, tx) => sum + toNumber(tx.amount_usd), 0);
 
   const byCategory = new Map<string, number>();
@@ -608,5 +1195,54 @@ function Mini({
       <p className="mt-1 text-xl font-black text-slate-900">{value}</p>
       {hint ? <p className="text-[11px] text-slate-500">{hint}</p> : null}
     </div>
+  );
+}
+
+function AgingCard({
+  title,
+  subtitle,
+  rows,
+  rate,
+}: {
+  title: string;
+  subtitle: string;
+  rows: AgingBucket[];
+  rate: number;
+}) {
+  const total = rows.reduce((sum, row) => sum + row.total, 0);
+  return (
+    <section className="rounded-2xl border border-slate-200 bg-white p-5">
+      <p className="text-sm font-bold text-slate-800">{title}</p>
+      <p className="text-xs text-slate-500">{subtitle}</p>
+      {total <= 0 ? (
+        <p className="mt-4 text-xs text-slate-500">Sin saldos pendientes.</p>
+      ) : (
+        <table className="mt-3 w-full text-sm">
+          <thead className="text-left text-[10px] uppercase tracking-wide text-slate-500">
+            <tr>
+              <th className="pb-2 font-semibold">Tramo</th>
+              <th className="pb-2 text-right font-semibold">Docs</th>
+              <th className="pb-2 text-right font-semibold">Saldo</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {rows.map((row) => (
+              <tr key={row.label}>
+                <td className="py-2 text-slate-700">{row.label}</td>
+                <td className="py-2 text-right text-slate-500">{row.count}</td>
+                <td className="py-2 text-right">
+                  <span className="block font-semibold text-slate-900">
+                    {formatUsd(row.total)}
+                  </span>
+                  <span className="block text-[10px] text-slate-400">
+                    {formatBs(usdToBs(row.total, rate))}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </section>
   );
 }

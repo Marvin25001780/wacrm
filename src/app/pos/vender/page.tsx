@@ -80,6 +80,12 @@ interface PriceListRow {
   is_default: boolean;
 }
 
+interface SaleChannelRow {
+  id: string;
+  name: string;
+  is_default: boolean;
+}
+
 interface ProductPriceRow {
   product_id: string;
   price_list_id: string;
@@ -149,6 +155,9 @@ export default function VenderPage() {
   const [prices, setPrices] = useState<ProductPriceRow[]>([]);
   const [priceListId, setPriceListId] = useState("");
   const [priceListsReady, setPriceListsReady] = useState(false);
+  const [saleChannels, setSaleChannels] = useState<SaleChannelRow[]>([]);
+  const [saleChannelId, setSaleChannelId] = useState("");
+  const [saleChannelsReady, setSaleChannelsReady] = useState(false);
   const [selectedSurcharges, setSelectedSurcharges] = useState<string[]>([]);
   const [discountCode, setDiscountCode] = useState("");
   const [appliedDiscount, setAppliedDiscount] = useState<DiscountRow | null>(
@@ -183,6 +192,7 @@ export default function VenderPage() {
       surchargesRes,
       listsRes,
       pricesRes,
+      saleChannelsRes,
     ] = await Promise.all([
         supabase
           .from("pos_products")
@@ -224,6 +234,13 @@ export default function VenderPage() {
           .from("pos_product_prices")
           .select("product_id, price_list_id, price_usd")
           .eq("account_id", accountId),
+        supabase
+          .from("pos_sale_channels")
+          .select("id, name, is_default")
+          .eq("account_id", accountId)
+          .eq("active", true)
+          .order("is_default", { ascending: false })
+          .order("name"),
       ]);
     let productRows = (productsRes.data ?? []) as Product[];
     if (productsRes.error) {
@@ -260,6 +277,25 @@ export default function VenderPage() {
         (current) => current || lists.find((list) => list.is_default)?.id || lists[0]?.id || "",
       );
       setPrices((pricesRes.data ?? []) as ProductPriceRow[]);
+    }
+
+    // Canal de venta (Tienda, Delivery...). Si la migración 102 todavía
+    // no está aplicada, el selector simplemente no aparece.
+    if (saleChannelsRes.error) {
+      setSaleChannelsReady(false);
+      setSaleChannels([]);
+      setSaleChannelId("");
+    } else {
+      const channels = (saleChannelsRes.data ?? []) as SaleChannelRow[];
+      setSaleChannelsReady(true);
+      setSaleChannels(channels);
+      setSaleChannelId(
+        (current) =>
+          current ||
+          channels.find((channel) => channel.is_default)?.id ||
+          channels[0]?.id ||
+          "",
+      );
     }
 
     setLoading(false);
@@ -625,6 +661,13 @@ export default function VenderPage() {
         .eq("id", result.sale_id);
     }
 
+    if (saleChannelsReady && saleChannelId) {
+      await supabase
+        .from("pos_sales")
+        .update({ sale_channel_id: saleChannelId })
+        .eq("id", result.sale_id);
+    }
+
     if (change.usd > 0 || change.bs > 0) {
       await supabase
         .from("pos_sales")
@@ -724,27 +767,45 @@ export default function VenderPage() {
             />
           </div>
 
-          {priceLists.length > 1 ? (
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 bg-slate-50/60 px-4 py-2">
-              <label className="flex items-center gap-2 text-[11px] font-semibold text-slate-500">
-                Canal de precio
-                <select
-                  value={priceListId}
-                  onChange={(event) => setPriceListId(event.target.value)}
-                  disabled={cart.length > 0}
-                  className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700 outline-none disabled:opacity-60"
-                >
-                  {priceLists.map((list) => (
-                    <option key={list.id} value={list.id}>
-                      {list.name}
-                      {list.is_default ? " (base)" : ""}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {cart.length > 0 ? (
+          {saleChannels.length > 0 || priceLists.length > 1 ? (
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-b border-slate-100 bg-slate-50/60 px-4 py-2">
+              {saleChannels.length > 0 ? (
+                <label className="flex items-center gap-2 text-[11px] font-semibold text-slate-500">
+                  Canal de venta
+                  <select
+                    value={saleChannelId}
+                    onChange={(event) => setSaleChannelId(event.target.value)}
+                    className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700 outline-none"
+                  >
+                    {saleChannels.map((channel) => (
+                      <option key={channel.id} value={channel.id}>
+                        {channel.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
+              {priceLists.length > 1 ? (
+                <label className="flex items-center gap-2 text-[11px] font-semibold text-slate-500">
+                  Lista de precios
+                  <select
+                    value={priceListId}
+                    onChange={(event) => setPriceListId(event.target.value)}
+                    disabled={cart.length > 0}
+                    className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700 outline-none disabled:opacity-60"
+                  >
+                    {priceLists.map((list) => (
+                      <option key={list.id} value={list.id}>
+                        {list.name}
+                        {list.is_default ? " (base)" : ""}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
+              {priceLists.length > 1 && cart.length > 0 ? (
                 <span className="text-[10px] text-slate-400">
-                  Vacía la cuenta para cambiar de canal
+                  Vacía la cuenta para cambiar de precio
                 </span>
               ) : null}
             </div>
