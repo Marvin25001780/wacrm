@@ -12,7 +12,13 @@ import {
   ProductsCard,
 } from "@/components/pos/sales-report-blocks";
 import { createClient } from "@/lib/supabase/client";
-import { formatBs, formatUsd, toNumber, usdToBs } from "@/lib/pos/money";
+import {
+  formatBs,
+  formatUsd,
+  round2,
+  toNumber,
+  usdToBs,
+} from "@/lib/pos/money";
 import {
   buildSalesReport,
   keepRatio,
@@ -54,6 +60,8 @@ interface SaleRow {
 interface ReturnRow {
   subtotal_usd: number | string;
   cost_usd: number | string;
+  /** La 104 lo agrega; si no está aplicada, se asume repuesto. */
+  restock?: boolean;
   created_at?: string;
 }
 
@@ -263,13 +271,13 @@ export default function InformesPage() {
           .neq("status", "void"),
         supabase
           .from("pos_sale_returns")
-          .select("subtotal_usd, cost_usd")
+          .select("subtotal_usd, cost_usd, restock")
           .eq("account_id", accountId)
           .gte("created_at", start.toISOString())
           .lt("created_at", end.toISOString()),
         supabase
           .from("pos_sale_returns")
-          .select("subtotal_usd, cost_usd")
+          .select("subtotal_usd, cost_usd, restock")
           .eq("account_id", accountId)
           .gte("created_at", prevStart.toISOString())
           .lt("created_at", start.toISOString()),
@@ -354,6 +362,28 @@ export default function InformesPage() {
           .eq("account_id", accountId)
           .eq("period_month", currentPeriod()),
       ]);
+
+    // La migración 104 agrega `restock`; si no está aplicada, se lee sin ella.
+    let returnsRows = (returnsRes.data ?? []) as ReturnRow[];
+    if (returnsRes.error) {
+      const fallback = await supabase
+        .from("pos_sale_returns")
+        .select("subtotal_usd, cost_usd")
+        .eq("account_id", accountId)
+        .gte("created_at", start.toISOString())
+        .lt("created_at", end.toISOString());
+      returnsRows = (fallback.data ?? []) as ReturnRow[];
+    }
+    let prevReturnsRows = (prevReturnsRes.data ?? []) as ReturnRow[];
+    if (prevReturnsRes.error) {
+      const fallback = await supabase
+        .from("pos_sale_returns")
+        .select("subtotal_usd, cost_usd")
+        .eq("account_id", accountId)
+        .gte("created_at", prevStart.toISOString())
+        .lt("created_at", start.toISOString());
+      prevReturnsRows = (fallback.data ?? []) as ReturnRow[];
+    }
 
     const salesRows = (salesRes.data ?? []) as SaleRow[];
     const userIds = [
@@ -463,8 +493,8 @@ export default function InformesPage() {
     setPrevTxs((prevTxRes.data ?? []) as TxRow[]);
     setLosses((lossRes.data ?? []) as LossRow[]);
     setYearSales((yearRes.data ?? []) as SaleRow[]);
-    setReturns((returnsRes.data ?? []) as ReturnRow[]);
-    setPrevReturns((prevReturnsRes.data ?? []) as ReturnRow[]);
+    setReturns(returnsRows);
+    setPrevReturns(prevReturnsRows);
     setYearReturns((yearReturnsRes.data ?? []) as ReturnRow[]);
     setLoading(false);
   }, [accountId, period]);
@@ -473,27 +503,49 @@ export default function InformesPage() {
     void load();
   }, [load]);
 
+  const range = useMemo(() => rangeFor(period), [period]);
+  const daysInPeriod = useMemo(
+    () =>
+      Math.max(
+        1,
+        Math.round((range.end.getTime() - range.start.getTime()) / 86400000),
+      ),
+    [range],
+  );
+  const prevDaysInPeriod = useMemo(
+    () =>
+      Math.max(
+        1,
+        Math.round((range.start.getTime() - range.prevStart.getTime()) / 86400000),
+      ),
+    [range],
+  );
+  const monthlyFixed = useMemo(
+    () => fixedTotal(fixedExpenses),
+    [fixedExpenses],
+  );
+
   const stats = useMemo(
-    () => compute(sales, txs, losses, returns),
-    [sales, txs, losses, returns],
+    () => compute(sales, txs, losses, returns, monthlyFixed, daysInPeriod),
+    [sales, txs, losses, returns, monthlyFixed, daysInPeriod],
   );
   const prevStats = useMemo(
-    () => compute(prevSales, prevTxs, [], prevReturns),
-    [prevSales, prevTxs, prevReturns],
+    () =>
+      compute(
+        prevSales,
+        prevTxs,
+        [],
+        prevReturns,
+        monthlyFixed,
+        prevDaysInPeriod,
+      ),
+    [prevSales, prevTxs, prevReturns, monthlyFixed, prevDaysInPeriod],
   );
 
   const report = useMemo(
     () => buildSalesReport(sales, items, payments, names, channelBySale),
     [sales, items, payments, names, channelBySale],
   );
-
-  const daysInPeriod = useMemo(() => {
-    const { start, end } = rangeFor(period);
-    return Math.max(
-      1,
-      Math.round((end.getTime() - start.getTime()) / 86400000),
-    );
-  }, [period]);
 
   const soldByProduct = useMemo(() => {
     const map = new Map<string, number>();
@@ -577,7 +629,6 @@ export default function InformesPage() {
     [accountRows],
   );
 
-  const monthlyFixed = useMemo(() => fixedTotal(fixedExpenses), [fixedExpenses]);
   const fixedCategories = useMemo(
     () => fixedByCategory(fixedExpenses),
     [fixedExpenses],
@@ -671,7 +722,7 @@ export default function InformesPage() {
         </div>
       ) : tab === "resultados" ? (
         <div className="space-y-4">
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <Card
               label="Ventas netas"
               value={stats.net}
@@ -679,16 +730,27 @@ export default function InformesPage() {
               change={change(stats.net, prevStats.net)}
             />
             <Card
-              label="Gastos"
+              label="Gastos pagados"
               value={stats.expenses}
               rate={rate}
               change={change(stats.expenses, prevStats.expenses)}
             />
             <Card
-              label="Utilidad neta"
+              label="Utilidad de caja"
               value={stats.netProfit}
               rate={rate}
               change={change(stats.netProfit, prevStats.netProfit)}
+            />
+            <Card
+              label="Utilidad real"
+              value={stats.netProfitReal}
+              rate={rate}
+              change={change(stats.netProfitReal, prevStats.netProfitReal)}
+              hint={
+                stats.fixedPending > 0.005
+                  ? `Descuenta ${formatUsd(stats.fixedPending)} de fijos aún sin pagar`
+                  : "Los fijos del período ya están cubiertos"
+              }
               highlight
             />
           </div>
@@ -749,7 +811,11 @@ export default function InformesPage() {
                 rate={rate}
               />
               <CascadeRow label="Utilidad bruta" value={stats.gross} rate={rate} bold />
-              <CascadeRow label="Gastos" value={-stats.expenses} rate={rate} />
+              <CascadeRow
+                label="Gastos pagados"
+                value={-stats.expenses}
+                rate={rate}
+              />
               <CascadeRow label="Comisiones" value={0} rate={rate} />
               <CascadeRow
                 label="Pérdidas de inventario"
@@ -757,12 +823,22 @@ export default function InformesPage() {
                 rate={rate}
               />
               <CascadeRow
-                label="Utilidad neta"
-                value={stats.netProfit}
+                label="Gastos fijos pendientes"
+                value={-stats.fixedPending}
+                rate={rate}
+                hint={`${formatUsd(stats.fixedAccrued)} del período · ${formatUsd(stats.fixedPaid)} ya pagados`}
+              />
+              <CascadeRow
+                label="Utilidad real"
+                value={stats.netProfitReal}
                 rate={rate}
                 bold
               />
             </div>
+            <p className="mt-3 text-[11px] text-slate-500">
+              Los gastos fijos se reparten por día. Lo que ya pagaste está en
+              «Gastos pagados»; aquí solo se descuenta lo que falta cubrir.
+            </p>
           </div>
         </div>
       ) : null}
@@ -1172,6 +1248,8 @@ function compute(
   txs: TxRow[],
   losses: LossRow[],
   returns: ReturnRow[] = [],
+  monthlyFixed = 0,
+  daysInPeriod = 30,
 ) {
   const soldNet = sales.reduce(
     (sum, sale) => sum + toNumber(sale.subtotal_usd),
@@ -1185,8 +1263,10 @@ function compute(
     (sum, row) => sum + toNumber(row.subtotal_usd),
     0,
   );
+  // Si la mercancía no volvió al inventario, su costo se queda en el
+  // costo de ventas: no se recupera.
   const returnedCost = returns.reduce(
-    (sum, row) => sum + toNumber(row.cost_usd),
+    (sum, row) => sum + (row.restock === false ? 0 : toNumber(row.cost_usd)),
     0,
   );
   const net = soldNet - returnedNet;
@@ -1220,6 +1300,21 @@ function compute(
   );
 
   const gross = net - cogs;
+  const netProfit = gross - expenses - lossTotal;
+
+  // Los gastos fijos se reparten por día. Lo ya pagado vive dentro de
+  // `expenses`; aquí solo se descuenta la parte que falta cubrir.
+  const fixedPaid = txs
+    .filter(
+      (tx) =>
+        tx.category === "expense" &&
+        tx.kind === "out" &&
+        (tx.description ?? "").startsWith("Gasto fijo"),
+    )
+    .reduce((sum, tx) => sum + toNumber(tx.amount_usd), 0);
+  const fixedAccrued = round2(monthlyFixed * (daysInPeriod / 30.44));
+  const fixedPending = Math.max(0, round2(fixedAccrued - fixedPaid));
+  const netProfitReal = round2(netProfit - fixedPending);
 
   return {
     net,
@@ -1231,7 +1326,11 @@ function compute(
     income,
     losses: lossTotal,
     gross,
-    netProfit: gross - expenses - lossTotal,
+    netProfit,
+    fixedPaid,
+    fixedAccrued,
+    fixedPending,
+    netProfitReal,
     expensesByCategory: [...byCategory.entries()].sort((a, b) => b[1] - a[1]),
   };
 }
@@ -1247,12 +1346,14 @@ function Card({
   rate,
   change,
   highlight,
+  hint,
 }: {
   label: string;
   value: number;
   rate: number;
   change: number | null;
   highlight?: boolean;
+  hint?: string;
 }) {
   return (
     <div
@@ -1269,6 +1370,9 @@ function Card({
         {formatUsd(value)}
       </p>
       <p className="text-[11px] text-slate-500">{formatBs(usdToBs(value, rate))}</p>
+      {hint ? (
+        <p className="mt-1 text-[11px] text-slate-500">{hint}</p>
+      ) : null}
       {change != null ? (
         <p
           className={`mt-1 flex items-center gap-1 text-[11px] font-semibold ${
@@ -1293,16 +1397,23 @@ function CascadeRow({
   value,
   rate,
   bold,
+  hint,
 }: {
   label: string;
   value: number;
   rate: number;
   bold?: boolean;
+  hint?: string;
 }) {
   return (
     <div className="flex items-center justify-between py-2">
       <span className={bold ? "font-bold text-slate-800" : "text-slate-600"}>
-        {label}
+        <span className="block">{label}</span>
+        {hint ? (
+          <span className="block text-[10px] font-normal text-slate-400">
+            {hint}
+          </span>
+        ) : null}
       </span>
       <span className="text-right">
         <span

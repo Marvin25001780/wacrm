@@ -62,6 +62,7 @@ export function SaleReturnDialog({
   const [quantities, setQuantities] = useState<Record<string, string>>({});
   const [reason, setReason] = useState("");
   const [refundAccountId, setRefundAccountId] = useState("");
+  const [restock, setRestock] = useState(true);
   const [ivaRate, setIvaRate] = useState(16);
   const [ivaOn, setIvaOn] = useState(true);
   const [loading, setLoading] = useState(false);
@@ -79,6 +80,7 @@ export function SaleReturnDialog({
     setQuantities({});
     setReason("");
     setRefundAccountId("");
+    setRestock(true);
 
     const supabase = createClient();
     const [saleRes, itemsRes, accountsRes, settingsRes, returnsRes] =
@@ -249,6 +251,7 @@ export function SaleReturnDialog({
         p_reason: reason.trim(),
         p_refund_account_id: refundAccountId || null,
         p_rate: rate,
+        p_restock: restock,
       },
     );
     setSaving(false);
@@ -282,9 +285,13 @@ export function SaleReturnDialog({
             </h2>
             <p className="text-xs text-slate-500">
               {result
-                ? "El inventario y la caja ya quedaron actualizados."
+                ? restock
+                  ? "La caja quedó actualizada y el stock volvió."
+                  : "La caja quedó actualizada; el stock no se repuso."
                 : initialAll
-                  ? "Se devolverá todo lo vendido y se repondrá el stock."
+                  ? restock
+                    ? "Se devolverá todo lo vendido y se repondrá el stock."
+                    : "Se devolverá todo lo vendido sin reponer el stock."
                   : "Elige las cantidades y cómo se devuelve el dinero."}
             </p>
           </div>
@@ -309,7 +316,9 @@ export function SaleReturnDialog({
                 Se devolvieron {formatUsd(result.total)}
               </p>
               <p className="mt-1 text-xs text-emerald-700">
-                La venta queda registrada con su devolución y el stock volvió.
+                {restock
+                  ? "La venta queda registrada con su devolución y el stock volvió."
+                  : "La venta queda registrada con su devolución, sin reponer stock."}
               </p>
             </div>
           ) : error && !sale ? (
@@ -421,6 +430,25 @@ export function SaleReturnDialog({
                   placeholder="Producto defectuoso, cliente cambió de opinión..."
                   className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-[#3f3fd8]"
                 />
+              </label>
+
+              <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 px-3 py-2.5">
+                <input
+                  type="checkbox"
+                  checked={restock}
+                  onChange={(event) => setRestock(event.target.checked)}
+                  className="mt-0.5 h-4 w-4 accent-[#3f3fd8]"
+                />
+                <span>
+                  <span className="block text-xs font-bold text-slate-700">
+                    Reponer al inventario
+                  </span>
+                  <span className="block text-[10px] text-slate-500">
+                    {restock
+                      ? "El producto vuelve al stock y se puede vender de nuevo."
+                      : "No vuelve al stock. El costo queda como pérdida y la utilidad baja."}
+                  </span>
+                </span>
               </label>
 
               <label className="flex flex-col gap-1">
