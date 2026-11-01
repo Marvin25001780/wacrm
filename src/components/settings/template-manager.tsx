@@ -50,6 +50,7 @@ import type {
 import { templateStatusConfig } from '@/lib/template-status';
 import {
   extractVariableIndices,
+  normalizeTemplateName,
   TEMPLATE_LIMITS,
 } from '@/lib/whatsapp/template-validators';
 
@@ -679,14 +680,22 @@ export function TemplateManager() {
               <Input
                 placeholder="p. ej. confirmacion_pedido"
                 value={form.name}
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    name:
+                      editingId !== null
+                        ? e.target.value
+                        : normalizeTemplateName(e.target.value),
+                  })
+                }
                 disabled={editingId !== null}
                 className="bg-muted border-border text-foreground placeholder:text-muted-foreground disabled:opacity-60 disabled:cursor-not-allowed"
               />
               <p className="text-[11px] text-muted-foreground">
                 {editingId
                   ? 'El nombre es fijo una vez que la plantilla existe en Meta — crea una nueva para cambiarlo.'
-                  : 'Solo letras minúsculas, dígitos y guiones bajos.'}
+                  : 'Solo minúsculas, números y guiones bajos. Sin espacios, acentos ni guiones. Se corrige solo mientras escribes.'}
               </p>
             </div>
 

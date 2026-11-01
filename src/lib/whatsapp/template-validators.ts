@@ -48,11 +48,27 @@ export interface TemplatePayload {
   sample_values?: TemplateSampleValues;
 }
 
+/**
+ * Convierte lo que escribe el usuario en un nombre válido para Meta:
+ * minúsculas, sin acentos, sin espacios ni guiones.
+ * "Promo Semana 2" → "promo_semana_2".
+ */
+export function normalizeTemplateName(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 512);
+}
+
 export function validateTemplateName(name: string): void {
-  if (!name) throw new Error('Template name is required.');
+  if (!name) throw new Error('El nombre de la plantilla es obligatorio.');
   if (!TEMPLATE_LIMITS.nameRegex.test(name)) {
     throw new Error(
-      'Template name must use only lowercase letters, digits, and underscores (1-512 chars).',
+      'El nombre solo admite minúsculas, números y guiones bajos (1-512 caracteres). Ejemplo: promo_semana.',
     );
   }
 }
