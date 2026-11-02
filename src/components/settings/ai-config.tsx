@@ -25,6 +25,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { SettingsPanelHead } from './settings-panel-head';
+import { AiDiagnosticPanel } from './ai-diagnostic';
 import { AI_PROVIDER_DEFAULT_MODEL, AI_PROVIDER_LABEL } from '@/lib/ai/defaults';
 import type { AiProvider } from '@/lib/ai/types';
 
@@ -231,6 +232,8 @@ export function AiConfig() {
       )}
 
       <div className="space-y-6">
+        <AiDiagnosticPanel />
+
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">

@@ -15,6 +15,31 @@ interface DispatchArgs {
   configOwnerUserId: string
 }
 
+/**
+ * Motivo por el que el motor no contestó. Se registra en el log del
+ * servidor y lo usa el diagnóstico de Ajustes → Asistente de IA para
+ * explicar el silencio sin adivinar.
+ */
+export type AiReplyReason =
+  | 'replied'
+  | 'no_config'
+  | 'auto_reply_disabled'
+  | 'conversation_not_found'
+  | 'channel_not_covered'
+  | 'automation_owns_messages'
+  | 'assigned_to_human'
+  | 'max_replies_reached'
+  | 'processing_lock'
+  | 'empty_context'
+  | 'handoff'
+  | 'slot_not_claimed'
+  | 'error'
+
+export interface AiReplyOutcome {
+  replied: boolean
+  reason: AiReplyReason
+}
+
 interface ReplyConversationRow {
   assigned_agent_id: string | null
   ai_reply_count: number
@@ -100,23 +125,31 @@ async function loadConversationForReply(
  */
 export async function dispatchInboundToAiReply(
   args: DispatchArgs,
-): Promise<void> {
+): Promise<AiReplyOutcome> {
   const { accountId, conversationId, contactId, configOwnerUserId } = args
 
   let lockSupported = true
+
+  const skip = (reason: AiReplyReason): AiReplyOutcome => {
+    console.info(
+      `[ai auto-reply] sin respuesta (${reason}) conversacion=${conversationId}`,
+    )
+    return { replied: false, reason }
+  }
 
   try {
     const db = supabaseAdmin()
 
     const config = await loadAiConfig(db, accountId)
-    if (!config || !config.autoReplyEnabled) return
+    if (!config) return skip('no_config')
+    if (!config.autoReplyEnabled) return skip('auto_reply_disabled')
 
     // El canal vive en la conversación, no en el mensaje: el agente
     // responde (o no) según el hilo completo.
     const loaded = await loadConversationForReply(db, conversationId)
     const conv = loaded.conv
     lockSupported = loaded.lockSupported
-    if (!conv) return
+    if (!conv) return skip('conversation_not_found')
 
     // Limpia el lock del hilo cuando la base lo soporta. En modo legacy
     // (sin migración 072) no hay nada que limpiar.
@@ -132,12 +165,14 @@ export async function dispatchInboundToAiReply(
     const agent = await loadActiveAgent(db, accountId)
 
     if (agent) {
-      if (!agentRespondsOn(agent, conversationChannel)) return
+      if (!agentRespondsOn(agent, conversationChannel)) {
+        return skip('channel_not_covered')
+      }
     } else if (conversationChannel !== 'whatsapp') {
       // Sin agente, el prompt global mantiene su alcance histórico:
       // solo WhatsApp. Los demás canales necesitan un agente activo
       // con ese canal seleccionado.
-      return
+      return skip('channel_not_covered')
     }
 
     const { data: autoResponders } = await db
@@ -147,7 +182,9 @@ export async function dispatchInboundToAiReply(
       .eq('is_active', true)
       .in('trigger_type', ['new_message_received', 'keyword_match'])
       .limit(1)
-    if (autoResponders && autoResponders.length > 0) return
+    if (autoResponders && autoResponders.length > 0) {
+      return skip('automation_owns_messages')
+    }
 
     // Resetear disabled siempre al recibir un nuevo mensaje de un canal
     // que este agente atiende.
@@ -156,8 +193,10 @@ export async function dispatchInboundToAiReply(
       .update({ ai_autoreply_disabled: false })
       .eq('id', conversationId)
 
-    if (conv.assigned_agent_id) return
-    if (conv.ai_reply_count >= config.autoReplyMaxPerConversation) return
+    if (conv.assigned_agent_id) return skip('assigned_to_human')
+    if (conv.ai_reply_count >= config.autoReplyMaxPerConversation) {
+      return skip('max_replies_reached')
+    }
 
     if (lockSupported) {
       const now = Date.now()
@@ -167,7 +206,7 @@ export async function dispatchInboundToAiReply(
 
       if (processingAt) {
         const age = now - processingAt
-        if (age < 90_000) return
+        if (age < 90_000) return skip('processing_lock')
       }
 
       // Lock atómico optimista: dos entregas del webhook no generan dos
@@ -179,13 +218,13 @@ export async function dispatchInboundToAiReply(
         .eq('ai_processing_at', conv.ai_processing_at)
         .select('id')
         .maybeSingle()
-      if (!locked) return
+      if (!locked) return skip('processing_lock')
     }
 
     const messages = await buildConversationContext(db, conversationId)
     if (messages.length === 0) {
       await clearLock()
-      return
+      return skip('empty_context')
     }
 
     if (agent) {
@@ -218,7 +257,7 @@ export async function dispatchInboundToAiReply(
             ...(lockSupported ? { ai_processing_at: null } : {}),
           })
           .eq('id', conversationId)
-        return
+        return skip('handoff')
       }
 
       const { data: claimed, error: claimErr } = await db.rpc(
@@ -230,7 +269,7 @@ export async function dispatchInboundToAiReply(
       )
       if (claimErr || claimed !== true) {
         await clearLock()
-        return
+        return skip('slot_not_claimed')
       }
       await sendAiReply({
         accountId,
@@ -238,7 +277,7 @@ export async function dispatchInboundToAiReply(
         text: turn.reply,
       })
       await clearLock()
-      return
+      return { replied: true, reason: 'replied' }
     }
 
     // ---------- CAMINO 2: prompt global (como siempre) ----------
@@ -271,7 +310,7 @@ export async function dispatchInboundToAiReply(
       if (handoffErr) {
         console.error('[ai auto-reply] handoff update failed:', handoffErr.message)
       }
-      return
+      return skip('handoff')
     }
 
     const { data: claimed, error: claimErr } = await db.rpc(
@@ -283,7 +322,7 @@ export async function dispatchInboundToAiReply(
     )
     if (claimErr || claimed !== true) {
       await clearLock()
-      return
+      return skip('slot_not_claimed')
     }
 
     await sendAiReply({
@@ -293,6 +332,7 @@ export async function dispatchInboundToAiReply(
     })
 
     await clearLock()
+    return { replied: true, reason: 'replied' }
   } catch (err) {
     console.error('[ai auto-reply] dispatch failed:', err)
     try {
@@ -304,6 +344,7 @@ export async function dispatchInboundToAiReply(
           .eq('id', conversationId)
       }
     } catch {}
+    return { replied: false, reason: 'error' }
   }
 }
 

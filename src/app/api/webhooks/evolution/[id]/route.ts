@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+import { NextResponse, after } from 'next/server'
 import { channelsAdmin } from '@/lib/channels/admin-client'
 import { decrypt } from '@/lib/whatsapp/encryption'
 import { extractDirectMediaUrl } from '@/lib/channels/evolution'
@@ -7,6 +7,9 @@ import { dispatchWebhookEvent } from '@/lib/webhooks/deliver'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { ensureLeadForContactRow } from '@/lib/leads/ensure-lead'
 import { syncContactAvatar } from '@/lib/avatar/sync'
+import { runAutomationsForTrigger } from '@/lib/automations/engine'
+import { dispatchInboundToAiReply } from '@/lib/ai/auto-reply'
+import type { AutomationTriggerType } from '@/types'
 
 // ============================================================
 // POST /api/webhooks/evolution/[id]  —  ingesta de Evolution API
@@ -187,6 +190,7 @@ export async function POST(
 
   // Contacto
   let contactId: string
+  let contactWasCreated = false
   const existing = await findExistingContact(admin, accountId, phone)
   if (existing) {
     contactId = existing.id
@@ -215,6 +219,7 @@ export async function POST(
       }
     } else {
       contactId = created.id as string
+      contactWasCreated = true
     }
   }
 
@@ -312,6 +317,53 @@ export async function POST(
     contact_id: contactId,
     message_id: waMessageId,
     channel: 'evolution',
+  })
+
+  // ============================================================
+  // Automatizaciones + IA.
+  //
+  // El webhook de WhatsApp Cloud despachaba estos dos motores y el de
+  // Evolution no: los mensajes entraban al CRM pero el agente de IA
+  // nunca se enteraba. Esa era la razón de "recibe los mensajes y no
+  // los responde".
+  //
+  // `after()` responde 200 a Evolution de inmediato (generar la
+  // respuesta puede tardar varios segundos) y mantiene viva la función
+  // hasta terminar. Los flujos quedan fuera: envían botones y listas
+  // por la API de Meta, que Evolution no implementa.
+  // ============================================================
+  const inboundText = raw.text ?? ''
+
+  after(async () => {
+    const triggers: AutomationTriggerType[] = [
+      'new_message_received',
+      'keyword_match',
+    ]
+    if (contactWasCreated) triggers.unshift('new_contact_created')
+
+    for (const triggerType of triggers) {
+      await runAutomationsForTrigger({
+        accountId,
+        triggerType,
+        contactId,
+        context: {
+          message_text: inboundText,
+          conversation_id: conversation.id,
+          channel: 'whatsapp',
+        },
+      }).catch((err) => console.error('[automations] dispatch failed:', err))
+    }
+
+    // Solo se responde a mensajes con texto: un audio o una imagen sin
+    // pie no le dan nada al modelo.
+    if (!inboundText.trim()) return
+
+    await dispatchInboundToAiReply({
+      accountId,
+      conversationId: conversation.id,
+      contactId,
+      configOwnerUserId: ownerUserId,
+    })
   })
 
   return NextResponse.json({ received: true, contact_id: contactId })
