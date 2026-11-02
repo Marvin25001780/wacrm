@@ -19,6 +19,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { decrypt } from '@/lib/whatsapp/encryption'
 import { loadActiveAgent } from './agent-prompt'
 import { agentChannels } from './channels'
+import { AI_PROVIDER_DEFAULT_MODEL } from './defaults'
 
 export type DiagnosticStatus = 'ok' | 'warn' | 'fail'
 
@@ -161,6 +162,24 @@ export async function buildAiDiagnostic(
     }
   }
 
+  // ---- Modelo recomendado ------------------------------------
+  // Los IDs retirados suelen dejar de enrutar sin avisar, y el
+  // síntoma es exactamente este: silencio.
+  if (cfg && cfg.provider in AI_PROVIDER_DEFAULT_MODEL) {
+    const recommended =
+      AI_PROVIDER_DEFAULT_MODEL[
+        cfg.provider as keyof typeof AI_PROVIDER_DEFAULT_MODEL
+      ]
+    if (cfg.model && cfg.model !== recommended) {
+      checks.push({
+        id: 'model',
+        label: 'Modelo recomendado',
+        status: 'warn',
+        detail: `Usas «${cfg.model}». Si el proveedor lo rechaza (un alias retirado, por ejemplo), cambia a «${recommended}».`,
+      })
+    }
+  }
+
   // ---- Función que reserva el turno del bot -------------------
   // Sin `claim_ai_reply_slot` el motor genera la respuesta y la
   // descarta: el usuario solo ve silencio. Se comprueba con un id
@@ -269,6 +288,24 @@ export async function buildAiDiagnostic(
       label: 'Automatizaciones',
       status: 'ok',
       detail: 'Ninguna automatización está interceptando los mensajes.',
+    })
+  }
+
+  // ---- Flujos activos ----------------------------------------
+  // Un flujo que toma el mensaje (menú, palabra clave) lo saca del
+  // camino de la IA: el webhook no la invoca para ese mensaje.
+  const { count: activeFlows } = await db
+    .from('flows')
+    .select('id', { count: 'exact', head: true })
+    .eq('account_id', accountId)
+    .eq('status', 'active')
+
+  if ((activeFlows ?? 0) > 0) {
+    checks.push({
+      id: 'flows',
+      label: 'Flujos activos',
+      status: 'warn',
+      detail: `Hay ${activeFlows} flujo(s) activo(s). Si uno toma el mensaje por menú o palabra clave, la IA no responde a ese mensaje. Desactívalos si quieres que conteste el bot.`,
     })
   }
 

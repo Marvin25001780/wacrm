@@ -16,6 +16,7 @@ import {
   Loader2,
   RefreshCw,
   RotateCcw,
+  Sparkles,
   XCircle,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -67,6 +68,18 @@ export function AiDiagnosticPanel() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [resetting, setResetting] = useState<string | null>(null);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<
+    | {
+        kind: 'ok';
+        reply: string;
+        handoff: boolean;
+        agent: string | null;
+        model: string;
+      }
+    | { kind: 'error'; error: string; code?: string }
+    | null
+  >(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -93,6 +106,45 @@ export function AiDiagnosticPanel() {
   /* eslint-enable react-hooks/set-state-in-effect */
 
   const failing = diagnostic?.checks.filter((c) => c.status === 'fail') ?? [];
+  const targetConversation =
+    diagnostic?.conversations.find((conv) => !conv.answered) ?? null;
+
+  async function runTest() {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const res = await fetch('/api/ai/diagnostic/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(
+          targetConversation ? { conversation_id: targetConversation.id } : {},
+        ),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setTestResult({
+          kind: 'error',
+          error: data.error ?? 'El proveedor no respondió.',
+          code: data.code,
+        });
+        return;
+      }
+      setTestResult({
+        kind: 'ok',
+        reply: data.reply ?? '',
+        handoff: Boolean(data.handoff),
+        agent: data.agent ?? null,
+        model: data.model ?? '',
+      });
+    } catch {
+      setTestResult({
+        kind: 'error',
+        error: 'No se pudo contactar al proveedor de IA.',
+      });
+    } finally {
+      setTesting(false);
+    }
+  }
 
   async function resetConversation(conversationId: string) {
     setResetting(conversationId);
@@ -198,6 +250,78 @@ export function AiDiagnosticPanel() {
                 );
               })}
             </ul>
+
+            <div className="space-y-2 rounded-md border border-border p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <p className="text-sm font-medium text-foreground">
+                    Prueba real de la IA
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {targetConversation
+                      ? 'Genera una respuesta con el último mensaje del hilo más reciente. No se envía al cliente.'
+                      : 'Genera una respuesta de prueba con un mensaje de ejemplo. No se envía a nadie.'}
+                  </p>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void runTest()}
+                  disabled={testing}
+                >
+                  {testing ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Sparkles className="mr-2 h-4 w-4" />
+                  )}
+                  Probar respuesta
+                </Button>
+              </div>
+
+              {testResult?.kind === 'error' && (
+                <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm">
+                  <p className="font-medium text-destructive">
+                    El proveedor rechazó la llamada
+                  </p>
+                  <p className="mt-1 whitespace-pre-wrap text-destructive/90">
+                    {testResult.error}
+                  </p>
+                  {testResult.code && (
+                    <p className="mt-1 text-[11px] text-destructive/70">
+                      Código: {testResult.code}
+                    </p>
+                  )}
+                  {/model/i.test(testResult.error) && (
+                    <p className="mt-2 text-xs text-destructive/90">
+                      Revisa el nombre del modelo en «Proveedor y clave». El
+                      campo admite el ID exacto del proveedor, no el nombre
+                      comercial.
+                    </p>
+                  )}
+                  {/balance|quota|credit|insufficient/i.test(
+                    testResult.error,
+                  ) && (
+                    <p className="mt-2 text-xs text-destructive/90">
+                      La cuenta del proveedor se quedó sin saldo o cuota.
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {testResult?.kind === 'ok' && (
+                <div className="rounded-md border border-emerald-600/30 bg-emerald-500/10 px-3 py-2">
+                  <p className="text-xs text-emerald-700 dark:text-emerald-400">
+                    Respuesta generada con {testResult.model}
+                    {testResult.agent ? ` · agente «${testResult.agent}»` : ''}
+                    {testResult.handoff ? ' · decidió derivar a un humano' : ''}
+                  </p>
+                  <p className="mt-1 whitespace-pre-wrap text-sm text-foreground">
+                    {testResult.reply ||
+                      'El agente no escribió texto: el próximo mensaje se derivaría a un humano.'}
+                  </p>
+                </div>
+              )}
+            </div>
 
             {diagnostic.conversations.length > 0 && (
               <div className="space-y-2">
