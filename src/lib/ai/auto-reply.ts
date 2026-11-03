@@ -38,6 +38,8 @@ export type AiReplyReason =
 export interface AiReplyOutcome {
   replied: boolean
   reason: AiReplyReason
+  /** Mensaje técnico del fallo, cuando lo hay (error del proveedor, del envío, etc.). */
+  detail?: string
 }
 
 interface ReplyConversationRow {
@@ -130,11 +132,13 @@ export async function dispatchInboundToAiReply(
 
   let lockSupported = true
 
-  const skip = (reason: AiReplyReason): AiReplyOutcome => {
+  const skip = (reason: AiReplyReason, detail?: string): AiReplyOutcome => {
     console.info(
-      `[ai auto-reply] sin respuesta (${reason}) conversacion=${conversationId}`,
+      `[ai auto-reply] sin respuesta (${reason}) conversacion=${conversationId}${
+        detail ? ` · ${detail}` : ''
+      }`,
     )
-    return { replied: false, reason }
+    return { replied: false, reason, detail }
   }
 
   try {
@@ -269,7 +273,7 @@ export async function dispatchInboundToAiReply(
       )
       if (claimErr || claimed !== true) {
         await clearLock()
-        return skip('slot_not_claimed')
+        return skip('slot_not_claimed', claimErr?.message)
       }
       await sendAiReply({
         accountId,
@@ -322,7 +326,7 @@ export async function dispatchInboundToAiReply(
     )
     if (claimErr || claimed !== true) {
       await clearLock()
-      return skip('slot_not_claimed')
+      return skip('slot_not_claimed', claimErr?.message)
     }
 
     await sendAiReply({
@@ -344,7 +348,11 @@ export async function dispatchInboundToAiReply(
           .eq('id', conversationId)
       }
     } catch {}
-    return { replied: false, reason: 'error' }
+    return {
+      replied: false,
+      reason: 'error',
+      detail: err instanceof Error ? err.message : String(err),
+    }
   }
 }
 

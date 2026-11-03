@@ -309,6 +309,24 @@ export async function buildAiDiagnostic(
     })
   }
 
+  // Una conversación con un flujo EN CURSO queda fuera del camino de la
+  // IA: el flujo "consume" cada mensaje aunque ya no envíe nada. Un run
+  // abandonado deja el hilo mudo para siempre.
+  const { count: activeRuns } = await db
+    .from('flow_runs')
+    .select('id', { count: 'exact', head: true })
+    .eq('account_id', accountId)
+    .eq('status', 'active')
+
+  if ((activeRuns ?? 0) > 0) {
+    checks.push({
+      id: 'flow_runs',
+      label: 'Conversaciones dentro de un flujo',
+      status: 'warn',
+      detail: `Hay ${activeRuns} conversación(es) con un flujo en curso. Mientras el flujo tenga el hilo, la IA no responde ahí aunque el flujo ya no envíe mensajes.`,
+    })
+  }
+
   // ---- Hilos recientes ---------------------------------------
   const { data: convData } = await db
     .from('conversations')

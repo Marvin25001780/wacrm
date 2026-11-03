@@ -12,6 +12,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   AlertCircle,
+  ArrowRight,
   CheckCircle2,
   Loader2,
   RefreshCw,
@@ -63,11 +64,35 @@ function formatDate(value: string | null): string {
   });
 }
 
+const REASON_LABEL: Record<string, string> = {
+  replied: 'Respondió y el mensaje salió por WhatsApp.',
+  no_config: 'No hay proveedor de IA configurado.',
+  auto_reply_disabled: 'Las respuestas automáticas están apagadas.',
+  conversation_not_found: 'No se encontró la conversación.',
+  channel_not_covered: 'El agente no tiene marcado el canal de este hilo.',
+  automation_owns_messages:
+    'Una automatización activa está interceptando los mensajes.',
+  assigned_to_human: 'El hilo está asignado a un humano.',
+  max_replies_reached: 'El hilo llegó al máximo de respuestas del bot.',
+  processing_lock: 'Hay otro intento en curso o quedó un bloqueo reciente.',
+  empty_context: 'El hilo no tiene texto para responder.',
+  handoff: 'El agente decidió derivar a un humano.',
+  slot_not_claimed: 'No se pudo reservar el turno del bot.',
+  error: 'El motor falló antes de enviar.',
+};
+
 export function AiDiagnosticPanel() {
   const [diagnostic, setDiagnostic] = useState<AiDiagnostic | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [resetting, setResetting] = useState<string | null>(null);
+  const [replying, setReplying] = useState<string | null>(null);
+  const [replyResults, setReplyResults] = useState<
+    Record<
+      string,
+      { replied: boolean; reason: string; detail?: string }
+    >
+  >({});
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<
     | {
@@ -108,6 +133,53 @@ export function AiDiagnosticPanel() {
   const failing = diagnostic?.checks.filter((c) => c.status === 'fail') ?? [];
   const targetConversation =
     diagnostic?.conversations.find((conv) => !conv.answered) ?? null;
+
+  async function replyNow(conversationId: string) {
+    setReplying(conversationId);
+    try {
+      const res = await fetch('/api/ai/diagnostic/reply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ conversation_id: conversationId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setReplyResults((prev) => ({
+          ...prev,
+          [conversationId]: {
+            replied: false,
+            reason: 'error',
+            detail: data.error ?? 'No se pudo ejecutar el motor.',
+          },
+        }));
+        return;
+      }
+      setReplyResults((prev) => ({
+        ...prev,
+        [conversationId]: {
+          replied: Boolean(data.replied),
+          reason: String(data.reason ?? ''),
+          detail:
+            typeof data.detail === 'string' ? data.detail : undefined,
+        },
+      }));
+      if (data.replied) {
+        toast.success('Mensaje enviado al cliente.');
+        await load();
+      }
+    } catch {
+      setReplyResults((prev) => ({
+        ...prev,
+        [conversationId]: {
+          replied: false,
+          reason: 'error',
+          detail: 'No se pudo contactar al servidor.',
+        },
+      }));
+    } finally {
+      setReplying(null);
+    }
+  }
 
   async function runTest() {
     setTesting(true);
@@ -355,24 +427,55 @@ export function AiDiagnosticPanel() {
                         {formatDate(conv.lastBotMessageAt)} · Respuestas del bot:{' '}
                         {conv.aiReplyCount}/{diagnostic.maxReplies}
                       </p>
-                      {!conv.answered &&
-                        (conv.assignedToHuman ||
-                          conv.aiReplyCount >= diagnostic.maxReplies) && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="mt-2"
-                            onClick={() => void resetConversation(conv.id)}
-                            disabled={resetting === conv.id}
-                          >
-                            {resetting === conv.id ? (
-                              <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
-                            ) : (
-                              <RotateCcw className="mr-2 h-3.5 w-3.5" />
-                            )}
-                            Devolver al bot
-                          </Button>
-                        )}
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => void replyNow(conv.id)}
+                          disabled={replying === conv.id}
+                        >
+                          {replying === conv.id ? (
+                            <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <ArrowRight className="mr-2 h-3.5 w-3.5" />
+                          )}
+                          Responder ahora
+                        </Button>
+                        {!conv.answered &&
+                          (conv.assignedToHuman ||
+                            conv.aiReplyCount >= diagnostic.maxReplies) && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => void resetConversation(conv.id)}
+                              disabled={resetting === conv.id}
+                            >
+                              {resetting === conv.id ? (
+                                <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <RotateCcw className="mr-2 h-3.5 w-3.5" />
+                              )}
+                              Devolver al bot
+                            </Button>
+                          )}
+                      </div>
+
+                      {replyResults[conv.id] && (
+                        <p
+                          className={cn(
+                            'mt-2 rounded-md px-2 py-1.5 text-xs',
+                            replyResults[conv.id].replied
+                              ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
+                              : 'bg-amber-500/10 text-amber-700 dark:text-amber-400',
+                          )}
+                        >
+                          {REASON_LABEL[replyResults[conv.id].reason] ??
+                            replyResults[conv.id].reason}
+                          {replyResults[conv.id].detail
+                            ? ` — ${replyResults[conv.id].detail}`
+                            : ''}
+                        </p>
+                      )}
                     </div>
                   ))}
                 </div>
