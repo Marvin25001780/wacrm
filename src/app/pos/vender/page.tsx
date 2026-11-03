@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   CheckCircle2,
+  ChevronDown,
   Loader2,
   Minus,
   Percent,
@@ -12,6 +13,7 @@ import {
   Search,
   ShoppingCart,
   Trash2,
+  UserPlus,
   X,
 } from "lucide-react";
 
@@ -22,6 +24,7 @@ import { SaleReceiptDialog } from "@/components/pos/sale-receipt-dialog";
 import { PosButton, PosPageHeader } from "@/components/pos/pos-shell";
 import { createClient } from "@/lib/supabase/client";
 import {
+  IGTF_RATE,
   PAYMENT_METHODS,
   type PaymentMethod,
   bsToUsd,
@@ -149,7 +152,9 @@ export default function VenderPage() {
   const [accounts, setAccounts] = useState<
     { id: string; name: string; currency: "USD" | "VES" }[]
   >([]);
-  const [customers, setCustomers] = useState<{ id: string; name: string }[]>([]);
+  const [customers, setCustomers] = useState<
+    { id: string; name: string; document: string | null }[]
+  >([]);
   const [surchargeOptions, setSurchargeOptions] = useState<SurchargeRow[]>([]);
   const [priceLists, setPriceLists] = useState<PriceListRow[]>([]);
   const [prices, setPrices] = useState<ProductPriceRow[]>([]);
@@ -166,6 +171,10 @@ export default function VenderPage() {
   const [discountError, setDiscountError] = useState<string | null>(null);
   const [applyingCode, setApplyingCode] = useState(false);
   const [customerId, setCustomerId] = useState("");
+  const [customerQuery, setCustomerQuery] = useState("");
+  const [customerOpen, setCustomerOpen] = useState(false);
+  const [creatingCustomer, setCreatingCustomer] = useState(false);
+  const [creditMode, setCreditMode] = useState(false);
   const [search, setSearch] = useState("");
   const [cart, setCart] = useState<Line[]>([]);
   const [payments, setPayments] = useState<Payment[]>([newPayment()]);
@@ -176,10 +185,13 @@ export default function VenderPage() {
     saleId: string;
     number: number;
     total: number;
+    balance: number;
   } | null>(null);
   const [receiptOpen, setReceiptOpen] = useState(false);
   const [receiptSaleId, setReceiptSaleId] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  const discountRef = useRef<HTMLInputElement>(null);
+  const customerRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async () => {
     if (!accountId) return;
@@ -212,7 +224,7 @@ export default function VenderPage() {
           .order("name"),
         supabase
           .from("pos_customers")
-          .select("id, name")
+          .select("id, name, document")
           .eq("account_id", accountId)
           .eq("active", true)
           .order("name"),
@@ -259,7 +271,13 @@ export default function VenderPage() {
     setAccounts(
       (accountsRes.data ?? []) as { id: string; name: string; currency: "USD" | "VES" }[],
     );
-    setCustomers((customersRes.data ?? []) as { id: string; name: string }[]);
+    setCustomers(
+      (customersRes.data ?? []) as {
+        id: string;
+        name: string;
+        document: string | null;
+      }[],
+    );
     setSurchargeOptions((surchargesRes.data ?? []) as SurchargeRow[]);
 
     if (listsRes.error) {
@@ -429,16 +447,70 @@ export default function VenderPage() {
     [surchargeOptions, selectedSurcharges, totalsBase.subtotal],
   );
 
+  const baseTotal = round2(totalsBase.base + surchargeTotal);
+
+  // Resuelve cada pago a USD. Si un pago en efectivo solo trae
+  // "Recibido" (sin monto), se aplica lo necesario para cubrir el saldo
+  // y el resto se muestra como vuelto. Así el cajero escribe lo que le
+  // entregan, no lo que cree que debe cobrar.
   const resolved = useMemo(() => {
-    return payments.map((payment) => {
+    const rows = payments.map((payment) => {
       const method = PAYMENT_METHODS.find((m) => m.value === payment.method)!;
-      const raw = toNumber(payment.amount);
-      const amountUsd =
-        method.currency === "VES" ? bsToUsd(raw, rate) : round2(raw);
-      const igtf = method.currency === "USD" ? igtfOf(amountUsd) : 0;
-      return { ...payment, currency: method.currency, amountUsd, igtf };
+      const rawAmount = toNumber(payment.amount);
+      const received = toNumber(payment.received);
+      return {
+        payment,
+        currency: method.currency,
+        rawAmount,
+        explicitUsd:
+          method.currency === "VES"
+            ? bsToUsd(rawAmount, rate)
+            : round2(rawAmount),
+        receivedUsd:
+          method.currency === "VES" ? bsToUsd(received, rate) : received,
+        hasAmount: rawAmount > 0,
+        isCash: payment.method === "cash_usd" || payment.method === "cash_bs",
+      };
     });
-  }, [payments, rate]);
+
+    const explicitBase = round2(
+      rows.reduce((sum, row) => sum + (row.hasAmount ? row.explicitUsd : 0), 0),
+    );
+
+    const result = [];
+    let pendingBase = round2(baseTotal - explicitBase);
+    for (const row of rows) {
+      let amountUsd = row.explicitUsd;
+      if (
+        !row.hasAmount &&
+        row.isCash &&
+        row.receivedUsd > 0 &&
+        pendingBase > 0
+      ) {
+        const igtfRate = row.currency === "USD" ? IGTF_RATE / 100 : 0;
+        const neededWithIgtf = round2(pendingBase * (1 + igtfRate));
+        amountUsd =
+          row.receivedUsd + 0.005 >= neededWithIgtf
+            ? pendingBase
+            : round2(row.receivedUsd / (1 + igtfRate));
+        amountUsd = round2(Math.max(0, Math.min(amountUsd, pendingBase)));
+        pendingBase = round2(pendingBase - amountUsd);
+      }
+      const igtf = row.currency === "USD" ? igtfOf(amountUsd) : 0;
+      result.push({
+        id: row.payment.id,
+        method: row.payment.method,
+        currency: row.currency,
+        rawAmount: row.rawAmount,
+        accountId: row.payment.accountId,
+        reference: row.payment.reference,
+        received: row.payment.received,
+        amountUsd: round2(amountUsd),
+        igtf,
+      });
+    }
+    return result;
+  }, [payments, rate, baseTotal]);
 
   const igtfTotal = round2(resolved.reduce((sum, p) => sum + p.igtf, 0));
   const total = round2(totalsBase.base + surchargeTotal + igtfTotal);
@@ -453,30 +525,28 @@ export default function VenderPage() {
     for (const payment of resolved) {
       const received = toNumber(payment.received);
       if (received <= 0) continue;
+      const dueUsd = round2(payment.amountUsd + payment.igtf);
       if (payment.method === "cash_usd") {
-        const due = round2(payment.amountUsd + payment.igtf);
-        if (received > due + 0.005) usd += received - due;
+        if (received > dueUsd + 0.005) usd += received - dueUsd;
       } else if (payment.method === "cash_bs") {
-        const due = round2(toNumber(payment.amount));
-        if (received > due + 0.005) bs += received - due;
+        const dueBs = usdToBs(dueUsd, rate);
+        if (received > dueBs + 0.005) bs += received - dueBs;
       }
     }
     return { usd: round2(usd), bs: round2(bs) };
-  }, [resolved]);
+  }, [resolved, rate]);
 
   function changeOf(payment: Payment): number {
     const resolvedPayment = resolved.find((row) => row.id === payment.id);
     if (!resolvedPayment || !payment.received) return 0;
     const received = toNumber(payment.received);
+    const dueUsd = round2(resolvedPayment.amountUsd + resolvedPayment.igtf);
     if (payment.method === "cash_usd") {
-      const due = round2(
-        resolvedPayment.amountUsd + resolvedPayment.igtf,
-      );
-      return received > due + 0.005 ? round2(received - due) : 0;
+      return received > dueUsd + 0.005 ? round2(received - dueUsd) : 0;
     }
     if (payment.method === "cash_bs") {
-      const due = round2(toNumber(resolvedPayment.amount));
-      return received > due + 0.005 ? round2(received - due) : 0;
+      const dueBs = usdToBs(dueUsd, rate);
+      return received > dueBs + 0.005 ? round2(received - dueBs) : 0;
     }
     return 0;
   }
@@ -579,8 +649,17 @@ export default function VenderPage() {
       setError("Agrega al menos un producto.");
       return;
     }
-    if (remaining > 0.005) {
-      setError("El pago no cubre el total de la venta.");
+
+    const leavesBalance = remaining > 0.005;
+
+    if (leavesBalance && !creditMode) {
+      setError(
+        `El pago no cubre el total. Faltan ${formatUsd(remaining)}; activa “Dejar saldo a crédito” si el cliente paga después.`,
+      );
+      return;
+    }
+    if (leavesBalance && !customerId) {
+      setError("Elige un cliente para dejar saldo a crédito.");
       return;
     }
     if (covered > total + 0.005) {
@@ -611,7 +690,12 @@ export default function VenderPage() {
         .map((payment) => ({
           method: payment.method,
           currency: payment.currency,
-          amount: toNumber(payment.amount),
+          amount:
+            payment.rawAmount > 0
+              ? payment.rawAmount
+              : payment.currency === "VES"
+                ? usdToBs(payment.amountUsd, rate)
+                : payment.amountUsd,
           amount_usd: payment.amountUsd,
           reference: payment.reference.trim() || null,
           pos_account_id: payment.accountId || null,
@@ -644,14 +728,21 @@ export default function VenderPage() {
       sale_id: string;
       number: number;
       total_usd: number;
+      balance_usd: number;
     };
 
     // El cliente del POS se enlaza después: la venta ya está cobrada.
+    // En una venta a crédito el enlace es obligatorio para poder cobrar
+    // el saldo, así que un fallo aquí se avisa en pantalla.
+    let linkError: string | null = null;
     if (customerId) {
-      await supabase
+      const { error: customerLinkError } = await supabase
         .from("pos_sales")
         .update({ pos_customer_id: customerId })
         .eq("id", result.sale_id);
+      if (customerLinkError) {
+        linkError = customerLinkError.message;
+      }
     }
 
     if (priceListsReady && channel) {
@@ -679,18 +770,124 @@ export default function VenderPage() {
       saleId: result.sale_id,
       number: result.number,
       total: toNumber(result.total_usd),
+      balance: toNumber(result.balance_usd),
     });
     setCart([]);
     setPayments([newPayment()]);
     setSearch("");
     setCustomerId("");
+    setCustomerQuery("");
+    setCustomerOpen(false);
+    setCreditMode(false);
     setAppliedDiscount(null);
     setDiscountCode("");
     setDiscountError(null);
     setSelectedSurcharges([]);
+    if (linkError) {
+      setError(
+        `La venta se registró, pero no se pudo enlazar el cliente (${linkError}). Asígnaselo desde el historial antes de cobrar el saldo.`,
+      );
+    }
     void load();
     searchRef.current?.focus();
   }
+
+  const selectedCustomer =
+    customers.find((customer) => customer.id === customerId) ?? null;
+
+  const customerMatches = useMemo(() => {
+    const term = customerQuery.trim().toLowerCase();
+    if (!term) return customers.slice(0, 8);
+    return customers
+      .filter(
+        (customer) =>
+          customer.name.toLowerCase().includes(term) ||
+          (customer.document ?? "").toLowerCase().includes(term),
+      )
+      .slice(0, 8);
+  }, [customers, customerQuery]);
+
+  function chooseCustomer(id: string) {
+    setCustomerId(id);
+    setCustomerOpen(false);
+    setCustomerQuery("");
+    if (!id) setCreditMode(false);
+  }
+
+  async function createCustomer() {
+    const name = customerQuery.trim();
+    if (!name || !accountId || creatingCustomer) return;
+    setCreatingCustomer(true);
+    const supabase = createClient();
+    const { data, error: createError } = await supabase
+      .from("pos_customers")
+      .insert({ account_id: accountId, name })
+      .select("id, name, document")
+      .single();
+    setCreatingCustomer(false);
+    if (createError) {
+      setError(`No se pudo crear el cliente: ${createError.message}`);
+      return;
+    }
+    const created = data as {
+      id: string;
+      name: string;
+      document: string | null;
+    };
+    setCustomers((current) =>
+      [...current, created].sort((a, b) => a.name.localeCompare(b.name, "es")),
+    );
+    chooseCustomer(created.id);
+    searchRef.current?.focus();
+  }
+
+  useEffect(() => {
+    if (!customerOpen) return;
+    function onPointerDown(event: MouseEvent) {
+      if (!customerRef.current?.contains(event.target as Node)) {
+        setCustomerOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onPointerDown);
+    return () => document.removeEventListener("mousedown", onPointerDown);
+  }, [customerOpen]);
+
+  // Atajos de teclado. Se guardan en un ref para no volver a registrar
+  // el listener en cada tecla o cambio del carrito.
+  const actionsRef = useRef({ cobrar, fillExact });
+  useEffect(() => {
+    actionsRef.current = { cobrar, fillExact };
+  });
+
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "F2") {
+        event.preventDefault();
+        searchRef.current?.focus();
+        searchRef.current?.select();
+      } else if (event.key === "F3") {
+        event.preventDefault();
+        discountRef.current?.focus();
+        discountRef.current?.select();
+      } else if (event.key === "F4") {
+        event.preventDefault();
+        if (cart.length > 0) void actionsRef.current.cobrar();
+      } else if (event.key === "F8") {
+        event.preventDefault();
+        if (cart.length > 0) actionsRef.current.fillExact();
+      } else if (event.key === "Escape") {
+        if (customerOpen) {
+          event.preventDefault();
+          setCustomerOpen(false);
+        } else if (search) {
+          event.preventDefault();
+          setSearch("");
+        }
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [cart.length, customerOpen, search]);
 
   return (
     <div>
@@ -732,6 +929,9 @@ export default function VenderPage() {
             <p className="text-xs text-emerald-700">
               Total {formatUsd(success.total)} ·{" "}
               {formatBs(usdToBs(success.total, rate))}
+              {success.balance > 0.005
+                ? ` · Saldo a crédito ${formatUsd(success.balance)}`
+                : ""}
             </p>
           </div>
           <button
@@ -765,6 +965,33 @@ export default function VenderPage() {
               placeholder="Buscar o escanear nombre, SKU o código de barras"
               className="w-full bg-transparent text-sm outline-none placeholder:text-slate-400"
             />
+          </div>
+
+          <div className="hidden flex-wrap items-center gap-3 border-b border-slate-100 bg-slate-50/60 px-4 py-1.5 text-[10px] font-semibold text-slate-400 sm:flex">
+            <span>
+              <kbd className="rounded border border-slate-200 bg-white px-1 py-0.5">
+                F2
+              </kbd>{" "}
+              Buscar
+            </span>
+            <span>
+              <kbd className="rounded border border-slate-200 bg-white px-1 py-0.5">
+                F3
+              </kbd>{" "}
+              Descuento
+            </span>
+            <span>
+              <kbd className="rounded border border-slate-200 bg-white px-1 py-0.5">
+                F4
+              </kbd>{" "}
+              Cobrar
+            </span>
+            <span>
+              <kbd className="rounded border border-slate-200 bg-white px-1 py-0.5">
+                F8
+              </kbd>{" "}
+              Exacto
+            </span>
           </div>
 
           {saleChannels.length > 0 || priceLists.length > 1 ? (
@@ -865,7 +1092,10 @@ export default function VenderPage() {
               {cart.length > 0 ? (
                 <button
                   type="button"
-                  onClick={() => setCart([])}
+                  onClick={() => {
+                    setCart([]);
+                    setCreditMode(false);
+                  }}
                   className="text-[11px] font-semibold text-slate-400 hover:text-red-600"
                 >
                   Vaciar
@@ -874,21 +1104,104 @@ export default function VenderPage() {
             </div>
 
             <div className="border-b border-slate-100 px-4 py-2">
-              <label className="flex items-center gap-2 text-[11px] font-semibold text-slate-500">
-                Cliente
-                <select
-                  value={customerId}
-                  onChange={(event) => setCustomerId(event.target.value)}
-                  className="min-w-0 flex-1 rounded-lg border border-slate-200 px-2 py-1.5 text-xs font-medium text-slate-700 outline-none focus:border-[#3f3fd8]"
-                >
-                  <option value="">Consumidor final</option>
-                  {customers.map((customer) => (
-                    <option key={customer.id} value={customer.id}>
-                      {customer.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <div className="flex items-center gap-2 text-[11px] font-semibold text-slate-500">
+                <span className="shrink-0">Cliente</span>
+                <div ref={customerRef} className="relative min-w-0 flex-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCustomerOpen((open) => !open);
+                      setCustomerQuery("");
+                    }}
+                    className="flex w-full items-center justify-between gap-2 rounded-lg border border-slate-200 px-2 py-1.5 text-left text-xs font-medium text-slate-700 outline-none hover:border-[#3f3fd8] focus:border-[#3f3fd8]"
+                  >
+                    <span className="truncate">
+                      {selectedCustomer?.name ?? "Consumidor final"}
+                    </span>
+                    <ChevronDown className="h-3 w-3 shrink-0 text-slate-400" />
+                  </button>
+
+                  {customerOpen ? (
+                    <div className="absolute left-0 right-0 z-30 mt-1 rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl">
+                      <input
+                        autoFocus
+                        value={customerQuery}
+                        onChange={(event) =>
+                          setCustomerQuery(event.target.value)
+                        }
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            event.preventDefault();
+                            if (customerMatches[0]) {
+                              chooseCustomer(customerMatches[0].id);
+                            }
+                          }
+                        }}
+                        placeholder="Buscar por nombre o documento"
+                        className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs outline-none focus:border-[#3f3fd8]"
+                      />
+                      <div className="mt-1 max-h-56 overflow-y-auto">
+                        <button
+                          type="button"
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => chooseCustomer("")}
+                          className="flex w-full items-center rounded-lg px-2 py-1.5 text-left text-xs text-slate-600 hover:bg-slate-50"
+                        >
+                          Consumidor final
+                        </button>
+                        {customerMatches.map((customer) => (
+                          <button
+                            key={customer.id}
+                            type="button"
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={() => chooseCustomer(customer.id)}
+                            className={`flex w-full items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-left text-xs hover:bg-indigo-50/60 ${
+                              customer.id === customerId
+                                ? "bg-indigo-50 font-semibold text-[#3f3fd8]"
+                                : "text-slate-700"
+                            }`}
+                          >
+                            <span className="truncate">{customer.name}</span>
+                            {customer.document ? (
+                              <span className="shrink-0 text-[10px] text-slate-400">
+                                {customer.document}
+                              </span>
+                            ) : null}
+                          </button>
+                        ))}
+                        {customerQuery.trim().length >= 2 &&
+                        !customerMatches.some(
+                          (customer) =>
+                            customer.name.toLowerCase() ===
+                            customerQuery.trim().toLowerCase(),
+                        ) ? (
+                          <button
+                            type="button"
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={() => void createCustomer()}
+                            disabled={creatingCustomer}
+                            className="flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-left text-xs font-semibold text-[#3f3fd8] hover:bg-indigo-50/60 disabled:opacity-50"
+                          >
+                            {creatingCustomer ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                              <UserPlus className="h-3 w-3" />
+                            )}
+                            Crear «{customerQuery.trim()}»
+                          </button>
+                        ) : null}
+                        {customerQuery.trim().length > 0 &&
+                        customerQuery.trim().length < 2 &&
+                        customerMatches.length === 0 ? (
+                          <p className="px-2 py-1.5 text-[10px] text-slate-400">
+                            Escribe al menos 2 letras para crear un cliente.
+                          </p>
+                        ) : null}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
             </div>
 
             {cart.length === 0 ? (
@@ -963,6 +1276,7 @@ export default function VenderPage() {
 
             <div className="mt-2 flex items-center gap-2">
               <input
+                ref={discountRef}
                 value={discountCode}
                 onChange={(event) => {
                   setDiscountCode(event.target.value.toUpperCase());
@@ -1235,12 +1549,32 @@ export default function VenderPage() {
                   Cobrar exacto
                 </button>
               </div>
+              <p className="text-[10px] leading-snug text-slate-400">
+                En efectivo puedes escribir solo lo <strong>recibido</strong>: el
+                POS aplica lo necesario y calcula el vuelto.
+              </p>
             </div>
 
             {remaining > 0.005 ? (
-              <p className="mt-2 text-[11px] font-semibold text-amber-600">
-                Falta por cubrir: {formatUsd(remaining)}
-              </p>
+              <div className="mt-2 space-y-1.5">
+                <p className="text-[11px] font-semibold text-amber-600">
+                  Falta por cubrir: {formatUsd(remaining)}
+                </p>
+                <label className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] text-amber-800">
+                  <input
+                    type="checkbox"
+                    checked={creditMode}
+                    onChange={(event) => setCreditMode(event.target.checked)}
+                    className="mt-0.5 h-3.5 w-3.5 accent-[#4338d8]"
+                  />
+                  <span>
+                    <strong>Dejar saldo a crédito</strong>
+                    {customerId
+                      ? ` · ${selectedCustomer?.name ?? "cliente"}`
+                      : " · elige un cliente primero"}
+                  </span>
+                </label>
+              </div>
             ) : null}
 
             {error ? (
@@ -1255,7 +1589,11 @@ export default function VenderPage() {
               disabled={saving || cart.length === 0}
             >
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-              Cobrar {formatUsd(total)}
+              {remaining > 0.005 && creditMode
+                ? covered > 0.005
+                  ? `Cobrar ${formatUsd(covered)} y fiar ${formatUsd(remaining)}`
+                  : `Fiar ${formatUsd(remaining)}`
+                : `Cobrar ${formatUsd(total)}`}
             </PosButton>
           </section>
         </aside>
