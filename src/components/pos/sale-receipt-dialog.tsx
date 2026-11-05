@@ -266,10 +266,14 @@ export function SaleReceiptDialog({
   const widthClass =
     width === "58" ? "max-w-[210px]" : width === "letter" ? "max-w-[380px]" : "max-w-[290px]";
   const printWidth = width === "58" ? "58mm" : width === "letter" ? "180mm" : "80mm";
+  const pageSize = width === "letter" ? "auto" : `${printWidth} auto`;
+  const contentWidth =
+    width === "letter" ? "auto" : `calc(${printWidth} - 4mm)`;
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/40 p-4 sm:items-center">
       <style>{`
+        @page { size: ${pageSize}; margin: 2mm; }
         @media print {
           body * { visibility: hidden !important; }
           .pos-receipt-print, .pos-receipt-print * { visibility: visible !important; }
@@ -277,7 +281,7 @@ export function SaleReceiptDialog({
             position: absolute !important;
             left: 0 !important;
             top: 0 !important;
-            width: ${printWidth} !important;
+            width: ${contentWidth} !important;
             max-width: none !important;
             margin: 0 !important;
             box-shadow: none !important;

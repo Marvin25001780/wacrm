@@ -303,6 +303,7 @@ export function FiscalCreditNoteDialog({
       {issued ? (
         <div className="pos-credit-note-print hidden">
           <style>{`
+            @page { size: 80mm auto; margin: 2mm; }
             @media print {
               body * { visibility: hidden !important; }
               .pos-credit-note-print, .pos-credit-note-print * { visibility: visible !important; }
@@ -311,8 +312,8 @@ export function FiscalCreditNoteDialog({
                 position: absolute !important;
                 left: 0 !important;
                 top: 0 !important;
-                width: 80mm !important;
-                padding: 6mm !important;
+                width: calc(80mm - 4mm) !important;
+                padding: 2mm !important;
                 background: white !important;
                 color: #0f172a !important;
                 font-family: ui-monospace, monospace !important;

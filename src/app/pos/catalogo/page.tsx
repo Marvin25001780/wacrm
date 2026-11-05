@@ -13,6 +13,7 @@ import {
   Search,
   Tag,
   Trash2,
+  Upload,
   X,
 } from "lucide-react";
 
@@ -22,6 +23,7 @@ import { PosButton } from "@/components/pos/pos-shell";
 import { createClient } from "@/lib/supabase/client";
 import { formatBs, formatUsd, toNumber, usdToBs } from "@/lib/pos/money";
 import { DiscountsTab } from "@/components/pos/catalog/discounts-tab";
+import { ImportProductsDialog } from "@/components/pos/catalog/import-products-dialog";
 import { PricesTab } from "@/components/pos/catalog/prices-tab";
 import { SurchargesTab } from "@/components/pos/catalog/surcharges-tab";
 import { VariantDialog } from "@/components/pos/catalog/variant-dialog";
@@ -63,6 +65,7 @@ export default function CatalogoPage() {
   const [view, setView] = useState<"list" | "form">("list");
   const [editing, setEditing] = useState<Product | null>(null);
   const [formKind, setFormKind] = useState<Kind>("product");
+  const [importOpen, setImportOpen] = useState(false);
 
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -378,6 +381,10 @@ export default function CatalogoPage() {
                   Eliminar ({selected.size})
                 </PosButton>
               ) : null}
+              <PosButton variant="outline" onClick={() => setImportOpen(true)}>
+                <Upload className="h-4 w-4" />
+                Importar
+              </PosButton>
               <PosButton onClick={() => openCreate("product")}>
                 <Plus className="h-4 w-4" />
                 Nuevo producto
@@ -747,6 +754,16 @@ export default function CatalogoPage() {
               current ? { ...current, is_parent: true } : current,
             );
           }}
+        />
+      ) : null}
+
+      {importOpen ? (
+        <ImportProductsDialog
+          accountId={accountId}
+          categories={categories}
+          products={products}
+          onClose={() => setImportOpen(false)}
+          onImported={() => void load()}
         />
       ) : null}
     </div>

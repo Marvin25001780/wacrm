@@ -1,11 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2, TrendingDown, TrendingUp } from "lucide-react";
+import { Download, Loader2, TrendingDown, TrendingUp } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
 import { usePosRate } from "@/components/pos/rate-context";
-import { PosPageHeader } from "@/components/pos/pos-shell";
+import { PosButton, PosPageHeader } from "@/components/pos/pos-shell";
 import {
   BreakdownCard,
   HeatmapCard,
@@ -39,6 +39,7 @@ import {
   type BreakEven,
   type FixedExpense,
 } from "@/lib/pos/break-even";
+import { csvDate, csvNumber, csvQuantity, downloadCsv } from "@/lib/pos/csv";
 
 type Period = "month" | "lastMonth" | "days30" | "year";
 type Tab = "resultados" | "inventario" | "ventas" | "finanzas";
@@ -674,27 +675,207 @@ export default function InformesPage() {
 
   const maxMonth = Math.max(...monthly.map((month) => month.value), 0.01);
 
+  function exportReport() {
+    const periodLabel =
+      PERIODS.find((item) => item.key === period)?.label ?? "Período";
+    const rows: (string | number)[][] = [];
+
+    const section = (title: string) => {
+      if (rows.length > 0) rows.push([]);
+      rows.push([title]);
+    };
+    const money = (label: string, value: number) => {
+      rows.push([label, csvNumber(value)]);
+    };
+    const breakdown = (
+      title: string,
+      list: { label: string; count: number; total: number }[],
+    ) => {
+      section(title);
+      rows.push(["Concepto", "Operaciones", "Total USD"]);
+      for (const row of list) {
+        rows.push([row.label, row.count, csvNumber(row.total)]);
+      }
+    };
+    const iso = (date: Date) =>
+      `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(
+        date.getDate(),
+      ).padStart(2, "0")}`;
+
+    section("Resumen");
+    rows.push(["Período", periodLabel]);
+    rows.push(["Desde", csvDate(range.start)]);
+    rows.push(["Hasta", csvDate(range.end)]);
+    rows.push(["Tasa BCV (Bs por USD)", csvNumber(rate)]);
+    money("Ventas netas", stats.net);
+    money("Costo de ventas", stats.cogs);
+    money("Utilidad bruta", stats.gross);
+    money("Gastos", stats.expenses);
+    money("Pérdidas", stats.losses);
+    money("Utilidad de caja", stats.netProfit);
+    money("Gastos fijos del período", stats.fixedAccrued);
+    money("Gastos fijos pagados", stats.fixedPaid);
+    money("Gastos fijos pendientes", stats.fixedPending);
+    money("Utilidad real", stats.netProfitReal);
+    rows.push(["Tickets", stats.count]);
+    money("Ticket promedio", stats.avg);
+    money("Saldo a crédito", stats.credit);
+
+    section("Gastos por categoría");
+    rows.push(["Categoría", "Monto USD"]);
+    for (const [label, value] of stats.expensesByCategory) {
+      rows.push([label, csvNumber(value)]);
+    }
+
+    breakdown("Ventas por canal", report.byChannel);
+    breakdown("Ventas por lista de precios", report.byPriceList);
+    breakdown("Ventas por cliente", report.byCustomer);
+    breakdown("Ventas por usuario", report.byUser);
+    breakdown("Ventas por medio de pago", report.byPayment);
+    breakdown("Ventas por categoría", report.byCategory);
+
+    section("Productos más vendidos");
+    rows.push(["Producto", "Cantidad", "Total USD", "Margen USD"]);
+    for (const row of report.topProducts) {
+      rows.push([
+        row.label,
+        csvQuantity(row.quantity),
+        csvNumber(row.total),
+        csvNumber(row.margin),
+      ]);
+    }
+
+    section("Productos menos vendidos");
+    rows.push(["Producto", "Cantidad", "Total USD", "Margen USD"]);
+    for (const row of report.lessProducts) {
+      rows.push([
+        row.label,
+        csvQuantity(row.quantity),
+        csvNumber(row.total),
+        csvNumber(row.margin),
+      ]);
+    }
+
+    section("Inventario");
+    money("Valor a costo", inventory.costValue);
+    money("Valor a venta", inventory.saleValue);
+    money("Margen potencial", inventory.marginValue);
+    rows.push(["Productos en inventario", inventory.productCount]);
+    rows.push(["Productos bajo mínimo", inventory.lowStock.length]);
+    rows.push([]);
+    rows.push(["Producto", "Existencia", "Mínimo", "Faltan"]);
+    for (const row of inventory.lowStock) {
+      rows.push([
+        row.name,
+        csvQuantity(row.stock),
+        csvQuantity(row.min),
+        csvQuantity(row.missing),
+      ]);
+    }
+    rows.push([]);
+    rows.push(["Producto", "Vendidos", "Existencia", "Días de stock", "Valor USD"]);
+    for (const row of inventory.rotation) {
+      rows.push([
+        row.name,
+        csvQuantity(row.sold),
+        csvQuantity(row.stock),
+        row.daysLeft == null ? "" : csvQuantity(row.daysLeft),
+        csvNumber(row.value),
+      ]);
+    }
+
+    section("Saldos por cuenta");
+    rows.push(["Cuenta", "Moneda", "Saldo", "Equivalente USD"]);
+    for (const account of accountRows) {
+      rows.push([
+        account.name,
+        account.currency,
+        csvNumber(account.balance),
+        csvNumber(account.usd),
+      ]);
+    }
+    rows.push(["Total", "", "", csvNumber(totalAccountsUsd)]);
+
+    section("Por cobrar (antigüedad)");
+    rows.push(["Tramo", "Cuentas", "Total USD"]);
+    for (const bucket of receivableAging) {
+      rows.push([bucket.label, bucket.count, csvNumber(bucket.total)]);
+    }
+    rows.push(["Total", "", csvNumber(receivableTotal)]);
+
+    section("Por pagar (antigüedad)");
+    rows.push(["Tramo", "Cuentas", "Total USD"]);
+    for (const bucket of payableAging) {
+      rows.push([bucket.label, bucket.count, csvNumber(bucket.total)]);
+    }
+    rows.push(["Total", "", csvNumber(payableTotal)]);
+
+    section("Gastos fijos por categoría");
+    rows.push(["Categoría", "Mensual USD"]);
+    for (const row of fixedCategories) {
+      rows.push([row.label, csvNumber(row.total)]);
+    }
+
+    section("Punto de equilibrio");
+    money("Gastos fijos mensuales", breakEven.monthlyFixed);
+    rows.push(["Margen bruto", `${csvNumber(breakEven.marginPct * 100, 1)} %`]);
+    rows.push([
+      "Ventas necesarias al día",
+      breakEven.dailyNeeded == null ? "" : csvNumber(breakEven.dailyNeeded),
+    ]);
+    rows.push([
+      "Ventas necesarias al mes",
+      breakEven.monthlyNeeded == null ? "" : csvNumber(breakEven.monthlyNeeded),
+    ]);
+    money("Ventas actuales al día", breakEven.currentDaily);
+    money("Proyección mensual", breakEven.projectedMonthly);
+    money("Utilidad proyectada", breakEven.projectedProfit);
+    rows.push([
+      "Cobertura de fijos",
+      breakEven.coveragePct == null
+        ? ""
+        : `${csvNumber(breakEven.coveragePct, 1)} %`,
+    ]);
+
+    section("Últimos 12 meses");
+    rows.push(["Mes", "Ventas netas USD"]);
+    for (const month of monthly) {
+      rows.push([month.label, csvNumber(month.value)]);
+    }
+
+    downloadCsv(
+      `informe-pos-${iso(range.start)}-${iso(range.end)}.csv`,
+      rows,
+    );
+  }
+
   return (
     <div>
       <PosPageHeader
         title="Informes"
         subtitle="Cómo se compone el resultado de tu negocio."
         actions={
-          <div className="flex rounded-xl border border-slate-200 bg-white p-1">
-            {PERIODS.map((item) => (
-              <button
-                key={item.key}
-                type="button"
-                onClick={() => setPeriod(item.key)}
-                className={`rounded-lg px-3 py-1.5 text-xs font-bold ${
-                  period === item.key
-                    ? "bg-indigo-50 text-[#3f3fd8]"
-                    : "text-slate-500 hover:bg-slate-50"
-                }`}
-              >
-                {item.label}
-              </button>
-            ))}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex rounded-xl border border-slate-200 bg-white p-1">
+              {PERIODS.map((item) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  onClick={() => setPeriod(item.key)}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-bold ${
+                    period === item.key
+                      ? "bg-indigo-50 text-[#3f3fd8]"
+                      : "text-slate-500 hover:bg-slate-50"
+                  }`}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+            <PosButton variant="outline" onClick={exportReport}>
+              <Download className="h-4 w-4" />
+              Exportar
+            </PosButton>
           </div>
         }
       />

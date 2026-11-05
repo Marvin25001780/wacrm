@@ -107,6 +107,7 @@ export function ShiftCloseDialog({
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/40 p-4 sm:items-center">
       <style>{`
+        @page { size: 80mm auto; margin: 2mm; }
         @media print {
           body * { visibility: hidden !important; }
           .pos-shift-print, .pos-shift-print * { visibility: visible !important; }
@@ -114,7 +115,7 @@ export function ShiftCloseDialog({
             position: absolute !important;
             left: 0 !important;
             top: 0 !important;
-            width: 80mm !important;
+            width: calc(80mm - 4mm) !important;
             max-width: none !important;
             margin: 0 !important;
             box-shadow: none !important;

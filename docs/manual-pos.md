@@ -106,6 +106,20 @@ Cada producto tiene:
 - **Variantes**: tallas, colores u otra combinación. Cada variante puede tener su
   propio SKU y su propio stock.
 
+**Importar desde CSV.** En la lista de productos, el botón **Importar** abre una
+vista previa antes de guardar nada. Descarga la plantilla para ver el formato:
+`nombre;sku;codigo_barras;categoria;unidad;tipo;costo;precio;stock;stock_minimo;gravable;controla_inventario;descripcion`.
+
+- La primera fila son los títulos. Se aceptan alias en español e inglés.
+- Los números llevan coma decimal (`2,50`) y el archivo usa punto y coma.
+- Solo son obligatorios **nombre** y **precio** (los insumos pueden ir sin precio).
+- Si una categoría no existe, se crea. Un SKU o código de barras repetido se
+  marca como error y esa fila no se importa.
+- El stock inicial entra como un **conteo de inventario**, igual que si crearas
+  el producto a mano. Queda un solo documento con la nota «Importación CSV».
+- Las filas con error se muestran en la vista previa y se omiten; el resto se
+  importa en lotes.
+
 ### 2.2 Precios (listas)
 
 Puedes tener una lista **Principal** y otra **Mayorista**, además de listas
@@ -393,9 +407,29 @@ Ventas netas
 - Finanzas: saldos por cuenta, por cobrar, por pagar y antigüedad.
 - Resultados por mes (últimos 12 meses), independiente del período elegido.
 
+### 8.3 Exportar a CSV
+
+El botón **Exportar** descarga el informe del período elegido en un solo archivo
+con secciones: resumen, gastos por categoría, desgloses de ventas, productos,
+inventario, saldos por cuenta, antigüedad por cobrar y por pagar, gastos fijos,
+punto de equilibrio y últimos 12 meses.
+
+El archivo usa punto y coma y coma decimal, y lleva BOM para que Excel respete
+los acentos. Sirve para archivarlo o pasarlo a tu contador.
+
+### 8.4 Imprimir en térmica de 80 mm
+
+El recibo de venta, el cierre de turno y la nota de crédito fiscal ya traen el
+tamaño de página para papel térmico:
+
+- El recibo respeta el ancho configurado en Ajustes (58 mm, 80 mm o carta).
+- El cierre de turno y la nota de crédito usan 80 mm.
+- En el diálogo de impresión del navegador elige la impresora térmica, papel
+  **80 mm**, escala **100 %** y desactiva encabezados y pies de página.
+
 **Ejercicio 8.** Compara este mes con el anterior. Identifica el canal que más
-vende y el producto con peor rotación. Explica la diferencia entre utilidad de
-caja y utilidad real con tus números.
+vende y el producto con peor rotación. Exporta el informe a CSV y explica la
+diferencia entre utilidad de caja y utilidad real con tus números.
 
 ---
 
@@ -469,10 +503,10 @@ crédito. **No** se mezclan con los contactos del CRM.
 
 | Sesión | Duración | Contenido | Práctica |
 |---|---|---|---|
-| 1 | 90 min | Módulos 0, 1 y 2 | Configurar negocio, tasa, impuestos, catálogo y abrir caja |
+| 1 | 90 min | Módulos 0, 1 y 2 | Configurar negocio, tasa, impuestos, catálogo, importar un CSV de productos y abrir caja |
 | 2 | 90 min | Módulo 3 | 10 ventas guiadas: simple, mixta, Bs, descuento, recargo, vuelto y una venta a crédito con abono parcial |
 | 3 | 90 min | Módulos 4, 5 y 6 | Turno completo, compra, ajuste, devolución con y sin stock |
-| 4 | 90 min | Módulos 7, 8 y 9 | Gastos fijos, punto de equilibrio, lectura de informes, factura |
+| 4 | 90 min | Módulos 7, 8 y 9 | Gastos fijos, punto de equilibrio, lectura de informes, exportar a CSV, imprimir en térmica y factura |
 
 ### Evaluación práctica (aprueba con 8/10)
 
