@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -25,7 +25,6 @@ import {
 } from "lucide-react";
 
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
-import { createClient } from "@/lib/supabase/client";
 import { isModuleEnabled } from "@/lib/modules";
 import { PosRateProvider, usePosRate } from "@/components/pos/rate-context";
 import {
@@ -34,7 +33,12 @@ import {
 } from "@/components/pos/shift-context";
 import { PosSettingsDialog } from "@/components/pos/settings-dialog";
 import type { PosSettingsSection } from "@/components/pos/settings-dialog";
+import {
+  PosPermissionsProvider,
+  usePosPermissions,
+} from "@/components/pos/permissions-context";
 import { formatBs, formatUsd, round2, toNumber } from "@/lib/pos/money";
+import type { PosCapability } from "@/lib/pos/permissions";
 
 const ACCENT = "#3f3fd8";
 
@@ -43,6 +47,7 @@ interface NavLeaf {
   label: string;
   icon: typeof LayoutDashboard;
   soon?: boolean;
+  capability?: PosCapability;
 }
 
 interface NavGroup {
@@ -50,6 +55,7 @@ interface NavGroup {
   icon: typeof LayoutDashboard;
   href?: string;
   children?: NavLeaf[];
+  capability?: PosCapability;
 }
 
 const NAV: NavGroup[] = [
@@ -57,18 +63,64 @@ const NAV: NavGroup[] = [
   {
     label: "Ventas",
     icon: ShoppingCart,
+    capability: "sell",
     children: [
-      { href: "/pos/vender", label: "Vender", icon: ShoppingCart },
-      { href: "/pos/ventas", label: "Historial", icon: ChartNoAxesColumn },
+      {
+        href: "/pos/vender",
+        label: "Vender",
+        icon: ShoppingCart,
+        capability: "sell",
+      },
+      {
+        href: "/pos/ventas",
+        label: "Historial",
+        icon: ChartNoAxesColumn,
+        capability: "sell",
+      },
     ],
   },
-  { href: "/pos/turnos", label: "Turnos", icon: Clock },
-  { href: "/pos/facturacion", label: "Facturación", icon: FileCheck2 },
-  { href: "/pos/catalogo", label: "Catálogo", icon: Tags },
-  { href: "/pos/inventario", label: "Inventario", icon: Boxes } as NavLeaf,
-  { href: "/pos/contactos", label: "Contactos", icon: Users },
-  { href: "/pos/finanzas", label: "Finanzas", icon: Wallet } as NavLeaf,
-  { href: "/pos/informes", label: "Informes", icon: ChartNoAxesColumn } as NavLeaf,
+  {
+    href: "/pos/turnos",
+    label: "Turnos",
+    icon: Clock,
+    capability: "manage_shifts",
+  },
+  {
+    href: "/pos/facturacion",
+    label: "Facturación",
+    icon: FileCheck2,
+    capability: "issue_invoices",
+  },
+  {
+    href: "/pos/catalogo",
+    label: "Catálogo",
+    icon: Tags,
+    capability: "manage_catalog",
+  },
+  {
+    href: "/pos/inventario",
+    label: "Inventario",
+    icon: Boxes,
+    capability: "manage_inventory",
+  },
+  {
+    href: "/pos/contactos",
+    label: "Contactos",
+    icon: Users,
+    capability: "manage_customers",
+  },
+  {
+    href: "/pos/finanzas",
+    label: "Finanzas",
+    icon: Wallet,
+    capability: "manage_finance",
+  },
+  {
+    href: "/pos/informes",
+    label: "Informes",
+    icon: ChartNoAxesColumn,
+    capability: "view_reports",
+  },
 ];
 
 function isActive(pathname: string, href: string): boolean {
@@ -76,12 +128,26 @@ function isActive(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
+const ROUTE_CAPABILITIES: { prefix: string; capability: PosCapability }[] = [
+  { prefix: "/pos/vender", capability: "sell" },
+  { prefix: "/pos/ventas", capability: "sell" },
+  { prefix: "/pos/turnos", capability: "manage_shifts" },
+  { prefix: "/pos/facturacion", capability: "issue_invoices" },
+  { prefix: "/pos/catalogo", capability: "manage_catalog" },
+  { prefix: "/pos/inventario", capability: "manage_inventory" },
+  { prefix: "/pos/contactos", capability: "manage_customers" },
+  { prefix: "/pos/finanzas", capability: "manage_finance" },
+  { prefix: "/pos/informes", capability: "view_reports" },
+];
+
 export function PosShell({ children }: { children: ReactNode }) {
   return (
     <AuthProvider>
       <PosRateProvider>
         <PosShiftProvider>
-          <PosFrame>{children}</PosFrame>
+          <PosPermissionsProvider>
+            <PosFrame>{children}</PosFrame>
+          </PosPermissionsProvider>
         </PosShiftProvider>
       </PosRateProvider>
     </AuthProvider>
@@ -90,12 +156,14 @@ export function PosShell({ children }: { children: ReactNode }) {
 
 function PosFrame({ children }: { children: ReactNode }) {
   const { user, loading, account, enabledModules, signOut } = useAuth();
+  const { can } = usePosPermissions();
   const { rate, refresh } = usePosRate();
   const [rateOpen, setRateOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [settingsSection, setSettingsSection] =
     useState<PosSettingsSection>("negocio");
+  const pathname = usePathname();
   const router = useRouter();
 
   useEffect(() => {
@@ -109,6 +177,19 @@ function PosFrame({ children }: { children: ReactNode }) {
       router.replace("/inbox");
     }
   }, [loading, user, enabledModules, router]);
+
+  // Cada pantalla exige su capacidad. La navegación ya oculta los
+  // enlaces, pero esto cubre la entrada por URL directa.
+  useEffect(() => {
+    if (loading) return;
+    const rule = ROUTE_CAPABILITIES.find(
+      (item) =>
+        pathname === item.prefix || pathname.startsWith(`${item.prefix}/`),
+    );
+    if (rule && !can(rule.capability)) {
+      router.replace("/pos");
+    }
+  }, [loading, pathname, can, router]);
 
   if (loading) {
     return (
@@ -239,8 +320,26 @@ function Sidebar({
   onNavigate?: () => void;
 }) {
   const pathname = usePathname();
+  const { can } = usePosPermissions();
   const [openSales, setOpenSales] = useState(
     pathname.startsWith("/pos/vender") || pathname.startsWith("/pos/ventas"),
+  );
+
+  const visibleNav = useMemo(
+    () =>
+      NAV.map((item) => {
+        if (item.children) {
+          const children = item.children.filter(
+            (child) => !child.capability || can(child.capability),
+          );
+          if (item.capability && !can(item.capability)) return null;
+          if (children.length === 0) return null;
+          return { ...item, children };
+        }
+        if (item.capability && !can(item.capability)) return null;
+        return item;
+      }).filter((item): item is NavGroup => item !== null),
+    [can],
   );
 
   return (
@@ -253,7 +352,7 @@ function Sidebar({
         }
       >
         <nav className="space-y-0.5">
-          {NAV.map((item) => {
+          {visibleNav.map((item) => {
             const isGroup = Boolean(item.children);
             const active = item.href ? isActive(pathname, item.href) : false;
             const groupActive = isGroup

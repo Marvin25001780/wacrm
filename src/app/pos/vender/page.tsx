@@ -20,6 +20,7 @@ import {
 import { useAuth } from "@/hooks/use-auth";
 import { usePosRate } from "@/components/pos/rate-context";
 import { usePosShift } from "@/components/pos/shift-context";
+import { usePosPermissions } from "@/components/pos/permissions-context";
 import { SaleReceiptDialog } from "@/components/pos/sale-receipt-dialog";
 import { PosButton, PosPageHeader } from "@/components/pos/pos-shell";
 import { createClient } from "@/lib/supabase/client";
@@ -59,6 +60,13 @@ interface Line {
   taxable: boolean;
   quantity: number;
   discount: number;
+}
+
+interface Customer {
+  id: string;
+  name: string;
+  document: string | null;
+  credit_limit_usd: number | string | null;
 }
 
 interface Payment {
@@ -141,6 +149,7 @@ function withGlobalDiscount(lines: Line[], amount: number): Line[] {
 
 export default function VenderPage() {
   const { accountId } = useAuth();
+  const { can } = usePosPermissions();
   const { rate } = usePosRate();
   const {
     shift: openShift,
@@ -152,9 +161,8 @@ export default function VenderPage() {
   const [accounts, setAccounts] = useState<
     { id: string; name: string; currency: "USD" | "VES" }[]
   >([]);
-  const [customers, setCustomers] = useState<
-    { id: string; name: string; document: string | null }[]
-  >([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [creditDebt, setCreditDebt] = useState<Record<string, number>>({});
   const [surchargeOptions, setSurchargeOptions] = useState<SurchargeRow[]>([]);
   const [priceLists, setPriceLists] = useState<PriceListRow[]>([]);
   const [prices, setPrices] = useState<ProductPriceRow[]>([]);
@@ -205,6 +213,7 @@ export default function VenderPage() {
       listsRes,
       pricesRes,
       saleChannelsRes,
+      creditRes,
     ] = await Promise.all([
         supabase
           .from("pos_products")
@@ -224,7 +233,7 @@ export default function VenderPage() {
           .order("name"),
         supabase
           .from("pos_customers")
-          .select("id, name, document")
+          .select("id, name, document, credit_limit_usd")
           .eq("account_id", accountId)
           .eq("active", true)
           .order("name"),
@@ -253,6 +262,12 @@ export default function VenderPage() {
           .eq("active", true)
           .order("is_default", { ascending: false })
           .order("name"),
+        supabase
+          .from("pos_sales")
+          .select("pos_customer_id, balance_usd")
+          .eq("account_id", accountId)
+          .eq("status", "credit")
+          .gt("balance_usd", 0),
       ]);
     let productRows = (productsRes.data ?? []) as Product[];
     if (productsRes.error) {
@@ -271,13 +286,18 @@ export default function VenderPage() {
     setAccounts(
       (accountsRes.data ?? []) as { id: string; name: string; currency: "USD" | "VES" }[],
     );
-    setCustomers(
-      (customersRes.data ?? []) as {
-        id: string;
-        name: string;
-        document: string | null;
-      }[],
-    );
+    setCustomers((customersRes.data ?? []) as Customer[]);
+
+    const nextDebt: Record<string, number> = {};
+    for (const sale of (creditRes.data ?? []) as {
+      pos_customer_id: string | null;
+      balance_usd: number | string;
+    }[]) {
+      if (!sale.pos_customer_id) continue;
+      nextDebt[sale.pos_customer_id] =
+        (nextDebt[sale.pos_customer_id] ?? 0) + toNumber(sale.balance_usd);
+    }
+    setCreditDebt(nextDebt);
     setSurchargeOptions((surchargesRes.data ?? []) as SurchargeRow[]);
 
     if (listsRes.error) {
@@ -662,6 +682,20 @@ export default function VenderPage() {
       setError("Elige un cliente para dejar saldo a crédito.");
       return;
     }
+    if (leavesBalance && !can("sell_credit")) {
+      setError("Tu usuario no tiene permiso para vender a crédito.");
+      return;
+    }
+    if (leavesBalance && creditBlocked) {
+      setError(
+        `El cliente supera su límite de crédito. Límite: ${
+          selectedLimit === null ? "sin límite" : formatUsd(selectedLimit)
+        }; saldo usado: ${formatUsd(selectedDebt)}; disponible: ${formatUsd(
+          selectedAvailable ?? 0,
+        )}.`,
+      );
+      return;
+    }
     if (covered > total + 0.005) {
       setError(
         "El pago supera el total. Usa “Cobrar exacto” y anota el recibido para calcular el vuelto.",
@@ -700,7 +734,7 @@ export default function VenderPage() {
           reference: payment.reference.trim() || null,
           pos_account_id: payment.accountId || null,
         })),
-      p_customer_id: null,
+      p_pos_customer_id: customerId || null,
       p_notes: null,
       p_rate: rate,
     };
@@ -712,10 +746,27 @@ export default function VenderPage() {
       salePayload.p_surcharges = selectedSurcharges;
     }
 
-    const { data, error: rpcError } = await supabase.rpc(
-      "pos_create_sale",
-      salePayload,
-    );
+    // pos_sale_checkout envuelve al motor de ventas y añade el
+    // cliente del POS + el límite de crédito. Si la migración 106
+    // todavía no está aplicada, se conserva la venta con la RPC
+    // anterior para no bloquear la caja.
+    let usedLegacy = false;
+    let checkout = await supabase.rpc("pos_sale_checkout", salePayload);
+
+    if (
+      checkout.error &&
+      /could not find the function|does not exist|schema cache/i.test(
+        checkout.error.message,
+      )
+    ) {
+      usedLegacy = true;
+      const legacyPayload = { ...salePayload };
+      delete legacyPayload.p_pos_customer_id;
+      legacyPayload.p_customer_id = null;
+      checkout = await supabase.rpc("pos_create_sale", legacyPayload);
+    }
+
+    const { data, error: rpcError } = checkout;
 
     setSaving(false);
 
@@ -731,18 +782,21 @@ export default function VenderPage() {
       balance_usd: number;
     };
 
-    // El cliente del POS se enlaza después: la venta ya está cobrada.
-    // En una venta a crédito el enlace es obligatorio para poder cobrar
-    // el saldo, así que un fallo aquí se avisa en pantalla.
+    // Con la migración 106 el cliente se enlaza dentro de la RPC.
+    // Si se usó el motor anterior, se enlaza aquí como antes.
     let linkError: string | null = null;
-    if (customerId) {
+    if (usedLegacy && customerId) {
       const { error: customerLinkError } = await supabase
         .from("pos_sales")
         .update({ pos_customer_id: customerId })
         .eq("id", result.sale_id);
       if (customerLinkError) {
-        linkError = customerLinkError.message;
+        linkError = `La venta se registró, pero no se pudo enlazar el cliente (${customerLinkError.message}). Asígnaselo desde el historial antes de cobrar el saldo.`;
       }
+    }
+    if (usedLegacy && leavesBalance) {
+      linkError =
+        "La venta se guardó, pero el límite de crédito no se validó: aplica la migración 106 en Supabase.";
     }
 
     if (priceListsReady && channel) {
@@ -784,9 +838,7 @@ export default function VenderPage() {
     setDiscountError(null);
     setSelectedSurcharges([]);
     if (linkError) {
-      setError(
-        `La venta se registró, pero no se pudo enlazar el cliente (${linkError}). Asígnaselo desde el historial antes de cobrar el saldo.`,
-      );
+      setError(linkError);
     }
     void load();
     searchRef.current?.focus();
@@ -794,6 +846,22 @@ export default function VenderPage() {
 
   const selectedCustomer =
     customers.find((customer) => customer.id === customerId) ?? null;
+
+  const selectedDebt = selectedCustomer
+    ? creditDebt[selectedCustomer.id] ?? 0
+    : 0;
+  const selectedLimit =
+    selectedCustomer?.credit_limit_usd === null ||
+    selectedCustomer?.credit_limit_usd === undefined
+      ? null
+      : toNumber(selectedCustomer.credit_limit_usd);
+  const selectedAvailable =
+    selectedLimit === null
+      ? null
+      : Math.max(round2(selectedLimit - selectedDebt), 0);
+  const creditInsufficient =
+    selectedLimit !== null && remaining > (selectedAvailable ?? 0) + 0.005;
+  const creditBlocked = creditMode && creditInsufficient;
 
   const customerMatches = useMemo(() => {
     const term = customerQuery.trim().toLowerCase();
@@ -822,18 +890,14 @@ export default function VenderPage() {
     const { data, error: createError } = await supabase
       .from("pos_customers")
       .insert({ account_id: accountId, name })
-      .select("id, name, document")
+      .select("id, name, document, credit_limit_usd")
       .single();
     setCreatingCustomer(false);
     if (createError) {
       setError(`No se pudo crear el cliente: ${createError.message}`);
       return;
     }
-    const created = data as {
-      id: string;
-      name: string;
-      document: string | null;
-    };
+    const created = data as Customer;
     setCustomers((current) =>
       [...current, created].sort((a, b) => a.name.localeCompare(b.name, "es")),
     );
@@ -888,6 +952,26 @@ export default function VenderPage() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [cart.length, customerOpen, search]);
+
+  if (!can("sell")) {
+    return (
+      <div>
+        <PosPageHeader
+          title="Vender"
+          subtitle="Cobra rápido y divide el pago entre métodos."
+        />
+        <div className="rounded-2xl border border-slate-200 bg-white px-6 py-16 text-center">
+          <ShoppingCart className="mx-auto h-8 w-8 text-slate-300" />
+          <p className="mt-3 text-sm font-bold text-slate-800">
+            Tu usuario no tiene permiso para vender
+          </p>
+          <p className="mx-auto mt-1 max-w-md text-sm text-slate-500">
+            Un administrador puede activarlo en Ajustes → Permisos → Vender.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -1202,6 +1286,31 @@ export default function VenderPage() {
                   ) : null}
                 </div>
               </div>
+              {selectedCustomer ? (
+                <p className="mt-1 text-[10px] leading-snug text-slate-400">
+                  Crédito:{" "}
+                  <span className="font-semibold text-slate-600">
+                    {selectedLimit === null
+                      ? "sin límite"
+                      : formatUsd(selectedLimit)}
+                  </span>
+                  {" · "}Usado: {formatUsd(selectedDebt)}
+                  {selectedAvailable !== null ? (
+                    <>
+                      {" · "}Disponible:{" "}
+                      <span
+                        className={`font-semibold ${
+                          selectedAvailable > 0
+                            ? "text-emerald-600"
+                            : "text-red-600"
+                        }`}
+                      >
+                        {formatUsd(selectedAvailable)}
+                      </span>
+                    </>
+                  ) : null}
+                </p>
+              ) : null}
             </div>
 
             {cart.length === 0 ? (
@@ -1273,6 +1382,11 @@ export default function VenderPage() {
               <Percent className="h-3.5 w-3.5" />
               Descuento
             </p>
+            {!can("apply_discount") ? (
+              <p className="mt-1 text-[10px] leading-snug text-slate-400">
+                Tu usuario no tiene permiso para aplicar descuentos o recargos.
+              </p>
+            ) : null}
 
             <div className="mt-2 flex items-center gap-2">
               <input
@@ -1287,7 +1401,7 @@ export default function VenderPage() {
                     void applyDiscountCode();
                   }
                 }}
-                disabled={Boolean(appliedDiscount)}
+                disabled={!can("apply_discount") || Boolean(appliedDiscount)}
                 placeholder="Código (ej. VERANO10)"
                 className="min-w-0 flex-1 rounded-lg border border-slate-200 px-2.5 py-1.5 font-mono text-xs uppercase outline-none focus:border-[#4338ca] disabled:bg-slate-50"
               />
@@ -1304,7 +1418,11 @@ export default function VenderPage() {
                 <button
                   type="button"
                   onClick={() => void applyDiscountCode()}
-                  disabled={applyingCode || !discountCode.trim()}
+                  disabled={
+                    !can("apply_discount") ||
+                    applyingCode ||
+                    !discountCode.trim()
+                  }
                   className="rounded-lg bg-slate-100 px-3 py-1.5 text-[11px] font-bold text-slate-700 hover:bg-slate-200 disabled:opacity-40"
                 >
                   {applyingCode ? "..." : "Aplicar"}
@@ -1341,7 +1459,8 @@ export default function VenderPage() {
                         key={row.id}
                         type="button"
                         onClick={() => toggleSurcharge(row.id)}
-                        className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${
+                        disabled={!can("apply_discount")}
+                        className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold disabled:cursor-not-allowed disabled:opacity-50 ${
                           active
                             ? "border-[#4338ca] bg-indigo-50 text-[#4338ca]"
                             : "border-slate-200 text-slate-500 hover:bg-slate-50"
@@ -1560,20 +1679,41 @@ export default function VenderPage() {
                 <p className="text-[11px] font-semibold text-amber-600">
                   Falta por cubrir: {formatUsd(remaining)}
                 </p>
-                <label className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] text-amber-800">
+                <label
+                  className={`flex items-start gap-2 rounded-lg border px-2.5 py-1.5 text-[11px] ${
+                    creditInsufficient || !can("sell_credit")
+                      ? "border-slate-200 bg-slate-50 text-slate-500"
+                      : "border-amber-200 bg-amber-50 text-amber-800"
+                  }`}
+                >
                   <input
                     type="checkbox"
                     checked={creditMode}
                     onChange={(event) => setCreditMode(event.target.checked)}
-                    className="mt-0.5 h-3.5 w-3.5 accent-[#4338d8]"
+                    disabled={!can("sell_credit") || creditInsufficient}
+                    className="mt-0.5 h-3.5 w-3.5 accent-[#4338d8] disabled:cursor-not-allowed"
                   />
                   <span>
                     <strong>Dejar saldo a crédito</strong>
-                    {customerId
-                      ? ` · ${selectedCustomer?.name ?? "cliente"}`
-                      : " · elige un cliente primero"}
+                    {!customerId
+                      ? " · elige un cliente primero"
+                      : !can("sell_credit")
+                        ? " · tu usuario no tiene permiso"
+                        : creditInsufficient
+                          ? ` · sin crédito disponible (${formatUsd(
+                              selectedAvailable ?? 0,
+                            )})`
+                          : ` · ${selectedCustomer?.name ?? "cliente"}`}
                   </span>
                 </label>
+                {creditInsufficient ? (
+                  <p className="text-[10px] leading-snug text-slate-400">
+                    El límite del cliente es{" "}
+                    {formatUsd(selectedLimit ?? 0)} y ya debe{" "}
+                    {formatUsd(selectedDebt)}. Cobra una parte o amplía el
+                    límite desde Contactos.
+                  </p>
+                ) : null}
               </div>
             ) : null}
 
@@ -1586,7 +1726,7 @@ export default function VenderPage() {
             <PosButton
               className="mt-3 w-full py-3"
               onClick={() => void cobrar()}
-              disabled={saving || cart.length === 0}
+              disabled={saving || cart.length === 0 || creditBlocked}
             >
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
               {remaining > 0.005 && creditMode

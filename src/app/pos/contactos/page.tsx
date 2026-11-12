@@ -5,7 +5,9 @@ import { Loader2, Pencil, Plus, Search, Users, X } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
 import { PosButton, PosPageHeader } from "@/components/pos/pos-shell";
+import { usePosPermissions } from "@/components/pos/permissions-context";
 import { createClient } from "@/lib/supabase/client";
+import { formatUsd, toNumber } from "@/lib/pos/money";
 
 interface Customer {
   id: string;
@@ -16,11 +18,14 @@ interface Customer {
   address: string | null;
   notes: string | null;
   active: boolean;
+  credit_limit_usd: number | string | null;
 }
 
 export default function PosContactosPage() {
   const { accountId } = useAuth();
+  const { can } = usePosPermissions();
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [debtById, setDebtById] = useState<Record<string, number>>({});
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<Customer | null>(null);
@@ -30,13 +35,34 @@ export default function PosContactosPage() {
     if (!accountId) return;
     const supabase = createClient();
     setLoading(true);
-    const { data } = await supabase
-      .from("pos_customers")
-      .select("id, name, document, phone, email, address, notes, active")
-      .eq("account_id", accountId)
-      .eq("active", true)
-      .order("name");
-    setCustomers((data ?? []) as Customer[]);
+    const [customersRes, creditRes] = await Promise.all([
+      supabase
+        .from("pos_customers")
+        .select(
+          "id, name, document, phone, email, address, notes, active, credit_limit_usd",
+        )
+        .eq("account_id", accountId)
+        .eq("active", true)
+        .order("name"),
+      supabase
+        .from("pos_sales")
+        .select("pos_customer_id, balance_usd")
+        .eq("account_id", accountId)
+        .eq("status", "credit")
+        .gt("balance_usd", 0),
+    ]);
+    setCustomers((customersRes.data ?? []) as Customer[]);
+
+    const nextDebt: Record<string, number> = {};
+    for (const sale of (creditRes.data ?? []) as {
+      pos_customer_id: string | null;
+      balance_usd: number | string;
+    }[]) {
+      if (!sale.pos_customer_id) continue;
+      nextDebt[sale.pos_customer_id] =
+        (nextDebt[sale.pos_customer_id] ?? 0) + toNumber(sale.balance_usd);
+    }
+    setDebtById(nextDebt);
     setLoading(false);
   }, [accountId]);
 
@@ -72,10 +98,12 @@ export default function PosContactosPage() {
         title="Contactos"
         subtitle="Clientes del POS. No se mezclan con los contactos del CRM."
         actions={
-          <PosButton onClick={create}>
-            <Plus className="h-4 w-4" />
-            Nuevo cliente
-          </PosButton>
+          can("manage_customers") ? (
+            <PosButton onClick={create}>
+              <Plus className="h-4 w-4" />
+              Nuevo cliente
+            </PosButton>
+          ) : undefined
         }
       />
 
@@ -120,6 +148,7 @@ export default function PosContactosPage() {
                 <th className="px-4 py-2.5 font-semibold">Cliente</th>
                 <th className="px-4 py-2.5 font-semibold">Documento</th>
                 <th className="px-4 py-2.5 font-semibold">Teléfono</th>
+                <th className="px-4 py-2.5 font-semibold">Crédito</th>
                 <th className="px-4 py-2.5 font-semibold">Correo</th>
                 <th className="px-4 py-2.5 text-right font-semibold">Acción</th>
               </tr>
@@ -137,17 +166,25 @@ export default function PosContactosPage() {
                     {customer.phone ?? "—"}
                   </td>
                   <td className="px-4 py-3 text-slate-500">
+                    <CreditCell
+                      limit={customer.credit_limit_usd}
+                      debt={debtById[customer.id] ?? 0}
+                    />
+                  </td>
+                  <td className="px-4 py-3 text-slate-500">
                     {customer.email ?? "—"}
                   </td>
                   <td className="px-4 py-3 text-right">
-                    <button
-                      type="button"
-                      onClick={() => edit(customer)}
-                      className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-                      title="Editar"
-                    >
-                      <Pencil className="h-3.5 w-3.5" />
-                    </button>
+                    {can("manage_customers") ? (
+                      <button
+                        type="button"
+                        onClick={() => edit(customer)}
+                        className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                        title="Editar"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                    ) : null}
                   </td>
                 </tr>
               ))}
@@ -160,6 +197,7 @@ export default function PosContactosPage() {
         <CustomerDialog
           accountId={accountId}
           customer={editing}
+          canSetCredit={can("manage_credit_limits")}
           onClose={() => setOpen(false)}
           onSaved={() => {
             setOpen(false);
@@ -174,11 +212,13 @@ export default function PosContactosPage() {
 function CustomerDialog({
   accountId,
   customer,
+  canSetCredit,
   onClose,
   onSaved,
 }: {
   accountId: string | null;
   customer: Customer | null;
+  canSetCredit: boolean;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -188,6 +228,12 @@ function CustomerDialog({
   const [email, setEmail] = useState(customer?.email ?? "");
   const [address, setAddress] = useState(customer?.address ?? "");
   const [notes, setNotes] = useState(customer?.notes ?? "");
+  const [creditLimit, setCreditLimit] = useState(
+    customer?.credit_limit_usd === null ||
+      customer?.credit_limit_usd === undefined
+      ? ""
+      : String(customer.credit_limit_usd),
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -198,11 +244,18 @@ function CustomerDialog({
       return;
     }
 
+    const parsedCredit =
+      creditLimit.trim() === "" ? null : toNumber(creditLimit);
+    if (canSetCredit && parsedCredit !== null && parsedCredit < 0) {
+      setError("El límite de crédito no puede ser negativo.");
+      return;
+    }
+
     setSaving(true);
     setError(null);
     const supabase = createClient();
 
-    const payload = {
+    const payload: Record<string, unknown> = {
       name: name.trim(),
       document: document.trim() || null,
       phone: phone.trim() || null,
@@ -210,6 +263,10 @@ function CustomerDialog({
       address: address.trim() || null,
       notes: notes.trim() || null,
     };
+
+    if (canSetCredit) {
+      payload.credit_limit_usd = parsedCredit;
+    }
 
     const { error: dbError } = customer
       ? await supabase.from("pos_customers").update(payload).eq("id", customer.id)
@@ -275,6 +332,37 @@ function CustomerDialog({
               className={inputClass}
             />
           </Field>
+          <Field label="Límite de crédito (USD)">
+            {canSetCredit ? (
+              <input
+                value={creditLimit}
+                onChange={(event) => setCreditLimit(event.target.value)}
+                inputMode="decimal"
+                placeholder="Vacío = sin límite"
+                className={inputClass}
+              />
+            ) : (
+              <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                {customer?.credit_limit_usd === null ||
+                customer?.credit_limit_usd === undefined
+                  ? "Sin límite"
+                  : toNumber(customer.credit_limit_usd) === 0
+                    ? "Sin crédito"
+                    : formatUsd(toNumber(customer.credit_limit_usd))}
+              </div>
+            )}
+          </Field>
+          {canSetCredit ? (
+            <p className="sm:col-span-2 text-[10px] leading-snug text-slate-400">
+              Vacío = sin límite. 0 = no puede comprar a crédito. El límite se
+              compara con el saldo pendiente del cliente; se valida al cobrar.
+            </p>
+          ) : (
+            <p className="sm:col-span-2 text-[10px] leading-snug text-slate-400">
+              Solo un administrador con permiso de límites de crédito puede
+              cambiarlo.
+            </p>
+          )}
           <div className="sm:col-span-2">
             <Field label="Dirección">
               <input
@@ -317,6 +405,34 @@ function CustomerDialog({
         </div>
       </div>
     </div>
+  );
+}
+
+function CreditCell({
+  limit,
+  debt,
+}: {
+  limit: number | string | null;
+  debt: number;
+}) {
+  if (limit === null || limit === undefined) {
+    return <span className="text-slate-400">Sin límite</span>;
+  }
+
+  const numeric = toNumber(limit);
+  if (numeric <= 0) {
+    return <span className="text-slate-400">Sin crédito</span>;
+  }
+
+  return (
+    <span className="block">
+      <span className="font-medium text-slate-600">{formatUsd(numeric)}</span>
+      {debt > 0 ? (
+        <span className="block text-[10px] font-semibold text-amber-600">
+          Usado {formatUsd(debt)}
+        </span>
+      ) : null}
+    </span>
   );
 }
 

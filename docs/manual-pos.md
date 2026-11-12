@@ -73,6 +73,11 @@ pago, por eso aparece al final y solo si cobras en dólares.
 Invita a cada cajero con su propio correo. No compartas la cuenta del dueño: la
 bitácora necesita saber quién hizo cada cosa.
 
+El rol del CRM (dueño, administrador, agente, visor) define lo que la persona
+puede hacer en el POS. Si necesitas un ajuste fino, usa **Ajustes → Permisos**:
+ahí puedes quitar o conceder una función concreta sin cambiarle el rol. Lo verás
+en detalle en el Módulo 11.
+
 ### 1.5 Abrir la caja
 
 **Turnos → Abrir turno**. Elige la caja, escribe el fondo inicial (el efectivo
@@ -459,9 +464,96 @@ Son los clientes del punto de venta: nombre, documento/RIF, teléfono, correo,
 dirección y notas. Sirven para el historial de compras y para las ventas a
 crédito. **No** se mezclan con los contactos del CRM.
 
+Cada cliente puede tener un **límite de crédito** (ver Módulo 11.3). La columna
+**Crédito** muestra el tope y lo que lleva usado, para que el cajero sepa de
+antemano cuánto puede fiar.
+
 ---
 
-## Módulo 11 — Rutina diaria y errores comunes
+## Módulo 11 — Control: permisos, bitácora y crédito
+
+**Objetivo:** que cada persona pueda hacer solo lo que le toca, que todo cambio
+quede registrado y que el fiado tenga un tope claro.
+
+### 11.1 Permisos por persona
+
+Ruta: **Ajustes → Permisos**.
+
+El rol define el punto de partida. Encima de eso, el dueño o un administrador
+puede conceder o quitar una función concreta a una persona sin cambiarle el rol
+en el CRM. La capacidad efectiva es: *lo que diga el ajuste individual y, si no
+hay ajuste, lo que traiga el rol*.
+
+| Grupo | Capacidades |
+|---|---|
+| Ventas | Vender, vender a crédito, descuentos y recargos, cobrar abonos, devoluciones, facturación fiscal, anular ventas |
+| Operación | Contactos, catálogo y precios, inventario y compras, cuentas y gastos, informes, turnos y caja |
+| Control | Ajustes del negocio, usuarios y permisos, bitácora, límites de crédito |
+
+Reglas que no se pueden saltar:
+
+- El **dueño** siempre conserva todos los permisos.
+- Solo el dueño puede cambiar los permisos de un **administrador**.
+- Un ajuste individual se ve marcado como **Ajustado**; **Restablecer al rol**
+  lo devuelve todo a los valores del rol.
+- La interfaz esconde lo que no puedes usar, pero la decisión real la toma el
+  servidor: entrar por una URL directa tampoco sirve.
+
+**Ejercicio 9.** Crea un usuario con rol de agente. Quítale *Ver la bitácora* y
+*Anular ventas*, y concédele *Ajustes del negocio*. Entra con ese usuario y
+comprueba que ya no ve la bitácora ni el botón de anular, pero sí puede editar
+los datos del negocio. Después pulsa **Restablecer al rol**.
+
+### 11.2 Bitácora
+
+Ruta: **Ajustes → Bitácora**.
+
+Registra automáticamente las altas, cambios y bajas de las tablas del POS:
+ventas, productos, clientes, inventario, cuentas, turnos, permisos y
+configuración. Cada línea muestra fecha, tabla, operación y la persona que la
+hizo.
+
+- Se consulta con el permiso **Ver la bitácora**.
+- No se puede editar ni borrar desde la pantalla: es un registro de solo
+  lectura.
+- Si aparece vacía después de operar, falta aplicar la migración de bitácora
+  (105) en Supabase.
+
+**Ejercicio 10.** Cambia el precio de un producto y luego abre la bitácora.
+Localiza el cambio, identifica la tabla y la persona, y explica por qué ese
+registro sirve para resolver un descuadre.
+
+### 11.3 Límite de crédito por cliente
+
+Ruta: **Contactos**.
+
+Cada cliente del POS tiene un límite de crédito en dólares y una columna
+**Crédito** que muestra el tope y cuánto lleva usado:
+
+| Valor | Significado |
+|---|---|
+| Vacío | Sin límite: puede fiar sin tope |
+| 0 | No puede comprar a crédito |
+| Mayor que 0 | Tope del saldo pendiente acumulado |
+
+El límite se compara con la **deuda pendiente** del cliente, no con el total
+histórico. Si el cliente debe $30 y su límite es $100, en la próxima venta solo
+le quedan $70 disponibles. El POS valida el límite al cobrar y muestra el
+disponible debajo del selector de cliente.
+
+- Solo quien tenga **Límites de crédito** puede asignarlo o cambiarlo.
+- Un cliente nuevo creado por alguien sin ese permiso entra con límite 0, para
+  que un administrador lo revise antes de darle crédito.
+- Si el cliente se pasa del tope, cobra una parte, registra un abono o amplía el
+  límite desde Contactos.
+
+**Ejercicio 11.** Crea un cliente con límite de $50. Véndele $30 a crédito y
+comprueba que el disponible baja a $20. Intenta venderle otros $40 a crédito:
+el POS debe frenar la venta. Cobra $10 y verifica que el disponible sube a $30.
+
+---
+
+## Módulo 12 — Rutina diaria y errores comunes
 
 ### Antes de abrir
 
@@ -496,6 +588,9 @@ crédito. **No** se mezclan con los contactos del CRM.
 | La utilidad real es menor | Fijos del mes aún no pagados | Es correcto, así se mide |
 | No aparece el turno | Caja cerrada | Abrir turno |
 | Una venta no entra al arqueo | Se cobró sin turno abierto | Registrar el turno a tiempo |
+| Desapareció un módulo del menú | Un permiso individual lo quitó | Ajustes → Permisos → Restablecer al rol |
+| "El cliente supera su límite de crédito" | La deuda pendiente topó el límite | Cobra una parte o amplía el límite en Contactos |
+| La bitácora está vacía | Falta aplicar la migración 105 | Aplicarla en Supabase |
 
 ---
 
@@ -506,9 +601,9 @@ crédito. **No** se mezclan con los contactos del CRM.
 | 1 | 90 min | Módulos 0, 1 y 2 | Configurar negocio, tasa, impuestos, catálogo, importar un CSV de productos y abrir caja |
 | 2 | 90 min | Módulo 3 | 10 ventas guiadas: simple, mixta, Bs, descuento, recargo, vuelto y una venta a crédito con abono parcial |
 | 3 | 90 min | Módulos 4, 5 y 6 | Turno completo, compra, ajuste, devolución con y sin stock |
-| 4 | 90 min | Módulos 7, 8 y 9 | Gastos fijos, punto de equilibrio, lectura de informes, exportar a CSV, imprimir en térmica y factura |
+| 4 | 90 min | Módulos 7, 8, 9 y 11 | Gastos fijos, punto de equilibrio, lectura de informes, exportar a CSV, imprimir en térmica, factura, permisos por persona, bitácora y límite de crédito |
 
-### Evaluación práctica (aprueba con 8/10)
+### Evaluación práctica (aprueba con 9/12)
 
 1. Abrir caja con fondo y tasa correctos.
 2. Cobrar un ticket mixto con IVA e IGTF bien calculados.
@@ -520,6 +615,8 @@ crédito. **No** se mezclan con los contactos del CRM.
 8. Emitir un recibo y una factura fiscal.
 9. Explicar la diferencia entre utilidad de caja y utilidad real.
 10. Encontrar un producto bajo el mínimo y justificar la reposición.
+11. Quitar un permiso individual y comprobar que el servidor lo aplica.
+12. Vender a crédito sin pasarse del límite del cliente.
 
 ### Guion para el facilitador
 
@@ -546,3 +643,6 @@ crédito. **No** se mezclan con los contactos del CRM.
 | Lista de precios | Conjunto de precios (Principal, Mayorista, etc.) |
 | Canal de venta | Origen de la venta (Tienda, Delivery, etc.) |
 | Nota de crédito | Documento que anula total o parcialmente una venta, sin sacar dinero |
+| Permiso individual | Ajuste fino que concede o quita una función a una persona, por encima de su rol |
+| Límite de crédito | Tope del saldo pendiente que puede acumular un cliente |
+| Bitácora | Registro automático de quién cambió qué y cuándo en el POS |

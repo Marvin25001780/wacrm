@@ -19,6 +19,7 @@ import {
 
 import { useAuth } from "@/hooks/use-auth";
 import { usePosRate } from "@/components/pos/rate-context";
+import { usePosPermissions } from "@/components/pos/permissions-context";
 import { PosButton, PosPageHeader } from "@/components/pos/pos-shell";
 import {
   CollectCreditDialog,
@@ -125,6 +126,7 @@ async function accountUsageCount(
 
 export default function FinanzasPage() {
   const { accountId } = useAuth();
+  const { can } = usePosPermissions();
   const { rate } = usePosRate();
 
   const [tab, setTab] = useState<Tab>("cuentas");
@@ -664,14 +666,20 @@ export default function FinanzasPage() {
                       {formatUsd(toNumber(sale.balance_usd))}
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <button
-                        type="button"
-                        onClick={() => setCollectSale(sale)}
-                        className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 px-2 py-1 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-50"
-                      >
-                        <ArrowDownLeft className="h-3 w-3" />
-                        Cobrar
-                      </button>
+                      {can("collect_credit") ? (
+                        <button
+                          type="button"
+                          onClick={() => setCollectSale(sale)}
+                          className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 px-2 py-1 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-50"
+                        >
+                          <ArrowDownLeft className="h-3 w-3" />
+                          Cobrar
+                        </button>
+                      ) : (
+                        <span className="text-[10px] text-slate-400">
+                          Sin permiso
+                        </span>
+                      )}
                     </td>
                   </tr>
                 ))}

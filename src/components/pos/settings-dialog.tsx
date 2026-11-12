@@ -7,6 +7,7 @@ import {
   Loader2,
   Percent,
   Search,
+  ShieldCheck,
   Store,
   Users,
   X,
@@ -15,12 +16,15 @@ import {
 import { useAuth } from "@/hooks/use-auth";
 import { createClient } from "@/lib/supabase/client";
 import { formatBs, formatUsd, toNumber, usdToBs } from "@/lib/pos/money";
+import { PosPermissionsPanel } from "@/components/pos/permissions-panel";
+import { usePosPermissions } from "@/components/pos/permissions-context";
 
 export type PosSettingsSection =
   | "negocio"
   | "moneda"
   | "impuestos"
   | "usuarios"
+  | "permisos"
   | "bitacora";
 
 type Section = PosSettingsSection;
@@ -176,6 +180,7 @@ export function PosSettingsDialog({
   initialSection?: PosSettingsSection;
 }) {
   const { accountId, account, user } = useAuth();
+  const { can } = usePosPermissions();
   const [section, setSection] = useState<Section>("negocio");
   const [form, setForm] = useState<SettingsForm>(DEFAULT_FORM);
   const [commercialName, setCommercialName] = useState("");
@@ -217,18 +222,27 @@ export function PosSettingsDialog({
         .from("profiles")
         .select("user_id, full_name, email, account_role")
         .eq("account_id", accountId),
-      supabase
-        .from("audit_logs")
-        .select("id, table_name, operation, actor_email, created_at")
-        .eq("account_id", accountId)
-        .like("table_name", "pos_%")
-        .order("created_at", { ascending: false })
-        .limit(50),
+      supabase.rpc("pos_audit_logs", { p_limit: 50 }),
       supabase
         .from("member_presence")
         .select("user_id, status, last_seen_at")
         .eq("account_id", accountId),
     ]);
+
+    // La RPC respeta el permiso `view_audit`. Si la migración 106
+    // aún no está aplicada, se conserva la consulta anterior (que
+    // RLS ya limita a administradores).
+    let logRows = (logsRes.data ?? []) as LogRow[];
+    if (logsRes.error) {
+      const fallback = await supabase
+        .from("audit_logs")
+        .select("id, table_name, operation, actor_email, created_at")
+        .eq("account_id", accountId)
+        .like("table_name", "pos_%")
+        .order("created_at", { ascending: false })
+        .limit(50);
+      logRows = (fallback.data ?? []) as LogRow[];
+    }
 
     const row = settingsRes.data as Record<string, unknown> | null;
     setForm({
@@ -263,7 +277,7 @@ export function PosSettingsDialog({
     setManualRate(currentRate > 0 ? String(currentRate) : "");
     setRates((ratesRes.data ?? []) as RateRow[]);
     setTeam((teamRes.data ?? []) as TeamRow[]);
-    setLogs((logsRes.data ?? []) as LogRow[]);
+    setLogs(logRows);
     setPresence(
       Object.fromEntries(
         (
@@ -396,15 +410,43 @@ export function PosSettingsDialog({
     void load();
   }
 
+  useEffect(() => {
+    if (!open) return;
+    const allowed =
+      section === "usuarios" ||
+      (section === "permisos" && can("manage_users")) ||
+      (section === "bitacora" && can("view_audit")) ||
+      (["negocio", "moneda", "impuestos"].includes(section) &&
+        can("manage_settings"));
+    if (!allowed) setSection("usuarios");
+  }, [open, section, can]);
+
   if (!open) return null;
 
-  const sections: { key: Section; label: string; icon: typeof Store }[] = [
+  function sectionAllowed(key: Section): boolean {
+    switch (key) {
+      case "negocio":
+      case "moneda":
+      case "impuestos":
+        return can("manage_settings");
+      case "usuarios":
+        return true;
+      case "permisos":
+        return can("manage_users");
+      case "bitacora":
+        return can("view_audit");
+    }
+  }
+
+  const allSections: { key: Section; label: string; icon: typeof Store }[] = [
     { key: "negocio", label: "Negocio", icon: Store },
     { key: "moneda", label: "Moneda", icon: DollarSign },
     { key: "impuestos", label: "Impuestos", icon: Percent },
     { key: "usuarios", label: "Usuarios y roles", icon: Users },
+    { key: "permisos", label: "Permisos", icon: ShieldCheck },
     { key: "bitacora", label: "Bitácora", icon: History },
   ];
+  const sections = allSections.filter((item) => sectionAllowed(item.key));
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6">
@@ -856,15 +898,16 @@ export function PosSettingsDialog({
                         title="Usuarios y roles"
                         subtitle="Organiza los accesos de tu equipo y sus permisos."
                       />
-                      <button
-                        type="button"
-                        onClick={() => setInviteOpen(true)}
-                        className="rounded-xl bg-[#3f3fd8] px-4 py-2 text-sm font-bold text-white hover:bg-[#3535c4]"
-                      >
-                        Invitar usuario
-                      </button>
+                      {can("manage_users") ? (
+                        <button
+                          type="button"
+                          onClick={() => setInviteOpen(true)}
+                          className="rounded-xl bg-[#3f3fd8] px-4 py-2 text-sm font-bold text-white hover:bg-[#3535c4]"
+                        >
+                          Invitar usuario
+                        </button>
+                      ) : null}
                     </div>
-
                     <div className="flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2">
                       <Search className="h-4 w-4 text-slate-400" />
                       <input
@@ -1026,6 +1069,12 @@ export function PosSettingsDialog({
                   </div>
                 ) : null}
 
+                {section === "permisos" ? (
+                  accountId ? (
+                    <PosPermissionsPanel accountId={accountId} />
+                  ) : null
+                ) : null}
+
                 {section === "bitacora" ? (
                   <div className="max-w-4xl space-y-4">
                     <SectionTitle
@@ -1099,15 +1148,20 @@ export function PosSettingsDialog({
             >
               Cerrar
             </button>
-            <button
-              type="button"
-              onClick={() => void save()}
-              disabled={saving}
-              className="inline-flex items-center gap-2 rounded-xl bg-[#3f3fd8] px-4 py-2 text-sm font-bold text-white disabled:opacity-60"
-            >
-              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-              Guardar cambios
-            </button>
+            {(section === "negocio" ||
+              section === "moneda" ||
+              section === "impuestos") &&
+            can("manage_settings") ? (
+              <button
+                type="button"
+                onClick={() => void save()}
+                disabled={saving}
+                className="inline-flex items-center gap-2 rounded-xl bg-[#3f3fd8] px-4 py-2 text-sm font-bold text-white disabled:opacity-60"
+              >
+                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                Guardar cambios
+              </button>
+            ) : null}
           </div>
         </footer>
       </div>
