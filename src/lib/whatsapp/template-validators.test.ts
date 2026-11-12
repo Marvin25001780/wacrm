@@ -33,10 +33,10 @@ describe('validateTemplateName', () => {
     expect(() => validateTemplateName('order_v2')).not.toThrow();
   });
   it('rejects uppercase', () => {
-    expect(() => validateTemplateName('OrderV2')).toThrow(/lowercase/);
+    expect(() => validateTemplateName('OrderV2')).toThrow(/minúsculas/);
   });
   it('rejects empty', () => {
-    expect(() => validateTemplateName('')).toThrow(/required/);
+    expect(() => validateTemplateName('')).toThrow(/obligatorio/);
   });
   it('rejects spaces and dashes', () => {
     expect(() => validateTemplateName('order v2')).toThrow();

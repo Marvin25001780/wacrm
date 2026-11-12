@@ -14,6 +14,7 @@ const h = vi.hoisted(() => ({
     activeAgent: null as Record<string, unknown> | null,
     claim: true as boolean,
     updatePayload: null as Record<string, unknown> | null,
+    updates: [] as Record<string, unknown>[],
     rpcCalls: [] as { name: string; args: unknown }[],
     /** Simula una base sin migración 072 (columna del lock ausente). */
     missingLockColumn: false,
@@ -75,6 +76,7 @@ vi.mock('./admin-client', () => ({
         },
         update: (payload: Record<string, unknown>) => {
           h.state.updatePayload = payload
+          h.state.updates.push(payload)
           return pgChain({ id: 'locked' })
         },
       }
@@ -119,6 +121,7 @@ beforeEach(() => {
   h.state.activeAgent = null
   h.state.claim = true
   h.state.updatePayload = null
+  h.state.updates = []
   h.state.rpcCalls = []
   h.state.missingLockColumn = false
   h.loadAiConfig.mockResolvedValue(aiConfig())
@@ -146,6 +149,28 @@ describe('dispatchInboundToAiReply — agente activo (A5)', () => {
     expect(sys).toContain('Tono: cercano')
     // No se filtran los metadatos del mock de conversación como agente.
     expect(sys).not.toContain('assigned_agent_id')
+  })
+
+  it('devuelve el turno del agente cuando el envío falla', async () => {
+    h.state.activeAgent = {
+      id: 'agent-1',
+      channels: ['whatsapp'],
+      objective: 'Reservar cita para el taller',
+      behavior: 'Saluda y agenda',
+      tone: ['cercano'],
+      prohibited_rules: [],
+    }
+    h.state.conv = {
+      assigned_agent_id: null,
+      ai_reply_count: 1,
+      channel: 'whatsapp',
+    }
+    h.sendMessageToConversation.mockRejectedValueOnce(new Error('sin conexión'))
+
+    const outcome = await dispatchInboundToAiReply(ARGS)
+
+    expect(outcome.reason).toBe('error')
+    expect(h.state.updates.some((u) => u.ai_reply_count === 0)).toBe(true)
   })
 })
 
@@ -178,6 +203,24 @@ describe('dispatchInboundToAiReply — eligibility gates', () => {
         senderType: 'bot',
       }),
     )
+    // Un envío correcto no toca el contador del hilo.
+    expect(h.state.updates.some((u) => 'ai_reply_count' in u)).toBe(false)
+  })
+
+  it('devuelve el turno cuando el envío falla', async () => {
+    h.state.conv = {
+      assigned_agent_id: null,
+      ai_reply_count: 2,
+      channel: 'whatsapp',
+    }
+    h.sendMessageToConversation.mockRejectedValueOnce(new Error('token vencido'))
+
+    const outcome = await dispatchInboundToAiReply(ARGS)
+
+    expect(outcome.replied).toBe(false)
+    expect(outcome.reason).toBe('error')
+    // El turno se devuelve: el cliente nunca recibió el mensaje.
+    expect(h.state.updates.some((u) => u.ai_reply_count === 1)).toBe(true)
   })
 
   it('stands down when an active message-level automation exists', async () => {

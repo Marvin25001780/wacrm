@@ -275,11 +275,16 @@ export async function dispatchInboundToAiReply(
         await clearLock()
         return skip('slot_not_claimed', claimErr?.message)
       }
-      await sendAiReply({
-        accountId,
-        conversationId,
-        text: turn.reply,
-      })
+      try {
+        await sendAiReply({
+          accountId,
+          conversationId,
+          text: turn.reply,
+        })
+      } catch (sendErr) {
+        await releaseAiReplySlot(db, conversationId)
+        throw sendErr
+      }
       await clearLock()
       return { replied: true, reason: 'replied' }
     }
@@ -329,11 +334,16 @@ export async function dispatchInboundToAiReply(
       return skip('slot_not_claimed', claimErr?.message)
     }
 
-    await sendAiReply({
-      accountId,
-      conversationId,
-      text,
-    })
+    try {
+      await sendAiReply({
+        accountId,
+        conversationId,
+        text,
+      })
+    } catch (sendErr) {
+      await releaseAiReplySlot(db, conversationId)
+      throw sendErr
+    }
 
     await clearLock()
     return { replied: true, reason: 'replied' }
@@ -353,6 +363,46 @@ export async function dispatchInboundToAiReply(
       reason: 'error',
       detail: err instanceof Error ? err.message : String(err),
     }
+  }
+}
+
+/**
+ * Devuelve el turno cuando el envío falla.
+ *
+ * `claim_ai_reply_slot` sube el contador ANTES de enviar. Si el envío
+ * revienta (token vencido, número bloqueado, Evolution caído), el hilo
+ * gastaba un turno sin que el cliente hubiera recibido nada; tras unos
+ * cuantos fallos el bot quedaba mudo para siempre aunque el canal se
+ * arreglara. Aquí se deshace ese incremento.
+ *
+ * El lock de `ai_processing_at` serializa los despachos por hilo, así
+ * que leer y restar no compite con otro intento de la misma
+ * conversación.
+ */
+async function releaseAiReplySlot(
+  db: import('@supabase/supabase-js').SupabaseClient,
+  conversationId: string,
+): Promise<void> {
+  try {
+    const { data } = await db
+      .from('conversations')
+      .select('ai_reply_count')
+      .eq('id', conversationId)
+      .maybeSingle()
+
+    const current = (data as { ai_reply_count?: number } | null)?.ai_reply_count
+    if (typeof current !== 'number' || current <= 0) return
+
+    await db
+      .from('conversations')
+      .update({ ai_reply_count: current - 1 })
+      .eq('id', conversationId)
+  } catch (err) {
+    // Best-effort: si esto falla, el comportamiento es el anterior.
+    console.error(
+      '[ai auto-reply] no se pudo devolver el turno del bot:',
+      err instanceof Error ? err.message : err,
+    )
   }
 }
 

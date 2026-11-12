@@ -23,6 +23,21 @@ import { AI_PROVIDER_DEFAULT_MODEL } from './defaults'
 
 export type DiagnosticStatus = 'ok' | 'warn' | 'fail'
 
+/**
+ * Cómo nombrar un mensaje entrante que no es texto. El motor de IA solo
+ * recibe `content_text`, así que un audio o una imagen sin pie nunca
+ * llegan al modelo y el hilo parece "mudo" sin ningún error.
+ */
+const MEDIA_LABEL: Record<string, string> = {
+  image: 'una imagen',
+  video: 'un video',
+  audio: 'un audio',
+  document: 'un documento',
+  sticker: 'un sticker',
+  location: 'una ubicación',
+  contact: 'un contacto',
+}
+
 export interface DiagnosticCheck {
   id: string
   label: string
@@ -37,6 +52,7 @@ export interface DiagnosticConversation {
   channel: string | null
   lastMessageText: string | null
   lastCustomerMessageAt: string | null
+  lastCustomerContentType: string | null
   lastBotMessageAt: string | null
   aiReplyCount: number
   assignedToHuman: boolean
@@ -366,23 +382,35 @@ export async function buildAiDiagnostic(
 
     const { data: messages } = await db
       .from('messages')
-      .select('conversation_id, sender_type, created_at')
+      .select('conversation_id, sender_type, created_at, content_type, content_text')
       .in('conversation_id', convIds)
       .order('created_at', { ascending: false })
       .limit(200)
 
     const contactById = new Map(contactRows.map((row) => [row.id, row]))
 
-    const lastCustomer = new Map<string, string>()
+    interface LastCustomerMessage {
+      at: string
+      contentType: string | null
+      text: string | null
+    }
+
+    const lastCustomer = new Map<string, LastCustomerMessage>()
     const lastBot = new Map<string, string>()
     for (const raw of messages ?? []) {
       const msg = raw as {
         conversation_id: string
         sender_type: string
         created_at: string
+        content_type: string | null
+        content_text: string | null
       }
       if (msg.sender_type === 'customer' && !lastCustomer.has(msg.conversation_id)) {
-        lastCustomer.set(msg.conversation_id, msg.created_at)
+        lastCustomer.set(msg.conversation_id, {
+          at: msg.created_at,
+          contentType: msg.content_type,
+          text: msg.content_text,
+        })
       }
       if (msg.sender_type === 'bot' && !lastBot.has(msg.conversation_id)) {
         lastBot.set(msg.conversation_id, msg.created_at)
@@ -391,8 +419,14 @@ export async function buildAiDiagnostic(
 
     for (const row of convRows) {
       const contact = row.contact_id ? contactById.get(row.contact_id) : undefined
-      const customerAt = lastCustomer.get(row.id) ?? null
+      const customer = lastCustomer.get(row.id) ?? null
+      const customerAt = customer?.at ?? null
       const botAt = lastBot.get(row.id) ?? null
+      const customerMediaOnly =
+        customer != null &&
+        !customer.text?.trim() &&
+        customer.contentType != null &&
+        customer.contentType !== 'text'
 
       let reason = 'Listo para responder.'
       let answered = false
@@ -403,6 +437,8 @@ export async function buildAiDiagnostic(
       } else if (customerAt && botAt && botAt > customerAt) {
         reason = 'El bot ya respondió al último mensaje del cliente.'
         answered = true
+      } else if (customerAt && customerMediaOnly) {
+        reason = `El último mensaje del cliente fue ${MEDIA_LABEL[customer.contentType as string] ?? 'un archivo'} sin texto: la IA solo lee texto, así que no lo procesa.`
       } else if (customerAt) {
         reason = 'El último mensaje del cliente quedó sin respuesta.'
       }
@@ -414,6 +450,7 @@ export async function buildAiDiagnostic(
         channel: row.channel,
         lastMessageText: row.last_message_text,
         lastCustomerMessageAt: customerAt,
+        lastCustomerContentType: customer?.contentType ?? null,
         lastBotMessageAt: botAt,
         aiReplyCount: row.ai_reply_count ?? 0,
         assignedToHuman: Boolean(row.assigned_agent_id),
