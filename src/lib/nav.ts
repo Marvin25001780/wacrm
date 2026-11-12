@@ -27,6 +27,7 @@ import {
   HandCoins,
   History,
   LayoutDashboard,
+  Mail,
   MessageSquare,
   MessagesSquare,
   Paperclip,
@@ -81,6 +82,7 @@ export interface NavItem {
 const principalNav: NavItem[] = [
   { href: "/dashboard", label: "Panel", icon: LayoutDashboard, minRole: "admin" },
   { href: "/inbox", label: "Bandeja de entrada", icon: MessageSquare },
+  { href: "/email", label: "Correo", icon: Mail, minRole: "agent" },
   {
     href: "/pos",
     label: "POS",

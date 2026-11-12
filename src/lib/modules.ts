@@ -33,6 +33,11 @@ export const MODULE_CATALOG: ModuleDefinition[] = [
     hrefs: ["/pos"],
   },
   {
+    key: "email",
+    label: "Correo",
+    hrefs: ["/email"],
+  },
+  {
     key: "contacts",
     label: "Contactos y empresas",
     hrefs: ["/contacts", "/organizations"],
