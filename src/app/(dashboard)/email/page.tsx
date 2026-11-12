@@ -126,6 +126,7 @@ function EmailBody({ message }: { message: EmailMessage }) {
 export default function EmailPage() {
   const [checking, setChecking] = useState(true);
   const [configured, setConfigured] = useState(false);
+  const [enabled, setEnabled] = useState(false);
   const [messages, setMessages] = useState<EmailMessage[]>([]);
   const [mailboxes, setMailboxes] = useState<Mailbox[]>([]);
   const [loading, setLoading] = useState(false);
@@ -165,9 +166,11 @@ export default function EmailPage() {
       try {
         const res = await fetch('/api/email/settings');
         const data = await res.json();
-        setConfigured(Boolean(res.ok && data.configured && data.enabled));
+        setConfigured(Boolean(res.ok && data.configured));
+        setEnabled(Boolean(res.ok && data.configured && data.enabled));
       } catch {
         setConfigured(false);
+        setEnabled(false);
       } finally {
         setChecking(false);
       }
@@ -213,16 +216,16 @@ export default function EmailPage() {
   }, [appliedQuery, direction, mailboxFilter]);
 
   useEffect(() => {
-    if (!configured) return;
+    if (!enabled) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadMailboxes();
-  }, [configured, loadMailboxes]);
+  }, [enabled, loadMailboxes]);
 
   useEffect(() => {
-    if (!configured) return;
+    if (!enabled) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadMessages();
-  }, [configured, loadMessages]);
+  }, [enabled, loadMessages]);
 
   const openMessage = async (message: EmailMessage) => {
     setSelectedId(message.id);
@@ -326,6 +329,28 @@ export default function EmailPage() {
           </p>
           <Button className="mt-6" render={<Link href="/settings?tab=email" />}>
             Configurar correo
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!enabled) {
+    return (
+      <div className="mx-auto max-w-xl py-10">
+        <div className="rounded-xl border border-border bg-card p-8 text-center">
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-muted">
+            <Mail className="h-6 w-6 text-muted-foreground" />
+          </div>
+          <h1 className="mt-4 text-xl font-semibold text-foreground">
+            Correo desactivado
+          </h1>
+          <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
+            La conexión con Mailflare está guardada, pero el módulo está apagado.
+            Actívalo en Ajustes → Correo para volver a cargar la bandeja.
+          </p>
+          <Button className="mt-6" render={<Link href="/settings?tab=email" />}>
+            Ir a Ajustes
           </Button>
         </div>
       </div>
