@@ -152,17 +152,23 @@ export async function buildAiDiagnostic(
     })
 
     // Las notas de voz son la mitad de un WhatsApp real. Sin un
-    // proveedor con endpoint de audio, el bot sigue sordo a ellas.
+    // proveedor con transcripción, el bot sigue sordo a ellas.
     const voiceProvider = transcriptionProvider(cfg.provider)
+    const voiceLabel =
+      voiceProvider === 'openai'
+        ? 'OpenAI'
+        : voiceProvider === 'groq'
+          ? 'Groq'
+          : voiceProvider === 'gemini'
+            ? 'Google Gemini'
+            : null
     checks.push({
       id: 'transcription',
       label: 'Transcripción de audios',
       status: voiceProvider ? 'ok' : 'warn',
-      detail: voiceProvider
-        ? `Los audios se transcriben con ${
-            voiceProvider === 'openai' ? 'OpenAI' : 'Groq'
-          } antes de responder.`
-        : `«${cfg.provider}» no transcribe notas de voz. Cambia a OpenAI o Groq para que el bot entienda los audios.`,
+      detail: voiceLabel
+        ? `Los audios se transcriben con ${voiceLabel} antes de responder.`
+        : `«${cfg.provider}» no transcribe notas de voz. Cambia a OpenAI, Groq o Gemini para que el bot entienda los audios.`,
     })
 
     if (!cfg.api_key) {

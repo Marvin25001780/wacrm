@@ -11,6 +11,13 @@ import {
 } from './transcribe'
 import type { AiConfig } from './types'
 
+// La clave de Evolution llega cifrada en producción. En esta prueba el
+// mock la devuelve tal cual para no depender de ENCRYPTION_KEY.
+vi.mock('@/lib/whatsapp/encryption', () => ({
+  decrypt: (value: string) => value,
+  encrypt: (value: string) => value,
+}))
+
 function aiConfig(overrides: Partial<AiConfig> = {}): AiConfig {
   return {
     provider: 'openai',
@@ -29,11 +36,11 @@ afterEach(() => {
 })
 
 describe('transcriptionProvider', () => {
-  it('only enables providers with an OpenAI-compatible audio endpoint', () => {
+  it('accepts the providers that expose audio transcription', () => {
     expect(transcriptionProvider('openai')).toBe('openai')
     expect(transcriptionProvider('groq')).toBe('groq')
+    expect(transcriptionProvider('gemini')).toBe('gemini')
     expect(transcriptionProvider('anthropic')).toBeNull()
-    expect(transcriptionProvider('gemini')).toBeNull()
     expect(transcriptionProvider('deepseek')).toBeNull()
   })
 })
@@ -160,6 +167,50 @@ describe('transcribeAudio', () => {
     ][]
     expect(url).toBe('https://api.groq.com/openai/v1/audio/transcriptions')
     expect((init.body as FormData).get('model')).toBe('whisper-large-v3-turbo')
+  })
+
+  it('sends the audio inline to Gemini and joins the response parts', async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          candidates: [
+            { content: { parts: [{ text: 'Hola, ' }, { text: 'quiero dos camisas' }] } },
+          ],
+        }),
+        { status: 200 },
+      ),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const text = await transcribeAudio({
+      provider: 'gemini',
+      apiKey: 'AIza-test',
+      model: 'gemini-3.5-flash-lite',
+      buffer: Buffer.from('audio-bytes'),
+      mimeType: 'audio/ogg',
+      filename: 'audio.ogg',
+    })
+
+    expect(text).toBe('Hola, quiero dos camisas')
+
+    const [[url, init]] = fetchMock.mock.calls as unknown as [
+      string,
+      RequestInit,
+    ][]
+    expect(url).toBe(
+      'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent',
+    )
+    expect((init.headers as Record<string, string>)['x-goog-api-key']).toBe(
+      'AIza-test',
+    )
+    const body = JSON.parse(String(init.body)) as {
+      contents: { parts: { inlineData?: { mimeType: string; data: string } }[] }[]
+    }
+    const inline = body.contents[0].parts[1].inlineData
+    expect(inline?.mimeType).toBe('audio/ogg')
+    expect(Buffer.from(inline?.data ?? '', 'base64').toString()).toBe(
+      'audio-bytes',
+    )
   })
 })
 
@@ -315,6 +366,98 @@ describe('ensureAudioTranscript', () => {
     expect(updates).toContainEqual({
       table: 'conversations',
       payload: { last_message_text: 'Quiero dos camisas' },
+    })
+  })
+
+  it('baja el audio de Evolution cuando el mensaje no trae URL', async () => {
+    const updates: { table: string; payload: Record<string, unknown> }[] = []
+    const audio = {
+      id: 'msg-2',
+      media_url: null,
+      media_type: 'audio/ogg',
+      message_id: 'wamid-evo-1',
+      created_at: '2026-11-12T11:00:00.000Z',
+    }
+
+    function chain(table: string): unknown {
+      const builder: Record<string, unknown> = {
+        select: () => builder,
+        eq: () => builder,
+        is: () => builder,
+        order: () => builder,
+        limit: () => builder,
+        maybeSingle: async () => {
+          if (table === 'conversations') {
+            return {
+              data: {
+                account_id: 'acct-1',
+                channel: 'whatsapp',
+                whatsapp_config_id: null,
+                external_contact_id: '584241234567',
+              },
+              error: null,
+            }
+          }
+          if (table === 'channel_configs') {
+            return {
+              data: {
+                is_active: true,
+                config: {
+                  base_url: 'https://evo.test',
+                  instance: 'nexus-acct',
+                  api_key: 'evo-key',
+                },
+              },
+              error: null,
+            }
+          }
+          return { data: audio, error: null }
+        },
+        update: (payload: Record<string, unknown>) => {
+          updates.push({ table, payload })
+          return { eq: async () => ({ error: null }) }
+        },
+      }
+      return builder
+    }
+
+    const db = {
+      from: chain,
+      storage: { from: () => ({ download: async () => ({ data: null, error: null }) }) },
+    } as unknown as SupabaseClient
+
+    const fetchMock = vi.fn(async (url: string | URL | Request) => {
+      const href = String(url)
+      if (href.includes('/chat/getBase64FromMediaMessage/')) {
+        return new Response(
+          JSON.stringify({
+            base64: Buffer.from('audio-bytes').toString('base64'),
+            mimetype: 'audio/ogg; codecs=opus',
+          }),
+          { status: 200 },
+        )
+      }
+      return new Response(JSON.stringify({ text: 'Audio de Evolution' }), {
+        status: 200,
+      })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const text = await ensureAudioTranscript(
+      db,
+      'acct-1',
+      'conv-1',
+      aiConfig(),
+    )
+
+    expect(text).toBe('Audio de Evolution')
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/chat/getBase64FromMediaMessage/nexus-acct'),
+      expect.objectContaining({ method: 'POST' }),
+    )
+    expect(updates).toContainEqual({
+      table: 'messages',
+      payload: { content_text: 'Audio de Evolution' },
     })
   })
 })

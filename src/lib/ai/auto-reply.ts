@@ -9,6 +9,7 @@ import { runAgentTurn } from './agent-turn'
 import {
   ensureAudioTranscript,
   lastMessageIsUntranscribedAudio,
+  loadTranscriptionConfig,
 } from './transcribe'
 import { sendMessageToConversation } from '@/lib/whatsapp/send-message'
 
@@ -149,16 +150,18 @@ export async function dispatchInboundToAiReply(
   try {
     const db = supabaseAdmin()
 
+    // Notas de voz: el modelo solo ve `content_text`. Transcribimos el
+    // último audio sin texto ANTES de las guardas y sin exigir que la
+    // IA esté encendida: el texto también le sirve al asesor en la
+    // bandeja. Es best-effort y no lanza; con un proveedor sin audio
+    // devuelve null y el diagnóstico explica por qué.
+    const transcription = await loadTranscriptionConfig(db, accountId)
+    if (transcription) {
+      await ensureAudioTranscript(db, accountId, conversationId, transcription)
+    }
+
     const config = await loadAiConfig(db, accountId)
     if (!config) return skip('no_config')
-
-    // Notas de voz: el modelo solo ve `content_text`. Transcribimos el
-    // último audio sin texto ANTES de las guardas para que el agente lo
-    // reciba incluso si el hilo está asignado a un humano o el bot ya
-    // agotó su tope (el texto igual le sirve al asesor en la bandeja).
-    // Es best-effort y no lanza; con un proveedor sin audio devuelve
-    // null y el diagnóstico explica por qué.
-    await ensureAudioTranscript(db, accountId, conversationId, config)
 
     if (!config.autoReplyEnabled) return skip('auto_reply_disabled')
 

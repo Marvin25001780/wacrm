@@ -161,6 +161,68 @@ export function evoNumber(phone: string): string {
   return String(phone || '').replace(/\D/g, '')
 }
 
+/**
+ * Descarga el contenido de un mensaje multimedia como base64.
+ *
+ * Los audios de WhatsApp llegan cifrados: `audioMessage.url` no es una
+ * URL descargable. Evolution sí puede resolverlos porque guarda la
+ * clave del mensaje, así que esta es la vía para transcribir notas de
+ * voz sin depender de una URL directa.
+ *
+ * Devuelve `null` ante cualquier fallo (instancia caída, mensaje
+ * expirado, versión sin el endpoint): el llamador decide si sigue sin
+ * transcripción.
+ */
+export async function evolutionGetBase64Media(
+  creds: EvolutionCreds,
+  instance: string,
+  messageId: string,
+  remoteJid?: string | null,
+): Promise<{ base64: string; mimetype: string } | null> {
+  if (!messageId) return null
+
+  const key: Record<string, unknown> = { id: messageId, fromMe: false }
+  if (remoteJid) key.remoteJid = remoteJid
+
+  const res = await evoRequest(
+    creds,
+    `/chat/getBase64FromMediaMessage/${encodeURIComponent(instance)}`,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        message: { key },
+        convertToMp4: false,
+      }),
+    },
+    20000,
+  )
+  if (!res.ok) return null
+
+  const root = parseJson(res.text)
+  if (!root) return null
+
+  const candidates = [root, root.data, root.media, root.response]
+    .filter((v): v is Record<string, unknown> => Boolean(v && typeof v === 'object'))
+
+  for (const candidate of candidates) {
+    const raw = candidate.base64
+    if (typeof raw !== 'string' || !raw) continue
+    // Algunas versiones devuelven un data URI completo.
+    const base64 = raw.startsWith('data:')
+      ? raw.slice(raw.indexOf(',') + 1)
+      : raw
+    const mimetype =
+      typeof candidate.mimetype === 'string'
+        ? candidate.mimetype
+        : typeof candidate.mimeType === 'string'
+          ? candidate.mimeType
+          : 'audio/ogg'
+    return { base64, mimetype }
+  }
+
+  return null
+}
+
 // ---- Operaciones ----------------------------------------------
 
 /**

@@ -8,6 +8,7 @@ const h = vi.hoisted(() => ({
   generateReply: vi.fn(),
   sendMessageToConversation: vi.fn(),
   ensureAudioTranscript: vi.fn(),
+  loadTranscriptionConfig: vi.fn(),
   lastMessageIsUntranscribedAudio: vi.fn(),
   state: {
     conv: null as Record<string, unknown> | null,
@@ -50,6 +51,7 @@ vi.mock('./context', () => ({ buildConversationContext: h.buildConversationConte
 vi.mock('./generate', () => ({ generateReply: h.generateReply }))
 vi.mock('./transcribe', () => ({
   ensureAudioTranscript: h.ensureAudioTranscript,
+  loadTranscriptionConfig: h.loadTranscriptionConfig,
   lastMessageIsUntranscribedAudio: h.lastMessageIsUntranscribedAudio,
 }))
 vi.mock('@/lib/whatsapp/send-message', () => ({
@@ -131,6 +133,11 @@ beforeEach(() => {
   h.state.rpcCalls = []
   h.state.missingLockColumn = false
   h.loadAiConfig.mockResolvedValue(aiConfig())
+  h.loadTranscriptionConfig.mockResolvedValue({
+    provider: 'openai',
+    model: 'gpt-test',
+    apiKey: 'sk-test',
+  })
   h.ensureAudioTranscript.mockResolvedValue(null)
   h.lastMessageIsUntranscribedAudio.mockResolvedValue(false)
   h.buildConversationContext.mockResolvedValue([{ role: 'user', content: 'hi' }])
@@ -251,6 +258,16 @@ describe('dispatchInboundToAiReply — eligibility gates', () => {
     await dispatchInboundToAiReply(ARGS)
     expect(h.generateReply).not.toHaveBeenCalled()
     expect(h.sendMessageToConversation).not.toHaveBeenCalled()
+  })
+
+  it('transcribe aunque la IA esté apagada (solo necesita la clave)', async () => {
+    h.loadAiConfig.mockResolvedValue(null)
+
+    const outcome = await dispatchInboundToAiReply(ARGS)
+
+    expect(outcome.reason).toBe('no_config')
+    expect(h.ensureAudioTranscript).toHaveBeenCalledTimes(1)
+    expect(h.generateReply).not.toHaveBeenCalled()
   })
 
   it('skips when auto-reply is disabled for the account', async () => {
