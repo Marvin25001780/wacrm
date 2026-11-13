@@ -7,6 +7,8 @@ const h = vi.hoisted(() => ({
   buildConversationContext: vi.fn(),
   generateReply: vi.fn(),
   sendMessageToConversation: vi.fn(),
+  ensureAudioTranscript: vi.fn(),
+  lastMessageIsUntranscribedAudio: vi.fn(),
   state: {
     conv: null as Record<string, unknown> | null,
     autoResponders: [] as { id: string }[],
@@ -46,6 +48,10 @@ function pgChain(result: unknown = null, error: unknown = null) {
 vi.mock('./config', () => ({ loadAiConfig: h.loadAiConfig }))
 vi.mock('./context', () => ({ buildConversationContext: h.buildConversationContext }))
 vi.mock('./generate', () => ({ generateReply: h.generateReply }))
+vi.mock('./transcribe', () => ({
+  ensureAudioTranscript: h.ensureAudioTranscript,
+  lastMessageIsUntranscribedAudio: h.lastMessageIsUntranscribedAudio,
+}))
 vi.mock('@/lib/whatsapp/send-message', () => ({
   sendMessageToConversation: h.sendMessageToConversation,
 }))
@@ -125,6 +131,8 @@ beforeEach(() => {
   h.state.rpcCalls = []
   h.state.missingLockColumn = false
   h.loadAiConfig.mockResolvedValue(aiConfig())
+  h.ensureAudioTranscript.mockResolvedValue(null)
+  h.lastMessageIsUntranscribedAudio.mockResolvedValue(false)
   h.buildConversationContext.mockResolvedValue([{ role: 'user', content: 'hi' }])
   h.generateReply.mockResolvedValue({ text: 'Hello!', handoff: false })
   h.sendMessageToConversation.mockResolvedValue({
@@ -248,6 +256,35 @@ describe('dispatchInboundToAiReply — eligibility gates', () => {
   it('skips when auto-reply is disabled for the account', async () => {
     h.loadAiConfig.mockResolvedValue(aiConfig({ autoReplyEnabled: false }))
     await dispatchInboundToAiReply(ARGS)
+    expect(h.sendMessageToConversation).not.toHaveBeenCalled()
+  })
+
+  it('transcribe el audio antes de decidir si responde', async () => {
+    // Las respuestas automáticas están apagadas, pero el asesor igual
+    // necesita leer la nota de voz en la bandeja: la transcripción no
+    // depende de esa guarda.
+    h.loadAiConfig.mockResolvedValue(aiConfig({ autoReplyEnabled: false }))
+
+    const outcome = await dispatchInboundToAiReply(ARGS)
+
+    expect(outcome.reason).toBe('auto_reply_disabled')
+    expect(h.ensureAudioTranscript).toHaveBeenCalledWith(
+      expect.anything(),
+      'acct-1',
+      'conv-1',
+      expect.objectContaining({ provider: 'openai' }),
+    )
+  })
+
+  it('no contesta a ciegas cuando la nota de voz quedó sin transcribir', async () => {
+    // El audio era el último mensaje y no se pudo transcribir: el
+    // contexto no lo incluye, así que responder sería contestarle al
+    // mensaje anterior.
+    h.lastMessageIsUntranscribedAudio.mockResolvedValue(true)
+
+    const outcome = await dispatchInboundToAiReply(ARGS)
+
+    expect(outcome.reason).toBe('audio_not_transcribed')
     expect(h.sendMessageToConversation).not.toHaveBeenCalled()
   })
 

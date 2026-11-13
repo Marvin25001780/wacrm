@@ -192,6 +192,14 @@ function MessageContent({ message }: { message: Message }) {
           ) : (
             <MediaUnavailable label="Audio" />
           )}
+          {message.content_text && (
+            <p className="mt-1 whitespace-pre-wrap break-words text-sm">
+              <span className="mr-1 font-medium text-muted-foreground">
+                Transcripción:
+              </span>
+              {message.content_text}
+            </p>
+          )}
         </div>
       );
 

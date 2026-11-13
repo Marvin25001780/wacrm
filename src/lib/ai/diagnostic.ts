@@ -20,6 +20,7 @@ import { decrypt } from '@/lib/whatsapp/encryption'
 import { loadActiveAgent } from './agent-prompt'
 import { agentChannels } from './channels'
 import { AI_PROVIDER_DEFAULT_MODEL } from './defaults'
+import { transcriptionProvider } from './transcribe'
 
 export type DiagnosticStatus = 'ok' | 'warn' | 'fail'
 
@@ -148,6 +149,20 @@ export async function buildAiDiagnostic(
       detail: cfg.auto_reply_enabled
         ? `Activadas, máximo ${maxReplies} respuestas por conversación.`
         : 'Están apagadas: el bot solo redacta borradores, nunca envía solo.',
+    })
+
+    // Las notas de voz son la mitad de un WhatsApp real. Sin un
+    // proveedor con endpoint de audio, el bot sigue sordo a ellas.
+    const voiceProvider = transcriptionProvider(cfg.provider)
+    checks.push({
+      id: 'transcription',
+      label: 'Transcripción de audios',
+      status: voiceProvider ? 'ok' : 'warn',
+      detail: voiceProvider
+        ? `Los audios se transcriben con ${
+            voiceProvider === 'openai' ? 'OpenAI' : 'Groq'
+          } antes de responder.`
+        : `«${cfg.provider}» no transcribe notas de voz. Cambia a OpenAI o Groq para que el bot entienda los audios.`,
     })
 
     if (!cfg.api_key) {
@@ -438,7 +453,12 @@ export async function buildAiDiagnostic(
         reason = 'El bot ya respondió al último mensaje del cliente.'
         answered = true
       } else if (customerAt && customerMediaOnly) {
-        reason = `El último mensaje del cliente fue ${MEDIA_LABEL[customer.contentType as string] ?? 'un archivo'} sin texto: la IA solo lee texto, así que no lo procesa.`
+        reason =
+          customer.contentType === 'audio'
+            ? 'El último mensaje del cliente fue un audio que no se pudo transcribir. Revisa el chequeo «Transcripción de audios».'
+            : `El último mensaje del cliente fue ${
+                MEDIA_LABEL[customer.contentType as string] ?? 'un archivo'
+              } sin texto: la IA solo lee texto, así que no lo procesa.`
       } else if (customerAt) {
         reason = 'El último mensaje del cliente quedó sin respuesta.'
       }

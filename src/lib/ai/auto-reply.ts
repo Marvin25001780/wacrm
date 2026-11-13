@@ -6,6 +6,10 @@ import { buildSystemPrompt } from './defaults'
 import { loadActiveAgent } from './agent-prompt'
 import { agentRespondsOn, normalizeConversationChannel } from './channels'
 import { runAgentTurn } from './agent-turn'
+import {
+  ensureAudioTranscript,
+  lastMessageIsUntranscribedAudio,
+} from './transcribe'
 import { sendMessageToConversation } from '@/lib/whatsapp/send-message'
 
 interface DispatchArgs {
@@ -30,6 +34,7 @@ export type AiReplyReason =
   | 'assigned_to_human'
   | 'max_replies_reached'
   | 'processing_lock'
+  | 'audio_not_transcribed'
   | 'empty_context'
   | 'handoff'
   | 'slot_not_claimed'
@@ -146,6 +151,15 @@ export async function dispatchInboundToAiReply(
 
     const config = await loadAiConfig(db, accountId)
     if (!config) return skip('no_config')
+
+    // Notas de voz: el modelo solo ve `content_text`. Transcribimos el
+    // último audio sin texto ANTES de las guardas para que el agente lo
+    // reciba incluso si el hilo está asignado a un humano o el bot ya
+    // agotó su tope (el texto igual le sirve al asesor en la bandeja).
+    // Es best-effort y no lanza; con un proveedor sin audio devuelve
+    // null y el diagnóstico explica por qué.
+    await ensureAudioTranscript(db, accountId, conversationId, config)
+
     if (!config.autoReplyEnabled) return skip('auto_reply_disabled')
 
     // El canal vive en la conversación, no en el mensaje: el agente
@@ -188,6 +202,13 @@ export async function dispatchInboundToAiReply(
       .limit(1)
     if (autoResponders && autoResponders.length > 0) {
       return skip('automation_owns_messages')
+    }
+
+    // Si el último mensaje es una nota de voz que quedó sin transcribir,
+    // el contexto no la incluye. Responder ahora sería contestarle al
+    // mensaje anterior como si fuera el actual.
+    if (await lastMessageIsUntranscribedAudio(db, conversationId)) {
+      return skip('audio_not_transcribed')
     }
 
     // Resetear disabled siempre al recibir un nuevo mensaje de un canal

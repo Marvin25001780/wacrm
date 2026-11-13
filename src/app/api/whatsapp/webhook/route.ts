@@ -918,10 +918,13 @@ async function processMessage(
 
   // AI auto-reply. Runs only for plain-text inbound the deterministic
   // flow runner did NOT consume (flows win over the LLM), and only when
-  // the account has enabled it. Awaited inside `after()` (same reason as
-  // the webhook dispatch below); `dispatchInboundToAiReply` owns its
-  // eligibility gates + try/catch and never throws.
-  if (!contentConsumed && !interactiveReplyId && inboundText.trim()) {
+  // the account has enabled it. Audio also enters: the dispatcher
+  // transcribes the note first and then evaluates the usual gates.
+  if (
+    !contentConsumed &&
+    !interactiveReplyId &&
+    (inboundText.trim() || contentType === 'audio')
+  ) {
     await dispatchInboundToAiReply({
       accountId,
       conversationId: conversation.id,

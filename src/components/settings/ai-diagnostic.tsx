@@ -75,6 +75,8 @@ const REASON_LABEL: Record<string, string> = {
   assigned_to_human: 'El hilo está asignado a un humano.',
   max_replies_reached: 'El hilo llegó al máximo de respuestas del bot.',
   processing_lock: 'Hay otro intento en curso o quedó un bloqueo reciente.',
+  audio_not_transcribed:
+    'El último mensaje es una nota de voz que no se pudo transcribir.',
   empty_context: 'El hilo no tiene texto para responder.',
   handoff: 'El agente decidió derivar a un humano.',
   slot_not_claimed: 'No se pudo reservar el turno del bot.',

@@ -354,9 +354,10 @@ export async function POST(
       }).catch((err) => console.error('[automations] dispatch failed:', err))
     }
 
-    // Solo se responde a mensajes con texto: un audio o una imagen sin
-    // pie no le dan nada al modelo.
-    if (!inboundText.trim()) return
+    // Texto y notas de voz. El dispatcher transcribe el audio antes de
+    // construir el contexto; una imagen sin pie sigue sin dar nada al
+    // modelo.
+    if (!inboundText.trim() && contentType !== 'audio') return
 
     await dispatchInboundToAiReply({
       accountId,

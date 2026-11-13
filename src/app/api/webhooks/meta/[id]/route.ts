@@ -217,12 +217,14 @@ export async function POST(
     }
   }
 
-  // IA después de responderle a Meta. Solo mensajes de texto nuevos:
-  // los adjuntos no se reenvían al modelo y los duplicados ya se
-  // filtraron en la ingesta.
+  // IA después de responderle a Meta. Texto y notas de voz: el
+  // dispatcher transcribe el audio antes de construir el contexto. Los
+  // duplicados ya se filtraron en la ingesta.
   after(async () => {
     for (const item of delivered) {
-      if (item.contentType !== 'text' || !item.text?.trim()) continue
+      const isText = item.contentType === 'text' && Boolean(item.text?.trim())
+      const isAudio = item.contentType === 'audio'
+      if (!isText && !isAudio) continue
       try {
         await dispatchInboundToAiReply({
           accountId,
