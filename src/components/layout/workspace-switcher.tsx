@@ -31,16 +31,19 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
+  AlertTriangle,
   Building2,
   ChevronsUpDown,
   Loader2,
   Pencil,
   Plus,
   Settings2,
+  Trash2,
 } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
 import { MODULE_CATALOG, allModuleKeys } from "@/lib/modules";
+import { canDeleteAccount } from "@/lib/auth/roles";
 import type { WorkspaceMembership } from "@/types";
 import { cn } from "@/lib/utils";
 import { RoleChip } from "@/components/layout/role-chip";
@@ -106,6 +109,11 @@ export function WorkspaceSwitcher() {
   const [name, setName] = useState("");
   const [modules, setModules] = useState<string[]>(allModuleKeys());
   const [saving, setSaving] = useState(false);
+  // Eliminar negocio (111). Confirmación por nombre exacto: el borrado
+  // arrastra contactos, conversaciones, POS y finanzas sin vuelta atrás.
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState("");
+  const [deleting, setDeleting] = useState(false);
 
   const activeId = account?.id ?? null;
 
@@ -155,6 +163,15 @@ export function WorkspaceSwitcher() {
   // still name the current workspace.
   const displayName = active?.name ?? account?.name ?? "";
   const displayRole = active?.role ?? accountRole;
+
+  // Solo el dueño puede borrar, y nunca su último negocio (el RPC
+  // vuelve a comprobarlo; esto solo decide si mostramos la opción).
+  const canDeleteWorkspace = Boolean(
+    activeId &&
+      displayRole &&
+      canDeleteAccount(displayRole) &&
+      (list?.length ?? 0) > 1,
+  );
 
   const switchTo = useCallback(
     async (accountId: string) => {
@@ -261,6 +278,49 @@ export function WorkspaceSwitcher() {
       toast.error("No se pudo conectar con el servidor");
     } finally {
       setSaving(false);
+    }
+  }
+
+  /**
+   * Borra el negocio ACTIVO (migración 111). El servidor reubica a cada
+   * miembro en otro de sus negocios y cambia la cuenta activa de quien
+   * llama, así que después hay que recargar para soltar cachés, realtime
+   * y el contexto de auth apuntando al negocio que ya no existe.
+   */
+  async function handleDeleteWorkspace() {
+    if (!activeId) return;
+
+    const trimmed = deleteConfirm.trim();
+    if (trimmed !== displayName) {
+      toast.error("Escribe el nombre exacto del negocio para confirmar");
+      return;
+    }
+
+    setDeleting(true);
+    try {
+      const res = await fetch(
+        `/api/account/workspaces/${encodeURIComponent(activeId)}`,
+        {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ confirm_name: trimmed }),
+        },
+      );
+
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}));
+        toast.error(payload.error || "No se pudo eliminar el negocio");
+        setDeleting(false);
+        return;
+      }
+
+      // El negocio borrado era el activo: la recarga entra en el que el
+      // RPC dejó como activo.
+      window.location.replace(LANDING_PATH);
+    } catch (err) {
+      console.error("[WorkspaceSwitcher] delete error:", err);
+      toast.error("No se pudo conectar con el servidor");
+      setDeleting(false);
     }
   }
 
@@ -377,6 +437,23 @@ export function WorkspaceSwitcher() {
               </DropdownMenuItem>
             </>
           ) : null}
+
+          {/* Dueño y nunca el último negocio. El RPC lo revalida. */}
+          {canDeleteWorkspace ? (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                variant="destructive"
+                onClick={() => {
+                  setDeleteConfirm("");
+                  setDeleteOpen(true);
+                }}
+              >
+                <Trash2 />
+                Eliminar este negocio
+              </DropdownMenuItem>
+            </>
+          ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
 
@@ -481,6 +558,75 @@ export function WorkspaceSwitcher() {
                 : dialogMode === "modules"
                   ? "Guardar módulos"
                   : "Guardar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={deleteOpen}
+        onOpenChange={(next) => {
+          if (!next && !deleting) setDeleteOpen(false);
+        }}
+      >
+        <DialogContent className="border-border bg-popover sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="size-4 text-red-400" />
+              Eliminar {displayName}
+            </DialogTitle>
+            <DialogDescription>
+              Se borrarán de forma permanente los contactos, conversaciones,
+              mensajes, embudos, inventario y finanzas de este {WORKSPACE_LABEL}.
+              No se puede deshacer. Los demás miembros serán movidos a otro de
+              sus negocios.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="workspace-delete-confirm">
+              Escribe{" "}
+              <span className="font-semibold text-foreground">
+                {displayName}
+              </span>{" "}
+              para confirmar
+            </Label>
+            <Input
+              id="workspace-delete-confirm"
+              value={deleteConfirm}
+              onChange={(e) => setDeleteConfirm(e.target.value)}
+              placeholder={displayName}
+              autoFocus
+              disabled={deleting}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  void handleDeleteWorkspace();
+                }
+              }}
+              className="border-border bg-card text-foreground"
+            />
+          </div>
+
+          <DialogFooter className="border-border">
+            <Button
+              variant="outline"
+              onClick={() => setDeleteOpen(false)}
+              disabled={deleting}
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={() => void handleDeleteWorkspace()}
+              disabled={deleting || deleteConfirm.trim() !== displayName}
+              className="bg-red-600 text-white hover:bg-red-700"
+            >
+              {deleting ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <Trash2 className="size-4" />
+              )}
+              Eliminar negocio
             </Button>
           </DialogFooter>
         </DialogContent>
