@@ -5,6 +5,7 @@ import {
   canDeleteAccount,
   canEditSettings,
   canManageMembers,
+  canRenameWorkspaceMember,
   canSendMessages,
   canTransferOwnership,
   canViewOnly,
@@ -98,6 +99,71 @@ describe("capability predicates", () => {
     expect(canEditSettings("admin")).toBe(true);
     expect(canEditSettings("agent")).toBe(false);
     expect(canEditSettings("viewer")).toBe(false);
+  });
+
+  it("canRenameWorkspaceMember: self always, owner anyone, admin only agents/viewers", () => {
+    // Cada quien puede editar su propio nombre sin importar su rol.
+    for (const actorRole of ACCOUNT_ROLES) {
+      expect(
+        canRenameWorkspaceMember({
+          actorRole,
+          targetRole: actorRole,
+          isSelf: true,
+        }),
+      ).toBe(true);
+    }
+
+    // El dueño renombra a cualquiera de su negocio.
+    for (const targetRole of ACCOUNT_ROLES) {
+      expect(
+        canRenameWorkspaceMember({
+          actorRole: "owner",
+          targetRole,
+          isSelf: false,
+        }),
+      ).toBe(true);
+    }
+
+    // Un admin solo toca agentes y espectadores.
+    expect(
+      canRenameWorkspaceMember({
+        actorRole: "admin",
+        targetRole: "agent",
+        isSelf: false,
+      }),
+    ).toBe(true);
+    expect(
+      canRenameWorkspaceMember({
+        actorRole: "admin",
+        targetRole: "viewer",
+        isSelf: false,
+      }),
+    ).toBe(true);
+    expect(
+      canRenameWorkspaceMember({
+        actorRole: "admin",
+        targetRole: "admin",
+        isSelf: false,
+      }),
+    ).toBe(false);
+    expect(
+      canRenameWorkspaceMember({
+        actorRole: "admin",
+        targetRole: "owner",
+        isSelf: false,
+      }),
+    ).toBe(false);
+
+    // Agentes y espectadores no renombran a nadie más.
+    for (const actorRole of ["agent", "viewer"] as AccountRole[]) {
+      expect(
+        canRenameWorkspaceMember({
+          actorRole,
+          targetRole: "agent",
+          isSelf: false,
+        }),
+      ).toBe(false);
+    }
   });
 
   it("canSendMessages: agent+ only", () => {

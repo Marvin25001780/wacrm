@@ -72,6 +72,28 @@ export function canManageMembers(role: AccountRole): boolean {
 }
 
 /**
+ * Owner / admin / self: edit the name a person shows in THIS
+ * workspace (`account_members.display_name`, migration 110).
+ *
+ * Mirrors the rule in the `set_member_display_name` RPC:
+ *   - everyone can rename themselves;
+ *   - the owner can rename anyone in the workspace;
+ *   - an admin can only rename agents/viewers (never the owner or
+ *     another admin — same asymmetry as the POS permission rules).
+ */
+export function canRenameWorkspaceMember(args: {
+  actorRole: AccountRole | null;
+  targetRole: AccountRole;
+  isSelf: boolean;
+}): boolean {
+  const { actorRole, targetRole, isSelf } = args;
+  if (isSelf) return true;
+  if (!actorRole || !canManageMembers(actorRole)) return false;
+  if (actorRole === "owner") return true;
+  return targetRole === "agent" || targetRole === "viewer";
+}
+
+/**
  * Owner / admin: edit account-wide settings (WhatsApp config,
  * message templates, pipelines, tags, custom fields, account
  * name). Excludes per-user settings like avatar or own password.

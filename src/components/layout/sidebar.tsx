@@ -306,8 +306,14 @@ function NavGroup({
 
 export function Sidebar({ open = false, onClose }: SidebarProps) {
   const pathname = usePathname();
-  const { profile, profileLoading, accountRole, enabledModules, signOut } =
-    useAuth();
+  const {
+    profile,
+    displayName,
+    profileLoading,
+    accountRole,
+    enabledModules,
+    signOut,
+  } = useAuth();
   const totalUnread = useTotalUnread();
   const unreadNotifications = useUnreadNotifications();
 
@@ -531,11 +537,11 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
                           {profile?.avatar_url ? (
                             <AvatarImage
                               src={profile.avatar_url}
-                              alt={profile.full_name ?? "Avatar"}
+                              alt={displayName || "Avatar"}
                             />
                           ) : null}
                           <AvatarFallback className="bg-primary/10 text-sm font-medium text-primary">
-                            {profile?.full_name?.charAt(0)?.toUpperCase() ??
+                            {displayName?.charAt(0)?.toUpperCase() ??
                               profile?.email?.charAt(0)?.toUpperCase() ??
                               "U"}
                           </AvatarFallback>
@@ -544,7 +550,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
                     }
                   />
                   <TooltipContent side="right">
-                    {profile?.full_name ?? "User"}
+                    {displayName || "User"}
                   </TooltipContent>
                 </Tooltip>
               ) : (
@@ -552,11 +558,11 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
                   {profile?.avatar_url ? (
                     <AvatarImage
                       src={profile.avatar_url}
-                      alt={profile.full_name ?? "Avatar"}
+                      alt={displayName || "Avatar"}
                     />
                   ) : null}
                   <AvatarFallback className="bg-primary/10 text-sm font-medium text-primary">
-                    {profile?.full_name?.charAt(0)?.toUpperCase() ??
+                    {displayName?.charAt(0)?.toUpperCase() ??
                       profile?.email?.charAt(0)?.toUpperCase() ??
                       "U"}
                   </AvatarFallback>
@@ -565,7 +571,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
               {!collapsed && (
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium text-foreground">
-                    {profile?.full_name ?? "User"}
+                    {displayName || "User"}
                   </p>
                   <p className="truncate text-xs text-muted-foreground">
                     {profile?.email ?? ""}

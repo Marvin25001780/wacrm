@@ -16,6 +16,12 @@
 //   same rule again so the legacy fallback (before 109 is applied)
 //   behaves identically. Sensitive fields are returned only to
 //   admin+.
+//
+// Nombres por negocio (110)
+//   `full_name` llega ya resuelto por el RPC (display_name del negocio
+//   -> profiles.full_name -> correo). `display_name` es el alias
+//   propio de ESTE negocio y se devuelve aparte para que Usuarios
+//   pueda prellenar el campo sin confundirlo con el nombre global.
 // ============================================================
 
 import { NextResponse } from "next/server";
@@ -27,6 +33,7 @@ import type { AccountMember } from "@/types";
 interface RosterRow {
   user_id: string;
   full_name: string | null;
+  display_name?: string | null;
   email: string | null;
   avatar_url: string | null;
   role: string;
@@ -82,6 +89,7 @@ export async function GET() {
       rows = (legacy ?? []).map((row) => ({
         user_id: row.user_id,
         full_name: row.full_name,
+        display_name: null,
         email: row.email,
         avatar_url: row.avatar_url,
         role: row.account_role,
@@ -102,6 +110,7 @@ export async function GET() {
         {
           user_id: row.user_id,
           full_name: row.full_name ?? "",
+          display_name: row.display_name ?? null,
           email: canSeeEmails ? row.email : null,
           avatar_url: row.avatar_url,
           role: row.role,

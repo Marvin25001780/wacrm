@@ -39,8 +39,15 @@ export function SettingsOverview({
 }: {
   onSelect: (section: SettingsSection) => void;
 }) {
-  const { user, profile, accountId, accountRole, defaultCurrency, canManageMembers } =
-    useAuth();
+  const {
+    user,
+    profile,
+    displayName: workspaceDisplayName,
+    accountId,
+    accountRole,
+    defaultCurrency,
+    canManageMembers,
+  } = useAuth();
   const { mode, theme } = useTheme();
 
   const [counts, setCounts] = useState<OverviewCounts | null>(null);
@@ -143,8 +150,12 @@ export function SettingsOverview({
     };
   }, [user?.id, accountId, canManageMembers]);
 
-  const displayName = profile?.full_name || profile?.email || 'Tu cuenta';
-  const initial = (profile?.full_name || profile?.email || 'U').charAt(0).toUpperCase();
+  // Nombre del negocio activo (110), igual que sidebar/header. El
+  // nombre global de `profiles` se edita aparte, en Perfil.
+  const displayName = workspaceDisplayName || profile?.email || 'Tu cuenta';
+  const initial = (workspaceDisplayName || profile?.email || 'U')
+    .charAt(0)
+    .toUpperCase();
   const roleMeta = accountRole ? ROLE_META[accountRole] : null;
   const RoleIcon = roleMeta?.icon;
 

@@ -273,6 +273,10 @@ export function ProfileForm() {
               disabled={saving}
               required
             />
+            <p className="text-xs text-muted-foreground">
+              Este nombre te acompaña en todos tus negocios. Para usar otro
+              distinto en un negocio concreto, cámbialo en Ajustes → Usuarios.
+            </p>
           </div>
 
           {/* Email */}

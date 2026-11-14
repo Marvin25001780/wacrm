@@ -83,7 +83,13 @@ export interface Account {
  */
 export interface AccountMember {
   user_id: string;
+  /** Nombre efectivo en ESTE negocio (alias → perfil → correo). */
   full_name: string;
+  /**
+   * Alias propio del negocio (migración 110). `null` = sin alias; la
+   * persona se muestra con su nombre global de `profiles`.
+   */
+  display_name: string | null;
   email: string | null;
   avatar_url: string | null;
   role: AccountRole;

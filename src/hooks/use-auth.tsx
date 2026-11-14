@@ -24,6 +24,13 @@ import {
 interface Profile {
   id: string;
   full_name: string | null;
+  /**
+   * Nombre visible en el negocio ACTIVO (migración 110). Vive en
+   * `account_members`, no en `profiles`; aquí se mezcla para que la
+   * barra lateral y el header lean una sola fuente. NULL = sin alias,
+   * se usa `full_name`.
+   */
+  display_name: string | null;
   email: string;
   avatar_url: string | null;
   role: string | null;
@@ -63,6 +70,13 @@ interface AuthContextValue {
    * user object.
    */
   loading: boolean;
+  /**
+   * Nombre con el que se muestra la persona en el negocio activo:
+   * `account_members.display_name` (110) → `profiles.full_name` →
+   * correo. Lo usan sidebar/header; nunca cae a un nombre de OTRO
+   * negocio porque el alias se busca por `account_id`.
+   */
+  displayName: string;
   /**
    * Profile-row loading. Stays true until `fetchProfile` settles
    * (success, missing row, or error). Code that branches on
@@ -234,6 +248,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
         }
 
+        // Nombre por negocio (110): el alias vive en `account_members`
+        // y solo aplica al negocio ACTIVO. Si la migración aún no está
+        // aplicada, PostgREST devuelve 42703 y seguimos con el nombre
+        // global en vez de romper el contexto de auth.
+        let memberDisplayName: string | null = null;
+        if (data.account_id) {
+          const membership = await supabase
+            .from("account_members")
+            .select("display_name")
+            .eq("user_id", userId)
+            .eq("account_id", data.account_id)
+            .maybeSingle();
+
+          if (!membership.error) {
+            const value = (membership.data as { display_name?: unknown } | null)
+              ?.display_name;
+            memberDisplayName = typeof value === "string" ? value : null;
+          } else if (membership.error.code !== "42703") {
+            // 42703 = la columna aún no existe (110 sin aplicar). Cualquier
+            // otro error sí conviene verlo: rompería el alias en silencio.
+            console.warn(
+              "[AuthProvider] display_name lookup error:",
+              membership.error.message,
+            );
+          }
+        }
+
         // Narrow the DB enum into our AccountRole union. The DB
         // constraint should make this unconditional, but a future
         // migration that broadens the enum without updating TS would
@@ -246,6 +287,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setProfile({
           id: data.id,
           full_name: data.full_name,
+          display_name: memberDisplayName,
           email: data.email,
           avatar_url: data.avatar_url,
           role: data.role,
@@ -372,6 +414,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return {
       accountRole: role,
       accountId: profile?.account_id ?? null,
+      displayName: profile
+        ? profile.display_name?.trim() ||
+          profile.full_name?.trim() ||
+          profile.email
+        : "",
       isOwner: role === "owner",
       isAdmin: role === "admin",
       isAgent: role === "agent",
@@ -380,7 +427,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       canEditSettings: role ? canEditSettingsFor(role) : false,
       canSendMessages: role ? canSendMessagesFor(role) : false,
     };
-  }, [profile?.account_role, profile?.account_id]);
+  }, [profile]);
 
   return (
     <AuthContext.Provider
@@ -418,6 +465,7 @@ export function useAuth(): AuthContextValue {
       profile: null,
       loading: false,
       profileLoading: false,
+      displayName: "",
       signOut: async () => {
         window.location.href = "/login";
       },

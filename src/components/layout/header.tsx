@@ -33,11 +33,11 @@ interface HeaderProps {
 
 export function Header({ onOpenSidebar }: HeaderProps) {
   const pathname = usePathname();
-  const { profile, signOut } = useAuth();
+  const { profile, displayName, signOut } = useAuth();
   const title = pageTitleFor(pathname);
 
   const initial =
-    profile?.full_name?.charAt(0)?.toUpperCase() ??
+    displayName?.charAt(0)?.toUpperCase() ??
     profile?.email?.charAt(0)?.toUpperCase() ??
     "U";
 
@@ -70,7 +70,7 @@ export function Header({ onOpenSidebar }: HeaderProps) {
             {profile?.avatar_url ? (
               <AvatarImage
                 src={profile.avatar_url}
-                alt={profile.full_name ?? "Avatar"}
+                alt={displayName || "Avatar"}
               />
             ) : null}
             <AvatarFallback className="bg-primary/10 text-sm font-medium text-primary">
@@ -78,7 +78,7 @@ export function Header({ onOpenSidebar }: HeaderProps) {
             </AvatarFallback>
           </Avatar>
           <span className="hidden text-sm font-medium text-foreground sm:inline">
-            {profile?.full_name ?? "Usuario"}
+            {displayName || "Usuario"}
           </span>
         </DropdownMenuTrigger>
         <DropdownMenuContent
@@ -88,7 +88,7 @@ export function Header({ onOpenSidebar }: HeaderProps) {
         >
           <div className="px-2 py-1.5">
             <p className="truncate text-sm font-medium text-foreground">
-              {profile?.full_name ?? "Usuario"}
+              {displayName || "Usuario"}
             </p>
             <p className="truncate text-xs text-muted-foreground">
               {profile?.email ?? ""}

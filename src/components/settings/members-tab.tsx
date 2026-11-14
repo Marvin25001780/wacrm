@@ -19,6 +19,12 @@
 //   agent or viewer sees the roster read-only. The server-side
 //   RPCs (set_member_role, remove_account_member) double-check
 //   the role anyway.
+//
+// Nombre por negocio (110)
+//   `member.full_name` ya llega resuelto (alias → perfil → correo).
+//   `member.display_name` es el alias propio de ESTE negocio y se
+//   edita con el lápiz. Cada quien puede editar el suyo; el dueño
+//   edita a cualquiera y un admin solo a agentes/espectadores.
 // ============================================================
 
 import { useCallback, useEffect, useState } from 'react';
@@ -28,6 +34,7 @@ import {
   Loader2,
   Mail,
   MailX,
+  Pencil,
   Plus,
   Trash2,
   UsersRound,
@@ -47,6 +54,7 @@ import {
 } from '@/components/ui/tooltip';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
 import {
   Dialog,
   DialogContent,
@@ -66,6 +74,7 @@ import { RequireRole } from '@/components/auth/require-role';
 import { useAuth } from '@/hooks/use-auth';
 import { usePresence } from '@/hooks/use-presence';
 import type { AccountRole } from '@/lib/auth/roles';
+import { canRenameWorkspaceMember } from '@/lib/auth/roles';
 import { presenceLabel, summarize } from '@/lib/presence';
 import {
   PRESENCE_DOT_CLASS,
@@ -77,7 +86,10 @@ import { ROLE_META } from './role-meta';
 
 interface Member {
   user_id: string;
+  /** Nombre efectivo en este negocio (alias → perfil → correo). */
   full_name: string;
+  /** Alias propio del negocio (110). NULL = usa el nombre global. */
+  display_name: string | null;
   email: string | null;
   avatar_url: string | null;
   role: AccountRole;
@@ -125,7 +137,7 @@ function fmtExpiresIn(iso: string): string {
 }
 
 export function MembersTab() {
-  const { user, canManageMembers } = useAuth();
+  const { user, accountRole, canManageMembers, refreshProfile } = useAuth();
   const { getPresence, getRow, now } = usePresence();
 
   const [members, setMembers] = useState<Member[]>([]);
@@ -134,6 +146,9 @@ export function MembersTab() {
 
   const [inviteOpen, setInviteOpen] = useState(false);
   const [removingMember, setRemovingMember] = useState<Member | null>(null);
+  const [renamingMember, setRenamingMember] = useState<Member | null>(null);
+  const [nameDraft, setNameDraft] = useState('');
+  const [savingName, setSavingName] = useState(false);
   const [pendingMemberAction, setPendingMemberAction] = useState<string | null>(
     null,
   );
@@ -223,6 +238,57 @@ export function MembersTab() {
       toast.error('No se pudo conectar con el servidor');
     } finally {
       setPendingMemberAction(null);
+    }
+  }
+
+  /**
+   * Guarda el nombre visible del negocio. Vacío = quitar el alias y
+   * volver al nombre del perfil. Tras guardar se recarga el roster
+   * porque `full_name` (el efectivo) lo resuelve el servidor; si el
+   * cambio es el propio, también se refresca el contexto de auth para
+   * que sidebar y header cambien sin recargar la página.
+   */
+  async function handleRename() {
+    if (!renamingMember) return;
+
+    const trimmed = nameDraft.trim();
+    if (trimmed.length > 60) {
+      toast.error('El nombre no puede superar los 60 caracteres');
+      return;
+    }
+
+    setSavingName(true);
+    try {
+      const res = await fetch(
+        `/api/account/members/${renamingMember.user_id}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            display_name: trimmed === '' ? null : trimmed,
+          }),
+        },
+      );
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}));
+        toast.error(payload.error || 'Error al cambiar el nombre');
+        return;
+      }
+
+      toast.success(
+        trimmed
+          ? 'Nombre actualizado en este negocio'
+          : 'Este negocio volverá a mostrar el nombre del perfil',
+      );
+      const wasSelf = renamingMember.user_id === user?.id;
+      setRenamingMember(null);
+      await loadEverything();
+      if (wasSelf) await refreshProfile();
+    } catch (err) {
+      console.error('[MembersTab] rename error:', err);
+      toast.error('No se pudo conectar con el servidor');
+    } finally {
+      setSavingName(false);
     }
   }
 
@@ -336,6 +402,11 @@ export function MembersTab() {
                 presenceRow?.last_seen_at ?? null,
                 now,
               );
+              const canRename = canRenameWorkspaceMember({
+                actorRole: accountRole,
+                targetRole: member.role,
+                isSelf,
+              });
 
               return (
                 <li
@@ -387,6 +458,33 @@ export function MembersTab() {
                           <Badge className="bg-muted text-muted-foreground border-border text-[10px] uppercase tracking-wide">
                             Tú
                           </Badge>
+                        )}
+                        {canRename && (
+                          <Tooltip>
+                            <TooltipTrigger
+                              render={
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  aria-label={
+                                    isSelf
+                                      ? 'Cambiar mi nombre en este negocio'
+                                      : `Cambiar el nombre de ${member.full_name || 'este miembro'} en este negocio`
+                                  }
+                                  onClick={() => {
+                                    setNameDraft(member.display_name ?? '');
+                                    setRenamingMember(member);
+                                  }}
+                                  className="size-7 shrink-0 p-0 text-muted-foreground hover:bg-muted hover:text-foreground"
+                                >
+                                  <Pencil className="size-3.5" />
+                                </Button>
+                              }
+                            />
+                            <TooltipContent>
+                              Nombre solo para este negocio
+                            </TooltipContent>
+                          </Tooltip>
                         )}
                       </div>
                       {member.email && (
@@ -566,6 +664,75 @@ export function MembersTab() {
         onOpenChange={setInviteOpen}
         onCreated={loadEverything}
       />
+
+      <Dialog
+        open={renamingMember !== null}
+        onOpenChange={(open) => {
+          if (!open && !savingName) setRenamingMember(null);
+        }}
+      >
+        <DialogContent className="bg-popover border-border sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-popover-foreground">
+              <Pencil className="size-4 text-primary" />
+              Nombre en este negocio
+            </DialogTitle>
+            <DialogDescription className="text-muted-foreground">
+              Solo cambia cómo aparece{' '}
+              <span className="font-medium text-muted-foreground">
+                {renamingMember?.full_name || 'esta persona'}
+              </span>{' '}
+              dentro de este negocio. En los demás espacios sigue usando su
+              nombre de perfil. Déjalo vacío para volver al nombre global.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-2">
+            <Input
+              value={nameDraft}
+              onChange={(e) => setNameDraft(e.target.value)}
+              placeholder="Ej. Ana — Ventas"
+              maxLength={60}
+              autoFocus
+              disabled={savingName}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  void handleRename();
+                }
+              }}
+            />
+            <p className="text-xs text-muted-foreground">
+              {nameDraft.trim().length}/60 caracteres
+            </p>
+          </div>
+
+          <DialogFooter className="bg-popover border-border">
+            <Button
+              variant="outline"
+              onClick={() => setRenamingMember(null)}
+              disabled={savingName}
+              className="border-border text-muted-foreground hover:bg-muted"
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleRename}
+              disabled={savingName}
+              className="bg-primary text-primary-foreground hover:bg-primary/90"
+            >
+              {savingName ? (
+                <>
+                  <Loader2 className="size-4 animate-spin" />
+                  Guardando…
+                </>
+              ) : (
+                'Guardar nombre'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={removingMember !== null}
