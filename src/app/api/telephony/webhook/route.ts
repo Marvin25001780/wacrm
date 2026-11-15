@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { NextResponse, after } from 'next/server';
 import { WebhookReceiver } from 'livekit-server-sdk';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
@@ -8,6 +8,7 @@ import { isTerminalCallStatus, isTelephonyRoom } from '@/lib/telephony/calls';
 import { recordingUrlFromEgress, telephonyEnv } from '@/lib/telephony/env';
 import { finalizeCall } from '@/lib/telephony/finalize';
 import { normalizePhone } from '@/lib/telephony/phone';
+import { transcribeCallRecording } from '@/lib/telephony/transcribe-call';
 import type { CallSession } from '@/types';
 
 /**
@@ -216,11 +217,21 @@ async function handleEgressEnded(
     env.recordingsPublicBaseUrl
   );
 
+  // Un reintento del webhook no debe devolver a "pending" una
+  // transcripción ya hecha o en curso.
+  const keepStatus =
+    call.transcript_status === 'done' || call.transcript_status === 'processing';
+  const transcriptStatus = keepStatus
+    ? call.transcript_status
+    : url
+      ? 'pending'
+      : 'none';
+
   await db
     .from('call_sessions')
     .update({
       recording_url: url,
-      transcript_status: url ? 'pending' : 'none',
+      transcript_status: transcriptStatus,
     })
     .eq('id', call.id);
 
@@ -234,4 +245,42 @@ async function handleEgressEnded(
       error: args.error,
     },
   });
+
+  if (!url || args.error) return;
+  if (!(await accountTranscribesCalls(db, call.account_id))) return;
+
+  // La descarga + el proveedor pueden tardar más de lo que LiveKit
+  // espera por el webhook; se ejecuta después de responder.
+  after(async () => {
+    try {
+      const fresh = await findCall(db, roomName);
+      if (!fresh) return;
+      const outcome = await transcribeCallRecording(db, fresh, {
+        source: 'automatic',
+      });
+      if (outcome.error) {
+        console.warn(
+          '[telephony] transcripción automática falló:',
+          outcome.error
+        );
+      }
+    } catch (err) {
+      console.error('[telephony] transcripción automática:', err);
+    }
+  });
+}
+
+/** ¿El negocio pidió transcribir sus grabaciones? (sin fila = sí). */
+async function accountTranscribesCalls(
+  db: SupabaseClient,
+  accountId: string
+): Promise<boolean> {
+  const { data, error } = await db
+    .from('telephony_config')
+    .select('transcription_enabled')
+    .eq('account_id', accountId)
+    .maybeSingle();
+  if (error) return false;
+  const row = data as { transcription_enabled?: boolean } | null;
+  return row?.transcription_enabled ?? true;
 }

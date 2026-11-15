@@ -137,6 +137,13 @@ Gemini). Anthropic y DeepSeek no ofrecen endpoint de audio. El botón
 “Transcribir” del historial descarga la grabación (máx. 24 MB) y la
 manda al proveedor; el texto queda en `call_sessions.transcript`.
 
+Con **Transcribir grabaciones** activo y
+`TELEPHONY_RECORDINGS_PUBLIC_BASE_URL` definida, la transcripción es
+automática: el webhook `egress_ended` la lanza en segundo plano
+(después de responder a LiveKit) y el historial la muestra al
+refrescarse. El botón manual queda como reintento si el proveedor
+falló. Si el interruptor está apagado, no se transcribe nada solo.
+
 ### Resumen con IA
 
 Con la llamada transcrita, **Ver → Resumir** pide al proveedor de IA

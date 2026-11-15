@@ -167,8 +167,8 @@ export default function TelefoniaPage() {
 
   const canSupervise = Boolean(isAdmin || accountRole === 'owner');
 
-  const loadCalls = useCallback(async () => {
-    setCallsLoading(true);
+  const loadCalls = useCallback(async (silent = false) => {
+    if (!silent) setCallsLoading(true);
     try {
       const res = await fetch('/api/telephony/calls?limit=50', {
         cache: 'no-store',
@@ -180,7 +180,7 @@ export default function TelefoniaPage() {
     } catch {
       // Sin red: se conserva el historial anterior.
     } finally {
-      setCallsLoading(false);
+      if (!silent) setCallsLoading(false);
     }
   }, []);
 
@@ -217,6 +217,16 @@ export default function TelefoniaPage() {
     void loadMembers();
     void loadSupervision();
   }, [loadCalls, loadMembers, loadSupervision]);
+
+  // Refresco silencioso del historial: la transcripción automática y
+  // las llamadas cerradas desde otra pestaña aparecen sin recargar.
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (document.visibilityState === 'hidden') return;
+      void loadCalls(true);
+    }, 20_000);
+    return () => clearInterval(timer);
+  }, [loadCalls]);
 
   // La supervisión es una foto: se refresca cada 5 s mientras la
   // pestaña esté visible (igual que el sondeo del softphone).
