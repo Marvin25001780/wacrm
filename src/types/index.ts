@@ -512,6 +512,42 @@ export interface TelephonyStatus {
   incomingCall: CallSession | null;
 }
 
+/** Fila del panel de supervisión (GET /api/telephony/agents). */
+export interface TelephonyAgentSupervision {
+  user_id: string;
+  name: string;
+  role: AccountRole;
+  presence: 'online' | 'away' | 'offline';
+  agent_status: AgentStatus;
+  last_seen_at: string | null;
+  active_call: {
+    id: string;
+    direction: CallDirection;
+    number: string | null;
+    status: CallSessionStatus;
+    started_at: string;
+    answered_at: string | null;
+  } | null;
+}
+
+/** Entrante sonando que nadie ha reclamado. */
+export interface TelephonyQueueItem {
+  id: string;
+  from_number: string | null;
+  to_number: string | null;
+  started_at: string;
+  contact_name: string | null;
+}
+
+/** Respuesta de GET /api/telephony/agents (solo admin+). */
+export interface TelephonySupervision {
+  agents: TelephonyAgentSupervision[];
+  queue: TelephonyQueueItem[];
+  updated_at: string;
+  /** Falta aplicar la 112: no hay tablas de llamadas todavía. */
+  migrationMissing: boolean;
+}
+
 /** Etiquetas de conveniencia. */
 export function activityTypeLabel(value?: string | null): string {
   if (!value) return '';

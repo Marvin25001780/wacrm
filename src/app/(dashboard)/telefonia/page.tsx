@@ -10,7 +10,8 @@
 // ============================================================
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { format } from 'date-fns';
+import { format, formatDistanceToNow } from 'date-fns';
+import { es } from 'date-fns/locale';
 import { toast } from 'sonner';
 import {
   AlertTriangle,
@@ -25,6 +26,8 @@ import {
   PhoneOutgoing,
   Save,
   Server,
+  Sparkles,
+  Users,
 } from 'lucide-react';
 
 import { MetricCard } from '@/components/dashboard/metric-card';
@@ -54,12 +57,15 @@ import { Textarea } from '@/components/ui/textarea';
 import { useAuth } from '@/hooks/use-auth';
 import { cn } from '@/lib/utils';
 import {
+  agentStatusLabel,
   callResultLabel,
   callSessionStatusLabel,
   callDirectionLabel,
   type AccountMember,
+  type AgentStatus,
   type CallSession,
   type TelephonyConfig,
+  type TelephonySupervision,
 } from '@/types';
 import { formatCallDuration } from '@/lib/telephony/calls';
 import { formatPhoneDisplay, normalizePhone } from '@/lib/telephony/phone';
@@ -103,6 +109,33 @@ const statusTone: Record<string, string> = {
   cancelled: 'border-border text-muted-foreground',
 };
 
+const agentTone: Record<AgentStatus, string> = {
+  available:
+    'border-emerald-300 text-emerald-700 dark:text-emerald-300',
+  busy: 'border-amber-300 text-amber-700 dark:text-amber-300',
+  wrap_up: 'border-indigo-300 text-indigo-700 dark:text-indigo-300',
+  break: 'border-border text-muted-foreground',
+};
+
+const presenceDot: Record<string, string> = {
+  online: 'bg-emerald-500',
+  away: 'bg-amber-400',
+  offline: 'bg-muted-foreground/40',
+};
+
+const presenceText: Record<string, string> = {
+  online: 'En línea',
+  away: 'Ausente',
+  offline: 'Desconectado',
+};
+
+const roleText: Record<string, string> = {
+  owner: 'Dueño',
+  admin: 'Admin',
+  agent: 'Agente',
+  viewer: 'Espectador',
+};
+
 export default function TelefoniaPage() {
   const { isAdmin, accountRole } = useAuth();
   const {
@@ -124,9 +157,15 @@ export default function TelefoniaPage() {
     null
   );
   const [transcribingId, setTranscribingId] = useState<string | null>(null);
+  const [summarizingId, setSummarizingId] = useState<string | null>(null);
+  const [supervision, setSupervision] =
+    useState<TelephonySupervision | null>(null);
+  const [nowTick, setNowTick] = useState(() => Date.now());
 
   const [form, setForm] = useState<ConfigForm>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
+
+  const canSupervise = Boolean(isAdmin || accountRole === 'owner');
 
   const loadCalls = useCallback(async () => {
     setCallsLoading(true);
@@ -157,19 +196,58 @@ export default function TelefoniaPage() {
     }
   }, []);
 
+  const loadSupervision = useCallback(async () => {
+    if (!canSupervise) return;
+    try {
+      const res = await fetch('/api/telephony/agents', { cache: 'no-store' });
+      const body = (await res.json().catch(() => ({}))) as
+        TelephonySupervision | { error?: string };
+      if (res.ok && body && 'agents' in body) {
+        setSupervision(body);
+        setNowTick(Date.now());
+      }
+    } catch {
+      // Sin red: se conserva la última foto del equipo.
+    }
+  }, [canSupervise]);
+
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadCalls();
     void loadMembers();
-  }, [loadCalls, loadMembers]);
+    void loadSupervision();
+  }, [loadCalls, loadMembers, loadSupervision]);
+
+  // La supervisión es una foto: se refresca cada 5 s mientras la
+  // pestaña esté visible (igual que el sondeo del softphone).
+  useEffect(() => {
+    if (!canSupervise) return;
+    const timer = setInterval(() => {
+      if (document.visibilityState === 'hidden') return;
+      void loadSupervision();
+    }, 5000);
+    return () => clearInterval(timer);
+  }, [canSupervise, loadSupervision]);
+
+  // Reloj para las duraciones de las llamadas en curso y la espera.
+  const hasLiveCalls = Boolean(
+    supervision?.queue.length ||
+      supervision?.agents.some((agent) => agent.active_call)
+  );
+  useEffect(() => {
+    if (!hasLiveCalls) return;
+    const timer = setInterval(() => setNowTick(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [hasLiveCalls]);
 
   // Al colgar, refrescar historial y estado.
   useEffect(() => {
     if (phase === 'idle') {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       void loadCalls();
+      void loadSupervision();
     }
-  }, [phase, loadCalls]);
+  }, [phase, loadCalls, loadSupervision]);
 
   // Prellenar el formulario cuando llega la configuración. El sondeo
   // de estado trae un objeto nuevo cada 5 s; el ref evita que el
@@ -273,6 +351,30 @@ export default function TelefoniaPage() {
     }
   };
 
+  const summarize = async (call: CallSession) => {
+    setSummarizingId(call.id);
+    try {
+      const res = await fetch(`/api/telephony/calls/${call.id}/summary`, {
+        method: 'POST',
+      });
+      const body = (await res.json().catch(() => ({}))) as {
+        call?: CallSession;
+        error?: string;
+      };
+      if (!res.ok || !body.call) {
+        toast.error(body.error ?? 'No se pudo resumir la llamada.');
+        return;
+      }
+      setCalls((current) =>
+        current.map((row) => (row.id === call.id ? body.call! : row))
+      );
+      setTranscriptCall(body.call);
+      toast.success('Resumen listo.');
+    } finally {
+      setSummarizingId(null);
+    }
+  };
+
   const notReady = !statusLoading && status && !status.dialReady;
 
   return (
@@ -334,6 +436,170 @@ export default function TelefoniaPage() {
           icon={PhoneMissed}
         />
       </div>
+
+      {canSupervise ? (
+        <Panel
+          title="Supervisión del equipo"
+          subtitle="Presencia, estado operativo y llamadas en curso. Solo admin+."
+          actions={
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void loadSupervision()}
+            >
+              <Users className="mr-1 h-3.5 w-3.5" />
+              Actualizar
+            </Button>
+          }
+          bodyClassName="p-0"
+        >
+          {!supervision ? (
+            <p className="text-muted-foreground p-5 text-sm">
+              Cargando equipo…
+            </p>
+          ) : supervision.migrationMissing ? (
+            <p className="text-muted-foreground p-5 text-sm">
+              Aplica la migración 112 para ver el estado de los agentes y las
+              llamadas en curso.
+            </p>
+          ) : (
+            <>
+              {supervision.queue.length > 0 ? (
+                <div className="border-border border-b bg-amber-50/60 px-5 py-3 dark:bg-amber-950/20">
+                  <p className="flex items-center gap-1.5 text-sm font-medium text-amber-800 dark:text-amber-200">
+                    <PhoneIncoming className="h-4 w-4" />
+                    En espera ({supervision.queue.length})
+                  </p>
+                  <ul className="mt-2 space-y-1">
+                    {supervision.queue.map((item) => (
+                      <li
+                        key={item.id}
+                        className="flex flex-wrap items-center justify-between gap-2 text-xs"
+                      >
+                        <span className="text-foreground">
+                          {item.contact_name ||
+                            formatPhoneDisplay(item.from_number) ||
+                            'Número desconocido'}
+                        </span>
+                        <span className="text-muted-foreground">
+                          esperando{' '}
+                          {formatCallDuration(
+                            Math.max(
+                              0,
+                              Math.floor(
+                                (nowTick - new Date(item.started_at).getTime()) /
+                                  1000
+                              )
+                            )
+                          )}
+                          {item.to_number
+                            ? ` · marcó a ${formatPhoneDisplay(item.to_number)}`
+                            : ''}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Agente</TableHead>
+                    <TableHead>Presencia</TableHead>
+                    <TableHead>Estado</TableHead>
+                    <TableHead>Llamada en curso</TableHead>
+                    <TableHead>Última conexión</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {supervision.agents.map((agent) => {
+                    const call = agent.active_call;
+                    const startIso = call?.answered_at ?? call?.started_at;
+                    const seconds = startIso
+                      ? Math.max(
+                          0,
+                          Math.floor(
+                            (nowTick - new Date(startIso).getTime()) / 1000
+                          )
+                        )
+                      : null;
+                    return (
+                      <TableRow key={agent.user_id}>
+                        <TableCell>
+                          <p className="text-foreground text-sm">
+                            {agent.name}
+                          </p>
+                          <p className="text-muted-foreground text-[11px]">
+                            {roleText[agent.role] ?? agent.role}
+                          </p>
+                        </TableCell>
+                        <TableCell>
+                          <span className="inline-flex items-center gap-1.5 text-xs">
+                            <span
+                              className={cn(
+                                'h-2 w-2 rounded-full',
+                                presenceDot[agent.presence]
+                              )}
+                            />
+                            {presenceText[agent.presence] ?? agent.presence}
+                          </span>
+                        </TableCell>
+                        <TableCell>
+                          {agent.presence === 'offline' ? (
+                            <span className="text-muted-foreground text-xs">
+                              —
+                            </span>
+                          ) : (
+                            <Badge
+                              variant="outline"
+                              className={cn(
+                                'text-[10px]',
+                                agentTone[agent.agent_status]
+                              )}
+                            >
+                              {agentStatusLabel(agent.agent_status)}
+                            </Badge>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-xs">
+                          {call ? (
+                            <span className="text-foreground inline-flex flex-wrap items-center gap-1">
+                              {call.direction === 'inbound' ? (
+                                <PhoneIncoming className="h-3.5 w-3.5" />
+                              ) : (
+                                <PhoneOutgoing className="h-3.5 w-3.5" />
+                              )}
+                              {formatPhoneDisplay(call.number) ||
+                                call.number ||
+                                '—'}
+                              <span className="text-muted-foreground font-mono tabular-nums">
+                                {call.status === 'ringing' && !call.answered_at
+                                  ? 'sonando '
+                                  : '· '}
+                                {formatCallDuration(seconds)}
+                              </span>
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">Libre</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground text-[11px]">
+                          {agent.last_seen_at
+                            ? formatDistanceToNow(new Date(agent.last_seen_at), {
+                                addSuffix: true,
+                                locale: es,
+                              })
+                            : '—'}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </>
+          )}
+        </Panel>
+      ) : null}
 
       <div className="grid gap-5 lg:grid-cols-[1fr_20rem]">
         <Panel
@@ -776,6 +1042,43 @@ export default function TelefoniaPage() {
                 : ''}
             </DialogDescription>
           </DialogHeader>
+          {transcriptCall?.ai_summary ? (
+            <div className="rounded-lg border border-emerald-300/60 bg-emerald-50/60 p-3 dark:bg-emerald-950/20">
+              <p className="text-foreground mb-1 flex items-center gap-1.5 text-xs font-medium">
+                <Sparkles className="h-3.5 w-3.5" />
+                Resumen con IA
+              </p>
+              <p className="text-foreground text-sm whitespace-pre-wrap">
+                {transcriptCall.ai_summary}
+              </p>
+            </div>
+          ) : (
+            <div className="border-border flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3">
+              <p className="text-muted-foreground max-w-md text-xs">
+                Genera un resumen corto (motivo, acuerdos y siguiente paso) con
+                el Asistente de IA del negocio.
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={
+                  !transcriptCall || summarizingId === transcriptCall.id
+                }
+                onClick={() => {
+                  if (transcriptCall) void summarize(transcriptCall);
+                }}
+              >
+                {summarizingId === transcriptCall?.id ? (
+                  <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Sparkles className="mr-1 h-3.5 w-3.5" />
+                )}
+                {summarizingId === transcriptCall?.id
+                  ? 'Generando…'
+                  : 'Resumir'}
+              </Button>
+            </div>
+          )}
           <div className="border-border bg-muted/30 text-foreground max-h-[60vh] overflow-y-auto rounded-lg border p-3 text-sm whitespace-pre-wrap">
             {transcriptCall?.transcript}
           </div>

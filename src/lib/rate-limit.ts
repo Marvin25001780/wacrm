@@ -164,6 +164,12 @@ export const RATE_LIMITS = {
    *  key past the provider's own rate limit. 60/min ≈ three busy agents
    *  drafting flat-out. */
   aiDraftAccount: { limit: 60, windowMs: 60_000 },
+  /** Resumen de una llamada transcrita, per user. Una llamada se
+   *  resume una sola vez (el endpoint es idempotente), así que el
+   *  límite solo frena reintentos manuales o un script. */
+  callSummary: { limit: 10, windowMs: 60_000 },
+  /** Resumen de llamadas, per account. */
+  callSummaryAccount: { limit: 30, windowMs: 60_000 },
 } as const;
 
 /** Test-only helper. Clears the in-memory state so unit tests don't

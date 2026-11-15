@@ -29,7 +29,7 @@ Navegador (agente)  ──WebRTC──▶  LiveKit (media)  ──SIP──▶  
 | Tabla                          | Para qué                                                                                                        |
 | ------------------------------ | --------------------------------------------------------------------------------------------------------------- |
 | `telephony_config`             | Ajustes por negocio: activo, caller ID, troncal, números entrantes, grabación, transcripción. **Sin secretos.** |
-| `call_sessions`                | Una fila por llamada: dirección, estado, tiempos, agente, contacto, grabación, transcripción.                   |
+| `call_sessions`                | Una fila por llamada: dirección, estado, tiempos, agente, contacto, grabación, transcripción y resumen IA.      |
 | `call_events`                  | Bitácora append-only (creada, contestada, grabación lista, cerrada…).                                           |
 | `member_presence.agent_status` | Disponibilidad operativa: `available`, `busy`, `wrap_up`, `break`.                                              |
 
@@ -137,6 +137,16 @@ Gemini). Anthropic y DeepSeek no ofrecen endpoint de audio. El botón
 “Transcribir” del historial descarga la grabación (máx. 24 MB) y la
 manda al proveedor; el texto queda en `call_sessions.transcript`.
 
+### Resumen con IA
+
+Con la llamada transcrita, **Ver → Resumir** pide al proveedor de IA
+del negocio un resumen corto en cuatro líneas (resumen, motivo,
+acuerdos y siguiente paso) y lo guarda en `call_sessions.ai_summary`.
+El prompt prohíbe inventar datos: lo que no está en la transcripción
+se marca como “No se indicó”. Es idempotente — una llamada se resume
+una sola vez — y consume tokens del mismo proveedor que el asistente;
+requiere el interruptor maestro de **Ajustes → Asistente de IA**.
+
 ## 5. Operación diaria
 
 - El botón de teléfono del encabezado abre el softphone; también hay
@@ -149,14 +159,19 @@ manda al proveedor; el texto queda en `call_sessions.transcript`.
   sin cambios.
 - Las llamadas entrantes sin agente no crean actividad (no hay a quién
   asignarlas); sí quedan en `call_sessions` como `missed`.
+- **Supervisión** (admin+): el panel de `/telefonia` muestra cada
+  agente con su presencia (heartbeat), su estado operativo, la llamada
+  que tiene en curso con cronómetro y la cola de entrantes sin
+  reclamar con su tiempo de espera. Se refresca cada 5 s; es solo
+  lectura.
 
 ### Permisos
 
-| Rol           | Puede                                                                            |
-| ------------- | -------------------------------------------------------------------------------- |
-| Viewer        | Ver historial y configuración (solo lectura).                                    |
-| Agent         | Marcar, contestar/cerrar sus llamadas, transcribir, cambiar su estado.           |
-| Admin / Owner | Todo lo anterior + cerrar llamadas ajenas + editar la configuración del negocio. |
+| Rol           | Puede                                                                                          |
+| ------------- | ---------------------------------------------------------------------------------------------- |
+| Viewer        | Ver historial y configuración (solo lectura).                                                  |
+| Agent         | Marcar, contestar/cerrar sus llamadas, transcribir, resumir y cambiar su estado.                |
+| Admin / Owner | Todo lo anterior + cerrar llamadas ajenas + supervisión del equipo + configuración del negocio. |
 
 ## 6. Límites y aspectos legales (Venezuela)
 
@@ -187,6 +202,7 @@ manda al proveedor; el texto queda en `call_sessions.transcript`.
 | La llamada queda “activa” tras cerrar la pestaña | Webhook no configurado o apuntando a otro dominio.                                     |
 | “No se pudo descargar la grabación”              | Egress sin almacenamiento o `TELEPHONY_RECORDINGS_PUBLIC_BASE_URL` incorrecta.         |
 | “El negocio no tiene proveedor de transcripción” | Configura OpenAI/Groq/Gemini en Ajustes → Asistente de IA.                             |
+| “El asistente de IA no está configurado”         | El interruptor maestro del Asistente de IA está apagado o no hay API key guardada.     |
 
 ## 8. API
 
@@ -198,6 +214,8 @@ manda al proveedor; el texto queda en `call_sessions.transcript`.
 | POST      | `/api/telephony/calls/[id]/claim`      | Reclamar una entrante que suena.     |
 | POST      | `/api/telephony/calls/[id]/end`        | Colgar / rechazar (crea actividad).  |
 | POST      | `/api/telephony/calls/[id]/transcribe` | Transcribir grabación.               |
+| POST      | `/api/telephony/calls/[id]/summary`    | Resumen IA de una llamada transcrita. |
+| GET       | `/api/telephony/agents`                | Supervisión del equipo (admin+).     |
 | GET/PATCH | `/api/telephony/config`                | Configuración por negocio (admin+).  |
 | POST      | `/api/telephony/presence`              | Estado del agente.                   |
 | POST      | `/api/telephony/webhook`               | Eventos de LiveKit (firma).          |
