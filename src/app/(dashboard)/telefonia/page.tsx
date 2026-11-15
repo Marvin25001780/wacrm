@@ -67,6 +67,7 @@ import {
   callDirectionLabel,
   type AccountMember,
   type AgentStatus,
+  type CallAiEvaluation,
   type CallEvent,
   type CallEvaluation,
   type CallSession,
@@ -156,6 +157,7 @@ const callEventText: Record<string, string> = {
   summarized: 'Resumen generado',
   disposition_set: 'Disposición guardada',
   evaluated: 'Evaluación de calidad',
+  ai_evaluated: 'Evaluación con IA',
 };
 
 export default function TelefoniaPage() {
@@ -184,6 +186,12 @@ export default function TelefoniaPage() {
   const [summarizingId, setSummarizingId] = useState<string | null>(null);
   const [evaluation, setEvaluation] = useState<CallEvaluation | null>(null);
   const [evaluationLoading, setEvaluationLoading] = useState(false);
+  const [qaMigrationMissing, setQaMigrationMissing] = useState(false);
+  const [aiEvaluation, setAiEvaluation] = useState<CallAiEvaluation | null>(
+    null
+  );
+  const [aiEvaluating, setAiEvaluating] = useState(false);
+  const [aiMigrationMissing, setAiMigrationMissing] = useState(false);
   const [qaScores, setQaScores] = useState<Record<string, number>>({});
   const [qaComments, setQaComments] = useState('');
   const [savingQa, setSavingQa] = useState(false);
@@ -271,6 +279,7 @@ export default function TelefoniaPage() {
         migrationMissing?: boolean;
       };
       if (!res.ok) return;
+      setQaMigrationMissing(Boolean(body.migrationMissing));
       const current = body.evaluation ?? null;
       setEvaluation(current);
       if (current) {
@@ -286,6 +295,24 @@ export default function TelefoniaPage() {
     }
   }, []);
 
+  const loadAiEvaluation = useCallback(async (callId: string) => {
+    try {
+      const res = await fetch(
+        `/api/telephony/calls/${encodeURIComponent(callId)}/ai-evaluate`,
+        { cache: 'no-store' }
+      );
+      const body = (await res.json().catch(() => ({}))) as {
+        evaluation?: CallAiEvaluation | null;
+        migrationMissing?: boolean;
+      };
+      if (!res.ok) return;
+      setAiMigrationMissing(Boolean(body.migrationMissing));
+      setAiEvaluation(body.evaluation ?? null);
+    } catch {
+      // Sin red: la sección de IA se abre vacía.
+    }
+  }, []);
+
   const openCall = useCallback(
     (call: CallSession) => {
       setTranscriptCall(call);
@@ -293,10 +320,12 @@ export default function TelefoniaPage() {
       setEvaluation(null);
       setQaScores({});
       setQaComments('');
+      setAiEvaluation(null);
       void loadEvents(call.id);
       void loadEvaluation(call.id);
+      void loadAiEvaluation(call.id);
     },
-    [loadEvents, loadEvaluation]
+    [loadEvents, loadEvaluation, loadAiEvaluation]
   );
 
   useEffect(() => {
@@ -471,6 +500,30 @@ export default function TelefoniaPage() {
       toast.success('Resumen listo.');
     } finally {
       setSummarizingId(null);
+    }
+  };
+
+  const saveAiEvaluation = async () => {
+    if (!transcriptCall) return;
+    setAiEvaluating(true);
+    try {
+      const res = await fetch(
+        `/api/telephony/calls/${transcriptCall.id}/ai-evaluate`,
+        { method: 'POST' }
+      );
+      const body = (await res.json().catch(() => ({}))) as {
+        evaluation?: CallAiEvaluation;
+        error?: string;
+      };
+      if (!res.ok || !body.evaluation) {
+        toast.error(body.error ?? 'No se pudo evaluar con IA.');
+        return;
+      }
+      setAiEvaluation(body.evaluation);
+      toast.success(`Nota de IA guardada: ${body.evaluation.score}/100.`);
+      void loadEvents(transcriptCall.id);
+    } finally {
+      setAiEvaluating(false);
     }
   };
 
@@ -1195,6 +1248,7 @@ export default function TelefoniaPage() {
             setEvaluation(null);
             setQaScores({});
             setQaComments('');
+            setAiEvaluation(null);
           }
         }}
       >
@@ -1329,6 +1383,11 @@ export default function TelefoniaPage() {
 
                 {evaluationLoading ? (
                   <p className="text-muted-foreground text-xs">Cargando…</p>
+                ) : qaMigrationMissing ? (
+                  <p className="text-muted-foreground text-xs">
+                    Aplica la migración 114 en Supabase para evaluar la
+                    calidad de las llamadas.
+                  </p>
                 ) : (
                   <div className="space-y-2">
                     {QA_CRITERIA.map((criterion) => (
@@ -1397,6 +1456,60 @@ export default function TelefoniaPage() {
                         {evaluation ? 'Actualizar evaluación' : 'Guardar evaluación'}
                       </Button>
                     </div>
+                  </div>
+                )}
+
+                {aiMigrationMissing ? null : (
+                  <div className="border-border rounded-lg border border-dashed p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-foreground flex items-center gap-1.5 text-xs font-medium">
+                        <Sparkles className="h-3.5 w-3.5" />
+                        Nota automática de IA
+                      </p>
+                      <div className="flex items-center gap-2">
+                        {aiEvaluation ? (
+                          <Badge
+                            variant="outline"
+                            className={cn(
+                              'text-[10px]',
+                              aiEvaluation.score >= 80
+                                ? 'border-emerald-300 text-emerald-700 dark:text-emerald-300'
+                                : aiEvaluation.score >= 60
+                                  ? 'border-amber-300 text-amber-700 dark:text-amber-300'
+                                  : 'border-red-300 text-red-600 dark:text-red-400'
+                            )}
+                          >
+                            {aiEvaluation.score}/100
+                          </Badge>
+                        ) : null}
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={
+                            aiEvaluating || !transcriptCall?.transcript
+                          }
+                          onClick={() => void saveAiEvaluation()}
+                        >
+                          {aiEvaluating ? (
+                            <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Sparkles className="mr-1 h-3.5 w-3.5" />
+                          )}
+                          {aiEvaluation ? 'Regenerar' : 'Evaluar con IA'}
+                        </Button>
+                      </div>
+                    </div>
+                    {aiEvaluation?.summary ? (
+                      <p className="text-muted-foreground mt-1 text-xs">
+                        {aiEvaluation.summary}
+                      </p>
+                    ) : (
+                      <p className="text-muted-foreground mt-1 text-[11px]">
+                        {transcriptCall?.transcript
+                          ? 'Genera una segunda opinión a partir de la transcripción, con la misma rúbrica.'
+                          : 'Requiere una transcripción de la llamada.'}
+                      </p>
+                    )}
                   </div>
                 )}
               </div>

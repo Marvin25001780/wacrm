@@ -63,6 +63,8 @@
 7. **Cierre de llamada** con disposición y notas (wrap-up).
 8. **QA de llamadas** (WEM): rúbrica de cinco criterios, puntaje 0–100,
    comentarios y reporte de calidad por agente.
+9. **QA automática con IA**: segunda opinión sobre la transcripción,
+   con la misma rúbrica y validación del JSON en el servidor.
 
 Nada de eso copia código de terceros: se usan SDKs Apache-2.0 y APIs.
 
@@ -75,7 +77,7 @@ Nada de eso copia código de terceros: se usan SDKs Apache-2.0 y APIs.
 | CCaaS 2 | **Campañas salientes** (preview/progresivo) con lista y ritmo. | Troncal SIP. |
 | IA 1 | **Agente de voz** (IVR/contestador) con LiveKit Agents. | Servidor LiveKit + API keys de STT/LLM/TTS. |
 | WEM 2 | **Adherencia**: horarios, pausas y cumplimiento. | Datos de presencia (ya existen). |
-| IA 2 | **QA automática**: puntuar la transcripción con el LLM y comparar con el humano. | Transcripciones + proveedor de IA. |
+| IA 2 | **QA automática**: puntuar la transcripción con el LLM y comparar con el humano. | Transcripciones + proveedor de IA. ✅ Hecho (migración 115); falta comparativa en reportes. |
 
 ## 5. Reglas de integración
 

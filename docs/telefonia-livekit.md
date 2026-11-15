@@ -31,7 +31,8 @@ Navegador (agente)  ──WebRTC──▶  LiveKit (media)  ──SIP──▶  
 | `telephony_config`             | Ajustes por negocio: activo, caller ID, troncal, números entrantes, grabación, transcripción. **Sin secretos.** |
 | `call_sessions`                | Una fila por llamada: dirección, estado, tiempos, agente, contacto, grabación, transcripción, resumen IA y cierre (disposición/notas). |
 | `call_events`                  | Bitácora append-only (creada, contestada, grabación lista, cerrada, disposición…).                              |
-| `call_evaluations`             | QA de la llamada (migración 114): puntaje 0–100, rúbrica y comentarios del supervisor.                         || `member_presence.agent_status` | Disponibilidad operativa: `available`, `busy`, `wrap_up`, `break`.                                              |
+| `call_evaluations`             | QA de la llamada (migración 114): puntaje 0–100, rúbrica y comentarios del supervisor.                         |
+| `call_ai_evaluations`          | QA automática con IA (migración 115): nota, rúbrica, proveedor/modelo y feedback.                               || `member_presence.agent_status` | Disponibilidad operativa: `available`, `busy`, `wrap_up`, `break`.                                              |
 
 RLS: cualquier miembro lee; agente+ crea y cierra sus llamadas; admin+
 puede cerrar cualquiera. El estado de agente se cambia solo por RPC
@@ -48,6 +49,12 @@ llamada con rúbrica fija de cinco criterios (saludo, identificación,
 escucha, resolución y cierre), cada uno de 0 a 5. El puntaje 0–100 se
 calcula en el servidor (`src/lib/telephony/qa.ts`) y solo admin+ puede
 escribirlo.
+
+La **migración 115** añade `call_ai_evaluations`: una segunda opinión
+generada con el proveedor de IA del negocio sobre la transcripción. El
+JSON del modelo se valida y se recalcula en el servidor
+(`src/lib/telephony/ai-qa.ts`); no se guarda nada que el modelo no haya
+devuelto por criterio.
 
 ## 2. Variables de entorno
 
@@ -209,6 +216,11 @@ requiere el interruptor maestro de **Ajustes → Asistente de IA**.
   comentarios. El puntaje 0–100 aparece en el detalle, en la bitácora
   (`evaluated`) y en la columna QA de los reportes, junto con la
   cobertura (evaluadas / contestadas).
+- **QA automática con IA** (admin+): con la llamada transcrita, el
+  botón **Evaluar con IA** pide al proveedor del negocio una nota por
+  criterio y un feedback corto. Se guarda aparte de la nota humana, se
+  puede regenerar y deja un evento `ai_evaluated`. Sirve para priorizar
+  qué llamadas revisar, no para sustituir al supervisor.
 
 ### Permisos
 
@@ -267,6 +279,7 @@ requiere el interruptor maestro de **Ajustes → Asistente de IA**.
 | GET       | `/api/telephony/agents`                | Supervisión del equipo (admin+).     |
 | GET       | `/api/telephony/reports`               | Reportes de operación (admin+).      |
 | GET/POST  | `/api/telephony/evaluations`           | QA de llamadas (POST admin+).        |
+| GET/POST  | `/api/telephony/calls/[id]/ai-evaluate` | QA automática con IA (POST admin+). |
 | GET/PATCH | `/api/telephony/config`                | Configuración por negocio (admin+).  |
 | POST      | `/api/telephony/presence`              | Estado del agente.                   |
 | POST      | `/api/telephony/webhook`               | Eventos de LiveKit (firma).          |

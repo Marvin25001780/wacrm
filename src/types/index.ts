@@ -519,6 +519,26 @@ export interface CallEvaluation {
   updated_at: string;
 }
 
+/** Evaluación automática con IA de una llamada (migración 115). */
+export interface CallAiEvaluation {
+  id: string;
+  account_id: string;
+  call_id: string;
+  agent_user_id: string | null;
+  score: number;
+  criteria: {
+    key: string;
+    label: string;
+    score: number;
+    max: number;
+  }[];
+  provider: string | null;
+  model: string | null;
+  summary: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export function callSessionStatusLabel(value?: string | null): string {
   if (!value) return '';
   return CALL_SESSION_STATUSES.find((s) => s.value === value)?.label ?? value;

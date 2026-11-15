@@ -157,7 +157,18 @@ export async function POST(request: Request) {
       )
       .select('*')
       .single();
-    if (saveError) throw saveError;
+    if (saveError) {
+      if (isMissingRelation(saveError)) {
+        return NextResponse.json(
+          {
+            error:
+              'Falta aplicar la migración 114 (evaluaciones de calidad) en Supabase.',
+          },
+          { status: 400 }
+        );
+      }
+      throw saveError;
+    }
 
     await ctx.supabase.from('call_events').insert({
       account_id: ctx.accountId,

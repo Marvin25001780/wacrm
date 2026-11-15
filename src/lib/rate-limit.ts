@@ -170,6 +170,10 @@ export const RATE_LIMITS = {
   callSummary: { limit: 10, windowMs: 60_000 },
   /** Resumen de llamadas, per account. */
   callSummaryAccount: { limit: 30, windowMs: 60_000 },
+  /** QA automática de una llamada, per user. */
+  callAiEvaluation: { limit: 5, windowMs: 60_000 },
+  /** QA automática de llamadas, per account. */
+  callAiEvaluationAccount: { limit: 15, windowMs: 60_000 },
 } as const;
 
 /** Test-only helper. Clears the in-memory state so unit tests don't
