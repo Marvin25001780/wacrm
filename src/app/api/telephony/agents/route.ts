@@ -2,8 +2,8 @@ import { NextResponse } from 'next/server';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
-import { isAccountRole } from '@/lib/auth/roles';
 import { derivePresence } from '@/lib/presence';
+import { loadTelephonyRoster } from '@/lib/telephony/roster';
 import type {
   AgentStatus,
   CallDirection,
@@ -61,7 +61,7 @@ export async function GET() {
       ? []
       : ((liveResult.data ?? []) as unknown as LiveCallRow[]);
 
-    const roster = await loadRoster(ctx.supabase, ctx.accountId);
+    const roster = await loadTelephonyRoster(ctx.supabase, ctx.accountId);
     if (!roster) {
       return NextResponse.json(
         { error: 'No se pudo cargar el equipo del negocio.' },
@@ -170,76 +170,6 @@ async function loadPresence(
   return ((legacy.data ?? []) as Omit<PresenceRowLite, 'agent_status'>[]).map(
     (row) => ({ ...row, agent_status: 'available' as AgentStatus })
   );
-}
-
-interface RosterMember {
-  user_id: string;
-  name: string;
-  role: TelephonyAgentSupervision['role'];
-}
-
-/**
- * Nombre visible por negocio vía `account_member_roster` (109). Si la
- * RPC no existe cae a `profiles`, igual que /api/account/members.
- */
-async function loadRoster(
-  db: SupabaseClient,
-  accountId: string
-): Promise<RosterMember[] | null> {
-  const rpc = await db.rpc('account_member_roster');
-
-  if (!rpc.error) {
-    const rows = (rpc.data ?? []) as {
-      user_id: string;
-      full_name: string | null;
-      display_name?: string | null;
-      email: string | null;
-      role: string;
-    }[];
-    return rows.flatMap((row) => {
-      if (!isAccountRole(row.role)) return [];
-      return [
-        {
-          user_id: row.user_id,
-          name:
-            row.display_name?.trim() ||
-            row.full_name?.trim() ||
-            row.email ||
-            'Sin nombre',
-          role: row.role,
-        },
-      ];
-    });
-  }
-
-  const rpcMissing = rpc.error.code === 'PGRST202' || rpc.error.code === '42883';
-  if (!rpcMissing) {
-    console.error('[telephony/agents] roster error:', rpc.error);
-    return null;
-  }
-
-  const legacy = await db
-    .from('profiles')
-    .select('user_id, full_name, email, account_role')
-    .eq('account_id', accountId);
-  if (legacy.error) {
-    console.error('[telephony/agents] legacy roster error:', legacy.error);
-    return null;
-  }
-
-  return (legacy.data ?? []).flatMap((row) => {
-    if (!isAccountRole(row.account_role)) return [];
-    return [
-      {
-        user_id: row.user_id as string,
-        name:
-          (row.full_name as string | null)?.trim() ||
-          (row.email as string | null) ||
-          'Sin nombre',
-        role: row.account_role,
-      },
-    ];
-  });
 }
 
 /** Tabla de llamadas ausente = migración 112 sin aplicar. */

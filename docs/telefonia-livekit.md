@@ -24,18 +24,24 @@ Navegador (agente)  ──WebRTC──▶  LiveKit (media)  ──SIP──▶  
   la pestaña), el webhook `room_finished` cierra la sesión y escribe la
   **actividad de CRM** que alimenta Métricas → Llamadas.
 
-### Tablas (migración 112)
+### Tablas (migraciones 112 y 113)
 
 | Tabla                          | Para qué                                                                                                        |
 | ------------------------------ | --------------------------------------------------------------------------------------------------------------- |
 | `telephony_config`             | Ajustes por negocio: activo, caller ID, troncal, números entrantes, grabación, transcripción. **Sin secretos.** |
-| `call_sessions`                | Una fila por llamada: dirección, estado, tiempos, agente, contacto, grabación, transcripción y resumen IA.      |
-| `call_events`                  | Bitácora append-only (creada, contestada, grabación lista, cerrada…).                                           |
+| `call_sessions`                | Una fila por llamada: dirección, estado, tiempos, agente, contacto, grabación, transcripción, resumen IA y cierre (disposición/notas). |
+| `call_events`                  | Bitácora append-only (creada, contestada, grabación lista, cerrada, disposición…).                              |
 | `member_presence.agent_status` | Disponibilidad operativa: `available`, `busy`, `wrap_up`, `break`.                                              |
 
 RLS: cualquier miembro lee; agente+ crea y cierra sus llamadas; admin+
 puede cerrar cualquiera. El estado de agente se cambia solo por RPC
 (`set_agent_status`), que deriva la cuenta de la sesión.
+
+La **migración 113** añade el cierre de llamada: `disposition`, `notes` y
+`wrap_up_completed_at` en `call_sessions`, con una lista fija de
+resultados (`sale`, `quote`, `support`, `complaint`, `follow_up`,
+`not_interested`, `wrong_number`, `other`) que vive en
+`src/types/index.ts`. No es una tabla configurable por negocio.
 
 ## 2. Variables de entorno
 
@@ -108,11 +114,13 @@ registra y se deja un aviso en el log del servidor.
 Cuando entra una llamada:
 
 1. El webhook crea la sesión (`ringing`, sin agente).
-2. El softphone de los agentes consulta el estado cada 5 s y muestra
-   el aviso de **Llamada entrante** con el número/contacto.
+2. El softphone de los agentes **disponibles** consulta el estado cada
+   5 s y muestra el aviso de **Llamada entrante** con el
+   número/contacto. En pausa, cierre u ocupado la cola no suena.
 3. El primero que pulsa **Contestar** la reclama
    (`POST /calls/[id]/claim`, gana quien actualice primero) y entra a
    la sala; LiveKit contesta la troncal y la sesión pasa a `active`.
+   Si el agente no está `available`, el claim responde 409.
 4. **Rechazar** la cierra como `cancelled` sin asignarla. Si nadie
    contesta, queda como `missed` cuando el cliente cuelga.
 
@@ -159,8 +167,17 @@ requiere el interruptor maestro de **Ajustes → Asistente de IA**.
 - El botón de teléfono del encabezado abre el softphone; también hay
   botón de llamada en la ficha del contacto y en la cabecera del hilo.
 - Estados del agente: **Disponible**, **Ocupado**, **Cierre** y
-  **Pausa**. Al marcar pasa a Ocupado y al colgar a Cierre (wrap-up);
-  el agente vuelve a Disponible cuando termina sus notas.
+  **Pausa**. Al marcar pasa a Ocupado; al colgar pasa a Cierre
+  (wrap-up) y queda bloqueado para nuevas llamadas hasta que guarda la
+  disposición u omite el cierre; entonces vuelve a Disponible.
+- **Cierre (wrap-up)**: al colgar el softphone pide una disposición
+  (venta, cotización, soporte, reclamo, seguimiento, no interesado,
+  número equivocado u otro) y notas opcionales. Se guarda con
+  `PATCH /api/telephony/calls/[id]`; `wrap_up_completed_at` es lo que
+  permite medir el tiempo de cierre. Omitir vuelve a Disponible sin
+  clasificar la llamada.
+- Solo los agentes `available` reciben y pueden reclamar entrantes; el
+  resto sigue viendo el historial y puede marcar salientes.
 - Cada llamada cerrada crea una actividad `type='call'` con dirección,
   resultado y duración. Por eso `/metrics/llamadas` sigue funcionando
   sin cambios.
@@ -174,6 +191,13 @@ requiere el interruptor maestro de **Ajustes → Asistente de IA**.
   que tiene en curso con cronómetro y la cola de entrantes sin
   reclamar con su tiempo de espera. Se refresca cada 5 s; es solo
   lectura.
+- **Reportes** (admin+): `/telefonia/reportes` con ventana de 7, 30 o
+  90 días. Muestra volumen, contestadas, perdidas/nivel de servicio,
+  abandono, espera media, duración media, tiempo de cierre,
+  grabaciones/transcripciones, barras por día y por hora (hora de
+  Caracas), tabla por agente y resultados por disposición. La API
+  (`GET /api/telephony/reports?days=N`) devuelve como máximo 5 000
+  llamadas y avisa cuando la ventana se truncó.
 
 ### Permisos
 
@@ -181,7 +205,7 @@ requiere el interruptor maestro de **Ajustes → Asistente de IA**.
 | ------------- | ---------------------------------------------------------------------------------------------- |
 | Viewer        | Ver historial y configuración (solo lectura).                                                  |
 | Agent         | Marcar, contestar/cerrar sus llamadas, transcribir, resumir y cambiar su estado.                |
-| Admin / Owner | Todo lo anterior + cerrar llamadas ajenas + supervisión del equipo + configuración del negocio. |
+| Admin / Owner | Todo lo anterior + cerrar llamadas ajenas + supervisión del equipo + reportes + configuración del negocio. |
 
 ## 6. Límites y aspectos legales (Venezuela)
 
@@ -213,6 +237,7 @@ requiere el interruptor maestro de **Ajustes → Asistente de IA**.
 | “No se pudo descargar la grabación”              | Egress sin almacenamiento o `TELEPHONY_RECORDINGS_PUBLIC_BASE_URL` incorrecta.         |
 | “El negocio no tiene proveedor de transcripción” | Configura OpenAI/Groq/Gemini en Ajustes → Asistente de IA.                             |
 | “El asistente de IA no está configurado”         | El interruptor maestro del Asistente de IA está apagado o no hay API key guardada.     |
+| “Ponte Disponible para contestar llamadas”       | El agente está en pausa/cierre/ocupado; cambia de estado en el softphone.              |
 
 ## 8. API
 
@@ -221,12 +246,14 @@ requiere el interruptor maestro de **Ajustes → Asistente de IA**.
 | GET       | `/api/telephony/status`                | Estado del softphone (sin secretos). |
 | GET/POST  | `/api/telephony/calls`                 | Historial / iniciar saliente.        |
 | GET       | `/api/telephony/calls/[id]`            | Detalle + bitácora de eventos.       |
+| PATCH     | `/api/telephony/calls/[id]`            | Disposición y notas del cierre.      |
 | POST      | `/api/telephony/calls/[id]/answer`     | Contestada (arranca grabación).      |
 | POST      | `/api/telephony/calls/[id]/claim`      | Reclamar una entrante que suena.     |
 | POST      | `/api/telephony/calls/[id]/end`        | Colgar / rechazar (crea actividad).  |
 | POST      | `/api/telephony/calls/[id]/transcribe` | Transcribir grabación.               |
 | POST      | `/api/telephony/calls/[id]/summary`    | Resumen IA de una llamada transcrita. |
 | GET       | `/api/telephony/agents`                | Supervisión del equipo (admin+).     |
+| GET       | `/api/telephony/reports`               | Reportes de operación (admin+).      |
 | GET/PATCH | `/api/telephony/config`                | Configuración por negocio (admin+).  |
 | POST      | `/api/telephony/presence`              | Estado del agente.                   |
 | POST      | `/api/telephony/webhook`               | Eventos de LiveKit (firma).          |

@@ -64,6 +64,8 @@ export async function GET() {
       presenceRow?.last_seen_at,
       Date.now()
     );
+    const agentStatus =
+      (presenceRow?.agent_status as AgentStatus | undefined) ?? 'available';
 
     const payload: TelephonyStatus = {
       ready: resolved.livekitReady,
@@ -81,15 +83,19 @@ export async function GET() {
         publicPlayback: Boolean(env.recordingsPublicBaseUrl),
       },
       config: resolved.row,
-      agentStatus:
-        (presenceRow?.agent_status as AgentStatus | undefined) ?? 'available',
+      agentStatus,
       presence: {
         online: presence === 'online',
         stored: presence,
         last_seen_at: presenceRow?.last_seen_at ?? null,
       },
       activeCall: (activeCall as CallSession | null) ?? null,
-      incomingCall: (incomingCall as CallSession | null) ?? null,
+      // La cola solo suena para agentes disponibles: en pausa, cierre
+      // u ocupado no se ofrece la entrante.
+      incomingCall:
+        agentStatus === 'available'
+          ? ((incomingCall as CallSession | null) ?? null)
+          : null,
     };
 
     return NextResponse.json(payload);

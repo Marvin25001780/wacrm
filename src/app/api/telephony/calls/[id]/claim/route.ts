@@ -63,6 +63,23 @@ export async function POST(
       );
     }
 
+    // Solo los agentes disponibles reciben/atienden la cola. En
+    // pausa o en cierre no se puede reclamar una entrante.
+    const { data: presence } = await ctx.supabase
+      .from('member_presence')
+      .select('agent_status')
+      .eq('user_id', ctx.userId)
+      .maybeSingle();
+    const agentStatus =
+      (presence as { agent_status?: string } | null)?.agent_status ??
+      'available';
+    if (agentStatus !== 'available') {
+      return NextResponse.json(
+        { error: 'Ponte Disponible para contestar llamadas.' },
+        { status: 409 }
+      );
+    }
+
     let updated: CallSession = call;
     if (!call.agent_user_id) {
       const { data: claimed, error: updateError } = await ctx.supabase

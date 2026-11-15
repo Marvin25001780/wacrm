@@ -410,6 +410,31 @@ export const AGENT_STATUSES: { value: AgentStatus; label: string }[] = [
   { value: 'break', label: 'Pausa' },
 ];
 
+/** Resultado con el que el agente cierra una llamada (migración 113). */
+export type CallDisposition =
+  | 'sale'
+  | 'quote'
+  | 'support'
+  | 'complaint'
+  | 'follow_up'
+  | 'not_interested'
+  | 'wrong_number'
+  | 'other';
+
+export const CALL_DISPOSITIONS: {
+  value: CallDisposition;
+  label: string;
+}[] = [
+  { value: 'sale', label: 'Venta' },
+  { value: 'quote', label: 'Cotización' },
+  { value: 'support', label: 'Soporte' },
+  { value: 'complaint', label: 'Reclamo' },
+  { value: 'follow_up', label: 'Seguimiento' },
+  { value: 'not_interested', label: 'No interesado' },
+  { value: 'wrong_number', label: 'Número equivocado' },
+  { value: 'other', label: 'Otro' },
+];
+
 export interface TelephonyConfig {
   id: string;
   account_id: string;
@@ -449,6 +474,10 @@ export interface CallSession {
   transcript: string | null;
   transcript_status: CallTranscriptStatus;
   ai_summary: string | null;
+  /** 113 — resultado del cierre y notas del agente. */
+  disposition: CallDisposition | null;
+  notes: string | null;
+  wrap_up_completed_at: string | null;
   activity_id: string | null;
   metadata: Record<string, unknown>;
   created_at: string;
@@ -479,6 +508,18 @@ export function callSessionStatusLabel(value?: string | null): string {
 export function agentStatusLabel(value?: string | null): string {
   if (!value) return '';
   return AGENT_STATUSES.find((s) => s.value === value)?.label ?? value;
+}
+
+export function callDispositionLabel(value?: string | null): string {
+  if (!value) return '';
+  return CALL_DISPOSITIONS.find((d) => d.value === value)?.label ?? value;
+}
+
+export function isCallDisposition(value: unknown): value is CallDisposition {
+  return (
+    typeof value === 'string' &&
+    CALL_DISPOSITIONS.some((d) => d.value === value)
+  );
 }
 
 /**

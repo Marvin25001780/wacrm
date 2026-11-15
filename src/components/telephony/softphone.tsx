@@ -13,6 +13,7 @@ import Link from 'next/link';
 import {
   ArrowRight,
   CircleDot,
+  Loader2,
   Mic,
   MicOff,
   Phone,
@@ -28,7 +29,14 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { formatPhoneDisplay } from '@/lib/telephony/phone';
-import { AGENT_STATUSES, agentStatusLabel, type AgentStatus } from '@/types';
+import { formatCallDuration } from '@/lib/telephony/calls';
+import {
+  AGENT_STATUSES,
+  agentStatusLabel,
+  CALL_DISPOSITIONS,
+  type AgentStatus,
+  type CallDisposition,
+} from '@/types';
 
 export function Softphone() {
   const {
@@ -51,14 +59,20 @@ export function Softphone() {
     hangup,
     toggleMute,
     setAgentStatus,
+    wrapUp,
+    saveWrapUp,
+    skipWrapUp,
   } = useTelephony();
 
   const [dial, setDial] = useState('');
+  const [disposition, setDisposition] = useState<CallDisposition | ''>('');
+  const [notes, setNotes] = useState('');
+  const [savingWrapUp, setSavingWrapUp] = useState(false);
 
   if (!open) return null;
 
   const inCall = phase !== 'idle' && phase !== 'error';
-  const busy = inCall;
+  const busy = inCall || Boolean(wrapUp);
   const ready = Boolean(
     status?.dialReady && status.enabled && !status.migrationMissing
   );
@@ -179,7 +193,8 @@ export function Softphone() {
               </div>
               {busy ? (
                 <p className="text-muted-foreground mt-1 text-[11px]">
-                  En llamada: el estado se actualiza automáticamente.
+                  En llamada o en cierre: el estado se actualiza
+                  automáticamente.
                 </p>
               ) : null}
             </div>
@@ -239,6 +254,100 @@ export function Softphone() {
                   >
                     <Phone className="mr-1.5 h-4 w-4" />
                     Contestar
+                  </Button>
+                </div>
+              </div>
+            ) : wrapUp ? (
+              <div className="space-y-3">
+                <div className="border-border bg-muted/30 rounded-xl border p-4 text-center">
+                  <p className="text-muted-foreground text-[11px] tracking-wider uppercase">
+                    Llamada finalizada
+                  </p>
+                  <p className="text-foreground mt-1 text-base font-semibold">
+                    {formatPhoneDisplay(
+                      wrapUp.call.direction === 'inbound'
+                        ? wrapUp.call.from_number
+                        : wrapUp.call.to_number
+                    ) || '—'}
+                  </p>
+                  <p className="text-muted-foreground font-mono text-xs tabular-nums">
+                    {formatCallDuration(wrapUp.seconds)} · clasifica la llamada
+                  </p>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label
+                    htmlFor="wrap-up-disposition"
+                    className="text-muted-foreground text-[11px] font-medium tracking-wider uppercase"
+                  >
+                    Disposición
+                  </label>
+                  <select
+                    id="wrap-up-disposition"
+                    value={disposition}
+                    onChange={(event) =>
+                      setDisposition(
+                        event.target.value as CallDisposition | ''
+                      )
+                    }
+                    className="border-border bg-background text-foreground h-9 w-full rounded-md border px-2 text-sm"
+                  >
+                    <option value="">Selecciona un resultado…</option>
+                    {CALL_DISPOSITIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                  <textarea
+                    rows={2}
+                    placeholder="Notas del cierre (opcional)"
+                    value={notes}
+                    onChange={(event) =>
+                      setNotes(event.target.value.slice(0, 2000))
+                    }
+                    className="border-border bg-background text-foreground w-full rounded-md border px-2 py-1.5 text-sm"
+                  />
+                </div>
+
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="border-border flex-1"
+                    disabled={savingWrapUp}
+                    onClick={() => {
+                      setDisposition('');
+                      setNotes('');
+                      void skipWrapUp();
+                    }}
+                  >
+                    Omitir
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="bg-primary text-primary-foreground hover:bg-primary/90 flex-1"
+                    disabled={!disposition || savingWrapUp}
+                    onClick={async () => {
+                      if (!disposition) return;
+                      setSavingWrapUp(true);
+                      const ok = await saveWrapUp({
+                        disposition,
+                        notes: notes.trim() || null,
+                      });
+                      setSavingWrapUp(false);
+                      if (ok) {
+                        setDisposition('');
+                        setNotes('');
+                      }
+                    }}
+                  >
+                    {savingWrapUp ? (
+                      <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                    ) : null}
+                    Guardar y disponible
                   </Button>
                 </div>
               </div>

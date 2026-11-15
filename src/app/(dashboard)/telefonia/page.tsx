@@ -10,11 +10,13 @@
 // ============================================================
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
 import { format, formatDistanceToNow } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { toast } from 'sonner';
 import {
   AlertTriangle,
+  BarChart3,
   CheckCircle2,
   Clock,
   FileText,
@@ -446,13 +448,24 @@ export default function TelefoniaPage() {
             PSTN por tu troncal SIP.
           </p>
         </div>
-        <Button
-          onClick={() => setOpen(true)}
-          className="bg-primary text-primary-foreground hover:bg-primary/90"
-        >
-          <PhoneCall className="mr-1.5 h-4 w-4" />
-          Abrir teléfono
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          {canSupervise ? (
+            <Button
+              variant="outline"
+              render={<Link href="/telefonia/reportes" />}
+            >
+              <BarChart3 className="mr-1.5 h-4 w-4" />
+              Reportes
+            </Button>
+          ) : null}
+          <Button
+            onClick={() => setOpen(true)}
+            className="bg-primary text-primary-foreground hover:bg-primary/90"
+          >
+            <PhoneCall className="mr-1.5 h-4 w-4" />
+            Abrir teléfono
+          </Button>
+        </div>
       </div>
 
       {notReady ? (

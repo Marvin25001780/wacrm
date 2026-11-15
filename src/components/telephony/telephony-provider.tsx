@@ -25,11 +25,22 @@ import {
 import { useAuth } from '@/hooks/use-auth';
 import { formatCallDuration } from '@/lib/telephony/calls';
 import { normalizePhone } from '@/lib/telephony/phone';
-import type { AgentStatus, CallSession, TelephonyStatus } from '@/types';
+import type {
+  AgentStatus,
+  CallDisposition,
+  CallSession,
+  TelephonyStatus,
+} from '@/types';
 import type { Room } from 'livekit-client';
 
 export type CallPhase =
   'idle' | 'connecting' | 'ringing' | 'active' | 'ending' | 'error';
+
+export interface WrapUpState {
+  call: CallSession;
+  /** Segundos hablados de la llamada que se acaba de cerrar. */
+  seconds: number;
+}
 
 interface StartCallOptions {
   contactId?: string | null;
@@ -60,6 +71,14 @@ interface TelephonyContextValue {
   hangup: () => Promise<void>;
   toggleMute: () => Promise<void>;
   setAgentStatus: (next: AgentStatus) => Promise<void>;
+  /** Llamada recién cerrada pendiente de disposición y notas. */
+  wrapUp: WrapUpState | null;
+  saveWrapUp: (input: {
+    disposition: CallDisposition;
+    notes?: string | null;
+  }) => Promise<boolean>;
+  /** Cierra el cierre sin disposición y vuelve a disponible. */
+  skipWrapUp: () => Promise<void>;
   refresh: () => Promise<void>;
   /** El negocio + el servidor pueden marcar ahora. */
   callable: boolean;
@@ -97,6 +116,7 @@ export function TelephonyProvider({ children }: { children: ReactNode }) {
   const [elapsed, setElapsed] = useState(0);
   const [muted, setMuted] = useState(false);
   const [recording, setRecording] = useState(false);
+  const [wrapUp, setWrapUp] = useState<WrapUpState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -194,7 +214,12 @@ export function TelephonyProvider({ children }: { children: ReactNode }) {
       if (endedRef.current) return;
       endedRef.current = true;
       setPhase('ending');
-      const id = activeCallRef.current?.id;
+      const endedCall = activeCallRef.current;
+      const talkSeconds = startedAtRef.current
+        ? Math.max(0, Math.floor((Date.now() - startedAtRef.current) / 1000))
+        : 0;
+      const wasAnswered = answeredRef.current;
+      const id = endedCall?.id;
       cleanupRoom();
       if (id) {
         await fetch(`/api/telephony/calls/${id}/end`, {
@@ -210,6 +235,10 @@ export function TelephonyProvider({ children }: { children: ReactNode }) {
       setRecording(false);
       startedAtRef.current = null;
       answeredRef.current = false;
+      // El agente queda en "Cierre" hasta que clasifique la llamada.
+      if (wasAnswered && endedCall) {
+        setWrapUp({ call: endedCall, seconds: talkSeconds });
+      }
       await refresh();
     },
     [applyCall, cleanupRoom, refresh]
@@ -335,6 +364,7 @@ export function TelephonyProvider({ children }: { children: ReactNode }) {
     async (raw: string, options?: StartCallOptions): Promise<boolean> => {
       setError(null);
       setNotice(null);
+      setWrapUp(null);
       setOpen(true);
 
       if (phase !== 'idle' && phase !== 'error') {
@@ -501,6 +531,47 @@ export function TelephonyProvider({ children }: { children: ReactNode }) {
     [refresh]
   );
 
+  /**
+   * Guarda la disposición de la llamada recién cerrada y devuelve al
+   * agente a "Disponible". Sin esto el agente se queda en Cierre y no
+   * recibe llamadas nuevas.
+   */
+  const saveWrapUp = useCallback(
+    async (input: { disposition: CallDisposition; notes?: string | null }) => {
+      if (!wrapUp) return false;
+      try {
+        const res = await fetch(`/api/telephony/calls/${wrapUp.call.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            disposition: input.disposition,
+            notes: input.notes ?? null,
+          }),
+        });
+        const body = (await res.json().catch(() => ({}))) as {
+          error?: string;
+        };
+        if (!res.ok) {
+          setError(body.error ?? 'No se pudo guardar el cierre.');
+          return false;
+        }
+        setWrapUp(null);
+        await setAgentStatus('available');
+        await refresh();
+        return true;
+      } catch {
+        setError('Sin conexión: no se pudo guardar el cierre.');
+        return false;
+      }
+    },
+    [wrapUp, setAgentStatus, refresh]
+  );
+
+  const skipWrapUp = useCallback(async () => {
+    setWrapUp(null);
+    await setAgentStatus('available');
+  }, [setAgentStatus]);
+
   const callable = Boolean(
     accountRole &&
     accountRole !== 'viewer' &&
@@ -531,6 +602,9 @@ export function TelephonyProvider({ children }: { children: ReactNode }) {
       hangup,
       toggleMute,
       setAgentStatus,
+      wrapUp,
+      saveWrapUp,
+      skipWrapUp,
       refresh,
       callable,
     }),
@@ -553,6 +627,9 @@ export function TelephonyProvider({ children }: { children: ReactNode }) {
       hangup,
       toggleMute,
       setAgentStatus,
+      wrapUp,
+      saveWrapUp,
+      skipWrapUp,
       refresh,
       callable,
     ]
