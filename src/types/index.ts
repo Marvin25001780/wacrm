@@ -355,6 +355,163 @@ export function callResultLabel(value?: string | null): string {
   return CALL_RESULTS.find((r) => r.value === value)?.label ?? value;
 }
 
+// ============================================================
+// Telefonía / Contact center (migration 112)
+// ============================================================
+// La media la pone LiveKit; aquí solo se modela el estado de la
+// llamada. `activities` sigue siendo el registro que alimenta las
+// métricas históricas: al colgar se crea una actividad type='call'.
+
+export type CallSessionStatus =
+  | 'ringing'
+  | 'active'
+  | 'ended'
+  | 'missed'
+  | 'failed'
+  | 'cancelled';
+
+export const CALL_SESSION_STATUSES: {
+  value: CallSessionStatus;
+  label: string;
+}[] = [
+  { value: 'ringing', label: 'Sonando' },
+  { value: 'active', label: 'En curso' },
+  { value: 'ended', label: 'Finalizada' },
+  { value: 'missed', label: 'Perdida' },
+  { value: 'failed', label: 'Fallida' },
+  { value: 'cancelled', label: 'Cancelada' },
+];
+
+export type CallTranscriptStatus =
+  | 'none'
+  | 'pending'
+  | 'processing'
+  | 'done'
+  | 'failed';
+
+export const CALL_TRANSCRIPT_STATUSES: {
+  value: CallTranscriptStatus;
+  label: string;
+}[] = [
+  { value: 'none', label: 'Sin transcribir' },
+  { value: 'pending', label: 'En cola' },
+  { value: 'processing', label: 'Transcribiendo' },
+  { value: 'done', label: 'Transcrita' },
+  { value: 'failed', label: 'Error' },
+];
+
+/** Disponibilidad operativa del agente (no confundir con online/away). */
+export type AgentStatus = 'available' | 'busy' | 'wrap_up' | 'break';
+
+export const AGENT_STATUSES: { value: AgentStatus; label: string }[] = [
+  { value: 'available', label: 'Disponible' },
+  { value: 'busy', label: 'Ocupado' },
+  { value: 'wrap_up', label: 'Cierre' },
+  { value: 'break', label: 'Pausa' },
+];
+
+export interface TelephonyConfig {
+  id: string;
+  account_id: string;
+  enabled: boolean;
+  provider: 'livekit';
+  outbound_caller_id: string | null;
+  sip_outbound_trunk_id: string | null;
+  inbound_numbers: string[];
+  recording_enabled: boolean;
+  transcription_enabled: boolean;
+  created_by?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CallSession {
+  id: string;
+  account_id: string;
+  direction: CallDirection;
+  provider: 'livekit' | 'manual';
+  room_name: string;
+  status: CallSessionStatus;
+  from_number: string | null;
+  to_number: string | null;
+  contact_id: string | null;
+  lead_id: string | null;
+  conversation_id: string | null;
+  agent_profile_id: string | null;
+  agent_user_id: string | null;
+  started_at: string;
+  answered_at: string | null;
+  ended_at: string | null;
+  duration_seconds: number | null;
+  end_reason: string | null;
+  recording_url: string | null;
+  recording_egress_id: string | null;
+  transcript: string | null;
+  transcript_status: CallTranscriptStatus;
+  ai_summary: string | null;
+  activity_id: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+  /** Hidratado por GET /api/telephony/calls. */
+  contact?: {
+    id: string;
+    name: string | null;
+    phone: string | null;
+  } | null;
+}
+
+export interface CallEvent {
+  id: string;
+  account_id: string;
+  call_id: string;
+  type: string;
+  actor_user_id: string | null;
+  payload: Record<string, unknown>;
+  created_at: string;
+}
+
+export function callSessionStatusLabel(value?: string | null): string {
+  if (!value) return '';
+  return CALL_SESSION_STATUSES.find((s) => s.value === value)?.label ?? value;
+}
+
+export function agentStatusLabel(value?: string | null): string {
+  if (!value) return '';
+  return AGENT_STATUSES.find((s) => s.value === value)?.label ?? value;
+}
+
+/**
+ * Respuesta de GET /api/telephony/status. La comparten el servidor
+ * y el softphone; no contiene secretos.
+ */
+export interface TelephonyStatus {
+  ready: boolean;
+  missing: string[];
+  migrationMissing: boolean;
+  enabled: boolean;
+  dialReady: boolean;
+  blockReason: string | null;
+  trunkConfigured: boolean;
+  callerId: string | null;
+  recording: {
+    serverEnabled: boolean;
+    accountEnabled: boolean;
+    transcriptionEnabled: boolean;
+    publicPlayback: boolean;
+  };
+  config: TelephonyConfig | null;
+  agentStatus: AgentStatus;
+  presence: {
+    online: boolean;
+    stored: 'online' | 'away' | 'offline';
+    last_seen_at: string | null;
+  };
+  activeCall: CallSession | null;
+  /** Entrante sonando, sin agente asignado (para contestar/rechazar). */
+  incomingCall: CallSession | null;
+}
+
 /** Etiquetas de conveniencia. */
 export function activityTypeLabel(value?: string | null): string {
   if (!value) return '';

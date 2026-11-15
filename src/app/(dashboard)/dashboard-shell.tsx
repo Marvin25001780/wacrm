@@ -7,6 +7,8 @@ import { Sidebar } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
 import { OnboardingWizard, isOnboardingPending } from "@/components/onboarding/onboarding-wizard";
 import { PresenceHeartbeat } from "@/components/presence/presence-heartbeat";
+import { TelephonyProvider } from "@/components/telephony/telephony-provider";
+import { Softphone } from "@/components/telephony/softphone";
 import { minRoleForPath } from "@/lib/nav";
 import { hasMinRole, type AccountRole } from "@/lib/auth/roles";
 import {
@@ -112,27 +114,33 @@ function DashboardShellInner({ children }: { children: React.ReactNode }) {
     canEditSettings === true;
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background">
-      {/* Wizard de bienvenida (068 largo / 069 corto) mientras el
-          sello correspondiente esté en NULL. Se pinta sobre la pantalla
-          en la que estés — igual que Kommo. El `key` obliga a una
-          instancia nueva cuando cambia de modo: el salto del largo
-          sella al usuario y, al instante, entra el corto del negocio —
-          sin reiniciar, el componente heredaría el paso actual y
-          quedaría fuera de su propia secuencia. */}
-      {onboardingPending || shortPending ? (
-        <OnboardingWizard key={onboardingPending ? "long" : "short"} />
-      ) : null}
-      {/* Reports this tab's online/away presence once we know a user is
-          signed in. Headless — renders nothing. */}
-      <PresenceHeartbeat />
-      <Sidebar open={sidebarOpen} onClose={closeSidebar} />
-      <div className="flex flex-1 flex-col overflow-hidden">
-        <Header onOpenSidebar={() => setSidebarOpen(true)} />
-        {/* Thinner horizontal padding on mobile so cards have room to breathe. */}
-        <main className="flex-1 overflow-y-auto p-4 sm:p-6">{children}</main>
+    <TelephonyProvider>
+      <div className="flex h-screen overflow-hidden bg-background">
+        {/* Wizard de bienvenida (068 largo / 069 corto) mientras el
+            sello correspondiente esté en NULL. Se pinta sobre la pantalla
+            en la que estés — igual que Kommo. El `key` obliga a una
+            instancia nueva cuando cambia de modo: el salto del largo
+            sella al usuario y, al instante, entra el corto del negocio —
+            sin reiniciar, el componente heredaría el paso actual y
+            quedaría fuera de su propia secuencia. */}
+        {onboardingPending || shortPending ? (
+          <OnboardingWizard key={onboardingPending ? "long" : "short"} />
+        ) : null}
+        {/* Reports this tab's online/away presence once we know a user is
+            signed in. Headless — renders nothing. */}
+        <PresenceHeartbeat />
+        <Sidebar open={sidebarOpen} onClose={closeSidebar} />
+        <div className="flex flex-1 flex-col overflow-hidden">
+          <Header onOpenSidebar={() => setSidebarOpen(true)} />
+          {/* Thinner horizontal padding on mobile so cards have room to breathe. */}
+          <main className="flex-1 overflow-y-auto p-4 sm:p-6">{children}</main>
+        </div>
+        {accountRole !== "viewer" &&
+        isModuleEnabled(enabledModules, "telephony") ? (
+          <Softphone />
+        ) : null}
       </div>
-    </div>
+    </TelephonyProvider>
   );
 }
 

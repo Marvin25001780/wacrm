@@ -4,7 +4,16 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
 import { pageTitleFor } from "@/lib/nav";
-import { LogOut, Menu, Settings as SettingsIcon, User } from "lucide-react";
+import { isModuleEnabled } from "@/lib/modules";
+import { useTelephony } from "@/components/telephony/telephony-provider";
+import {
+  LogOut,
+  Menu,
+  Phone,
+  PhoneCall,
+  Settings as SettingsIcon,
+  User,
+} from "lucide-react";
 import {
   Avatar,
   AvatarFallback,
@@ -33,8 +42,16 @@ interface HeaderProps {
 
 export function Header({ onOpenSidebar }: HeaderProps) {
   const pathname = usePathname();
-  const { profile, displayName, signOut } = useAuth();
+  const { profile, displayName, signOut, accountRole, enabledModules } = useAuth();
+  const { open, setOpen, status, phase, elapsedLabel, incomingCall } =
+    useTelephony();
   const title = pageTitleFor(pathname);
+
+  const inCall = phase === "connecting" || phase === "ringing" || phase === "active";
+  const incomingRinging = Boolean(incomingCall) && !inCall;
+  const callActive = inCall || incomingRinging;
+  const showPhone =
+    accountRole !== "viewer" && isModuleEnabled(enabledModules, "telephony");
 
   const initial =
     displayName?.charAt(0)?.toUpperCase() ??
@@ -59,6 +76,42 @@ export function Header({ onOpenSidebar }: HeaderProps) {
       </div>
 
       <div className="flex items-center gap-1 sm:gap-2">
+        {showPhone ? (
+          <button
+            type="button"
+            onClick={() => setOpen(!open)}
+            aria-label={callActive ? "Llamada en curso" : "Abrir teléfono"}
+            title={
+              incomingRinging
+                ? "Llamada entrante"
+                : inCall
+                  ? "Llamada en curso"
+                  : "Teléfono"
+            }
+            className={
+              callActive
+                ? "inline-flex h-9 items-center gap-1.5 rounded-md bg-red-600 px-2.5 text-xs font-medium text-white transition-colors hover:bg-red-700"
+                : "relative inline-flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            }
+          >
+            {callActive ? (
+              <PhoneCall className="h-4 w-4" />
+            ) : (
+              <Phone className="h-4 w-4" />
+            )}
+            {inCall ? (
+              <span className="font-mono tabular-nums">
+                {phase === "active" ? elapsedLabel : "…"}
+              </span>
+            ) : incomingRinging ? (
+              <span className="tabular-nums">Entrante</span>
+            ) : null}
+            {!callActive && status?.presence.online ? (
+              <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-emerald-500" />
+            ) : null}
+          </button>
+        ) : null}
+
         <ModeToggle />
 
         <DropdownMenu>

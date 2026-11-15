@@ -30,6 +30,7 @@ import {
   PanelRightClose,
   Camera,
   Loader2,
+  PhoneCall,
   Tag as TagIcon,
 } from "lucide-react";
 import { format, isToday, isYesterday, differenceInHours } from "date-fns";
@@ -54,6 +55,7 @@ import { deleteAccountMedia } from "@/lib/storage/upload-media";
 import { TemplatePicker } from "./template-picker";
 import { CloseConversationDialog, type CloseConversationPayload } from "./close-conversation-dialog";
 import { buildReplyPreview } from "./reply-quote";
+import { useTelephony } from "@/components/telephony/telephony-provider";
 import { toast } from "sonner";
 
 interface ReplyDraft {
@@ -203,6 +205,7 @@ export function MessageThread({
   onContactAvatarChange,
 }: MessageThreadProps) {
   const { user, accountId } = useAuth();
+  const { startCall, callable } = useTelephony();
   const { getPresence, getRow, now } = usePresence();
   const [loading, setLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -1159,6 +1162,25 @@ export function MessageThread({
               />
             </button>
           )}
+
+          {contact?.phone ? (
+            <button
+              type="button"
+              onClick={() =>
+                void startCall(contact.phone, { contactId: contact.id })
+              }
+              disabled={!callable}
+              aria-label="Llamar a este contacto"
+              title={
+                callable
+                  ? "Llamar por el softphone"
+                  : "La telefonía no está configurada o no tienes permiso"
+              }
+              className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <PhoneCall className="h-3.5 w-3.5" />
+            </button>
+          ) : null}
 
           {/* Etiquetas de conversación */}
           <DropdownMenu>

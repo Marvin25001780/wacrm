@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import type { Contact, Deal, ContactNote, Tag } from "@/types";
 import {
   Phone,
+  PhoneCall,
   Mail,
   Copy,
   Check,
@@ -21,6 +22,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { LinkContactDialog } from "@/components/inbox/link-contact-dialog";
+import { useTelephony } from "@/components/telephony/telephony-provider";
 import { format } from "date-fns";
 
 interface ContactSidebarProps {
@@ -31,6 +33,7 @@ interface ContactSidebarProps {
 
 export function ContactSidebar({ contact, onContactMerged }: ContactSidebarProps) {
   const { accountId } = useAuth();
+  const { startCall, callable } = useTelephony();
   const [copied, setCopied] = useState(false);
   const [deals, setDeals] = useState<Deal[]>([]);
   const [notes, setNotes] = useState<ContactNote[]>([]);
@@ -91,6 +94,11 @@ export function ContactSidebar({ contact, onContactMerged }: ContactSidebarProps
     // React Compiler's inference agrees with the manual dep list —
     // fixes the `preserve-manual-memoization` lint error.
   }, [contact]);
+
+  const handleCall = useCallback(async () => {
+    if (!contact?.phone) return;
+    await startCall(contact.phone, { contactId: contact.id });
+  }, [contact, startCall]);
 
   const handleAddNote = useCallback(async () => {
     if (!contact || !newNote.trim()) return;
@@ -160,18 +168,34 @@ export function ContactSidebar({ contact, onContactMerged }: ContactSidebarProps
           {/* Phone */}
           <div className="mt-4 space-y-2">
             {contact.phone && (
-              <button
-                onClick={handleCopyPhone}
-                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted"
-              >
-                <Phone className="h-4 w-4 text-muted-foreground" />
-                <span className="flex-1 text-left">{contact.phone}</span>
-                {copied ? (
-                  <Check className="h-3 w-3 text-primary" />
-                ) : (
-                  <Copy className="h-3 w-3 text-muted-foreground" />
-                )}
-              </button>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={handleCopyPhone}
+                  className="flex flex-1 items-center gap-2 rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted"
+                >
+                  <Phone className="h-4 w-4 text-muted-foreground" />
+                  <span className="flex-1 text-left">{contact.phone}</span>
+                  {copied ? (
+                    <Check className="h-3 w-3 text-primary" />
+                  ) : (
+                    <Copy className="h-3 w-3 text-muted-foreground" />
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleCall()}
+                  disabled={!callable}
+                  aria-label="Llamar a este contacto"
+                  title={
+                    callable
+                      ? "Llamar por el softphone"
+                      : "La telefonía no está configurada o no tienes permiso"
+                  }
+                  className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <PhoneCall className="h-4 w-4" />
+                </button>
+              </div>
             )}
 
             {contact.email && (

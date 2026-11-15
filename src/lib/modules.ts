@@ -28,6 +28,11 @@ export const MODULE_CATALOG: ModuleDefinition[] = [
     hrefs: ["/inbox"],
   },
   {
+    key: "telephony",
+    label: "Telefonía",
+    hrefs: ["/telefonia"],
+  },
+  {
     key: "pos",
     label: "POS",
     hrefs: ["/pos"],

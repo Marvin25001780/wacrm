@@ -843,7 +843,7 @@ Reutilizar:
 - Sin métricas inventadas. Todo número sale de una consulta.
 - El score se muestra como “Prioridad 87” + razón, no como “94% de propensión”.
 - El pipeline muestra montos y contadores reales; si no hay datos, empty state.
-- La consola no simula llamadas: el gestor registra el resultado. El botón “Llamar” usa `tel:` si el dispositivo lo soporta; si no, copia el número.
+- La consola no simula llamadas: el gestor registra el resultado. Si el negocio tiene el módulo Telefonía configurado (LiveKit), el botón “Llamar” abre el softphone; si no, usa `tel:` o copia el número. Ver `docs/telefonia-livekit.md`.
 - Responsive: la consola colapsa a una columna en móvil; el kanban usa scroll horizontal con snap.
 
 ---
@@ -1035,7 +1035,7 @@ No se toca el webhook de Evolution, ni `ENCRYPTION_KEY`, ni las claves de IA.
 
 **Entregables**
 
-- Consola del gestor (sin telefonía).
+- Consola del gestor (la voz vive en el módulo Telefonía; ver `docs/telefonia-livekit.md`).
 - Reportes: aging, recuperación, PTP, canales, ranking.
 - Comisiones y export CSV.
 - Auditoría visible para admin.

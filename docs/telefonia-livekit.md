@@ -1,0 +1,203 @@
+# Telefonía (contact center de voz) con LiveKit
+
+> Módulo `/telefonia` + softphone flotante. La voz viaja por **LiveKit**
+> (Apache-2.0) y la PSTN por la **troncal SIP** del operador. Este CRM
+> guarda estado, historial, grabación y transcripción; no transporta audio.
+
+## 1. Arquitectura
+
+```
+Navegador (agente)  ──WebRTC──▶  LiveKit (media)  ──SIP──▶  Troncal / PSTN
+        │                              │
+        │ API Next.js                  │ webhook firmado
+        ▼                              ▼
+   call_sessions / call_events   /api/telephony/webhook
+        │                              │
+        └──── activities (type='call') ┘  → /metrics/llamadas
+```
+
+- **Next.js** crea la sesión (`call_sessions`), emite un token de
+  LiveKit de corta duración y ordena marcar por SIP.
+- **LiveKit** hace de SFU/WebRTC y de pasarela SIP. No copiamos código
+  GPL/AGPL: es un servicio externo con licencia Apache-2.0.
+- Al contestar, el navegador avisa a `/answer`; al colgar (o si se cae
+  la pestaña), el webhook `room_finished` cierra la sesión y escribe la
+  **actividad de CRM** que alimenta Métricas → Llamadas.
+
+### Tablas (migración 112)
+
+| Tabla                          | Para qué                                                                                                        |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| `telephony_config`             | Ajustes por negocio: activo, caller ID, troncal, números entrantes, grabación, transcripción. **Sin secretos.** |
+| `call_sessions`                | Una fila por llamada: dirección, estado, tiempos, agente, contacto, grabación, transcripción.                   |
+| `call_events`                  | Bitácora append-only (creada, contestada, grabación lista, cerrada…).                                           |
+| `member_presence.agent_status` | Disponibilidad operativa: `available`, `busy`, `wrap_up`, `break`.                                              |
+
+RLS: cualquier miembro lee; agente+ crea y cierra sus llamadas; admin+
+puede cerrar cualquiera. El estado de agente se cambia solo por RPC
+(`set_agent_status`), que deriva la cuenta de la sesión.
+
+## 2. Variables de entorno
+
+Solo en el servidor. Si faltan, la UI muestra la lista y **no permite
+marcar** (no hay modo demo).
+
+```env
+LIVEKIT_URL=wss://tu-proyecto.livekit.cloud
+LIVEKIT_API_KEY=...
+LIVEKIT_API_SECRET=...
+# Troncal saliente por defecto (se puede sobrescribir por negocio)
+LIVEKIT_SIP_TRUNK_ID=ST_...
+# Grabación (Egress). Requiere almacenamiento configurado en LiveKit.
+LIVEKIT_RECORDING_ENABLED=false
+# Base pública para descargar/transcribir la grabación
+TELEPHONY_RECORDINGS_PUBLIC_BASE_URL=https://.../storage/v1/object/public/recordings
+```
+
+`LIVEKIT_URL` acepta `https://` (se normaliza a `wss://`) o `wss://`.
+El API secret nunca se envía al navegador ni se guarda en Supabase.
+
+## 3. Puesta en marcha (una vez por despliegue)
+
+### 3.1 Levantar LiveKit
+
+- **LiveKit Cloud**: crea un proyecto y copia URL + API key/secret.
+- **Self-hosted**: sigue `livekit-server` (Docker o binario). Para
+  probar en local: `livekit-server --dev` (claves de desarrollo).
+
+### 3.2 Crear la troncal SIP saliente
+
+En el panel de LiveKit o por API (`SipClient.createSipOutboundTrunk`).
+Necesitas los datos del operador: host SIP, usuario/contraseña o IP
+autorizada, y el número saliente (DID). Copia el ID (`ST_…`) a
+`LIVEKIT_SIP_TRUNK_ID` o al campo de Configuración → Telefonía.
+
+### 3.3 Webhook
+
+Configura el webhook de LiveKit en:
+
+```
+https://TU-DOMINIO/api/telephony/webhook
+```
+
+La ruta verifica la firma con `LIVEKIT_API_SECRET`. Sin webhook, una
+pestaña cerrada no cierra la llamada (queda “activa” hasta que el
+agente vuelva a entrar y el softphone la cierre como `agent_left`).
+
+Eventos usados: `participant_joined`, `participant_left`,
+`room_finished`, `egress_ended`. Las salas que no empiezan por
+`crm-call-` se ignoran.
+
+### 3.4 Llamadas entrantes
+
+Dos formas de asignar la llamada a un negocio:
+
+1. **Por número marcado** (recomendado): guarda el DID en
+   Configuración → Telefonía → “Números entrantes”. El webhook busca
+   ese número en `telephony_config.inbound_numbers` y etiqueta la
+   sesión con el `account_id` del negocio.
+2. **Por metadata de la regla de despacho**: crea una regla
+   `individual` con `roomPrefix: "crm-call-"` y
+   `metadata: {"account_id":"<uuid>"}`. El prefijo es obligatorio:
+   el webhook ignora las salas que no empiezan por `crm-call-`.
+
+Un número entrante pertenece a **un solo negocio** (la app rechaza
+duplicados al guardar). Si no se resuelve el negocio, la llamada no se
+registra y se deja un aviso en el log del servidor.
+
+Cuando entra una llamada:
+
+1. El webhook crea la sesión (`ringing`, sin agente).
+2. El softphone de los agentes consulta el estado cada 5 s y muestra
+   el aviso de **Llamada entrante** con el número/contacto.
+3. El primero que pulsa **Contestar** la reclama
+   (`POST /calls/[id]/claim`, gana quien actualice primero) y entra a
+   la sala; LiveKit contesta la troncal y la sesión pasa a `active`.
+4. **Rechazar** la cierra como `cancelled` sin asignarla. Si nadie
+   contesta, queda como `missed` cuando el cliente cuelga.
+
+## 4. Grabación y transcripción
+
+### Grabación (opcional)
+
+1. Configura un destino de Egress en LiveKit (S3, GCS, Azure o disco).
+2. Define `LIVEKIT_RECORDING_ENABLED=true`.
+3. En Configuración → Telefonía activa “Grabar llamadas”.
+
+La grabación arranca al contestar (`/answer`) y se detiene al colgar.
+Egress deja el archivo en el almacenamiento; con
+`TELEPHONY_RECORDINGS_PUBLIC_BASE_URL` la app construye una URL
+descargable. Sin esa base la grabación se guarda, pero no se puede
+transcribir desde la UI.
+
+### Transcripción
+
+Usa el proveedor de **Ajustes → Asistente de IA** (OpenAI, Groq o
+Gemini). Anthropic y DeepSeek no ofrecen endpoint de audio. El botón
+“Transcribir” del historial descarga la grabación (máx. 24 MB) y la
+manda al proveedor; el texto queda en `call_sessions.transcript`.
+
+## 5. Operación diaria
+
+- El botón de teléfono del encabezado abre el softphone; también hay
+  botón de llamada en la ficha del contacto y en la cabecera del hilo.
+- Estados del agente: **Disponible**, **Ocupado**, **Cierre** y
+  **Pausa**. Al marcar pasa a Ocupado y al colgar a Cierre (wrap-up);
+  el agente vuelve a Disponible cuando termina sus notas.
+- Cada llamada cerrada crea una actividad `type='call'` con dirección,
+  resultado y duración. Por eso `/metrics/llamadas` sigue funcionando
+  sin cambios.
+- Las llamadas entrantes sin agente no crean actividad (no hay a quién
+  asignarlas); sí quedan en `call_sessions` como `missed`.
+
+### Permisos
+
+| Rol           | Puede                                                                            |
+| ------------- | -------------------------------------------------------------------------------- |
+| Viewer        | Ver historial y configuración (solo lectura).                                    |
+| Agent         | Marcar, contestar/cerrar sus llamadas, transcribir, cambiar su estado.           |
+| Admin / Owner | Todo lo anterior + cerrar llamadas ajenas + editar la configuración del negocio. |
+
+## 6. Límites y aspectos legales (Venezuela)
+
+- **Consentimiento de grabación**: avisa al cliente (“esta llamada
+  puede ser grabada”) y revisa con un abogado local la base legal y el
+  tiempo de conservación. La app no reproduce el aviso por ti.
+- **Numeración y portabilidad**: la habilitación de DID, numeración
+  local y portabilidad depende de tu operador; no es algo que la app
+  pueda resolver.
+- **STIR/SHAKEN** no aplica a la PSTN venezolana; el “Caller ID” puede
+  mostrarse distinto según el operador.
+- **Conectividad variable**: si el agente pierde internet, la llamada
+  SIP puede seguir viva del lado de la troncal. Define con tu operador
+  el fallback (callback/PSTN) y revisa el costo por minuto.
+- **Datos personales**: la grabación y la transcripción son datos del
+  cliente. Aplica la misma política de retención que el resto del CRM.
+- **WhatsApp sigue mandando** en Venezuela: la voz es un canal
+  complementario, no el principal.
+
+## 7. Diagnóstico
+
+| Síntoma                                          | Causa probable                                                                         |
+| ------------------------------------------------ | -------------------------------------------------------------------------------------- |
+| “El servidor no tiene LiveKit configurado”       | Faltan `LIVEKIT_URL`, `LIVEKIT_API_KEY` o `LIVEKIT_API_SECRET`.                        |
+| “Falta la troncal SIP saliente”                  | No hay `LIVEKIT_SIP_TRUNK_ID` ni troncal por negocio.                                  |
+| “Falta aplicar la migración 112”                 | Ejecuta `PROD_UPDATE_112.sql` en Supabase.                                             |
+| Marca pero no suena                              | Troncal mal configurada, número no permitido o firewall SIP. Revisa el log de LiveKit. |
+| La llamada queda “activa” tras cerrar la pestaña | Webhook no configurado o apuntando a otro dominio.                                     |
+| “No se pudo descargar la grabación”              | Egress sin almacenamiento o `TELEPHONY_RECORDINGS_PUBLIC_BASE_URL` incorrecta.         |
+| “El negocio no tiene proveedor de transcripción” | Configura OpenAI/Groq/Gemini en Ajustes → Asistente de IA.                             |
+
+## 8. API
+
+| Método    | Ruta                                   | Uso                                  |
+| --------- | -------------------------------------- | ------------------------------------ |
+| GET       | `/api/telephony/status`                | Estado del softphone (sin secretos). |
+| GET/POST  | `/api/telephony/calls`                 | Historial / iniciar saliente.        |
+| POST      | `/api/telephony/calls/[id]/answer`     | Contestada (arranca grabación).      |
+| POST      | `/api/telephony/calls/[id]/claim`      | Reclamar una entrante que suena.     |
+| POST      | `/api/telephony/calls/[id]/end`        | Colgar / rechazar (crea actividad).  |
+| POST      | `/api/telephony/calls/[id]/transcribe` | Transcribir grabación.               |
+| GET/PATCH | `/api/telephony/config`                | Configuración por negocio (admin+).  |
+| POST      | `/api/telephony/presence`              | Estado del agente.                   |
+| POST      | `/api/telephony/webhook`               | Eventos de LiveKit (firma).          |

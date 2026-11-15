@@ -83,6 +83,8 @@ export interface AccountContext {
   supabase: SupabaseClient;
   /** `auth.uid()` for the caller. Always defined when this resolves. */
   userId: string;
+  /** Caller's profile id (`profiles.id`, NOT the auth user id). */
+  profileId: string;
   /** Caller's account_id from their profile row. */
   accountId: string;
   /** Caller's role within their account. */
@@ -116,7 +118,7 @@ export async function getCurrentAccount(): Promise<AccountContext> {
 
   const { data, error } = await supabase
     .from("profiles")
-    .select("account_id, account_role")
+    .select("id, account_id, account_role")
     .eq("user_id", user.id)
     .maybeSingle();
 
@@ -166,6 +168,7 @@ export async function getCurrentAccount(): Promise<AccountContext> {
   return {
     supabase,
     userId: user.id,
+    profileId: data.id as string,
     accountId: data.account_id,
     role: data.account_role,
     account: { id: account.id, name: account.name },

@@ -1,0 +1,822 @@
+'use client';
+
+// ============================================================
+// Telefonía — centro de llamadas del negocio.
+//
+// Reúne el estado del servidor (LiveKit + troncal SIP), el marcador,
+// la presencia del agente, el historial de llamadas y la
+// configuración por negocio. La media la pone LiveKit; este CRM
+// guarda la sesión, la actividad de CRM y la transcripción.
+// ============================================================
+
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { format } from 'date-fns';
+import { toast } from 'sonner';
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Clock,
+  FileText,
+  Loader2,
+  Phone,
+  PhoneCall,
+  PhoneIncoming,
+  PhoneMissed,
+  PhoneOutgoing,
+  Save,
+  Server,
+} from 'lucide-react';
+
+import { MetricCard } from '@/components/dashboard/metric-card';
+import { Panel } from '@/components/metrics/panel';
+import { useTelephony } from '@/components/telephony/telephony-provider';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import { Textarea } from '@/components/ui/textarea';
+import { useAuth } from '@/hooks/use-auth';
+import { cn } from '@/lib/utils';
+import {
+  callResultLabel,
+  callSessionStatusLabel,
+  callDirectionLabel,
+  type AccountMember,
+  type CallSession,
+  type TelephonyConfig,
+} from '@/types';
+import { formatCallDuration } from '@/lib/telephony/calls';
+import { formatPhoneDisplay, normalizePhone } from '@/lib/telephony/phone';
+
+interface ConfigForm {
+  enabled: boolean;
+  outboundCallerId: string;
+  sipOutboundTrunkId: string;
+  inboundNumbers: string;
+  recordingEnabled: boolean;
+  transcriptionEnabled: boolean;
+}
+
+const EMPTY_FORM: ConfigForm = {
+  enabled: true,
+  outboundCallerId: '',
+  sipOutboundTrunkId: '',
+  inboundNumbers: '',
+  recordingEnabled: false,
+  transcriptionEnabled: true,
+};
+
+function formFromConfig(config: TelephonyConfig | null): ConfigForm {
+  if (!config) return EMPTY_FORM;
+  return {
+    enabled: config.enabled,
+    outboundCallerId: config.outbound_caller_id ?? '',
+    sipOutboundTrunkId: config.sip_outbound_trunk_id ?? '',
+    inboundNumbers: (config.inbound_numbers ?? []).join(', '),
+    recordingEnabled: config.recording_enabled,
+    transcriptionEnabled: config.transcription_enabled,
+  };
+}
+
+const statusTone: Record<string, string> = {
+  ringing: 'border-amber-300 text-amber-700 dark:text-amber-300',
+  active: 'border-emerald-300 text-emerald-700 dark:text-emerald-300',
+  ended: 'border-border text-muted-foreground',
+  missed: 'border-red-300 text-red-600 dark:text-red-400',
+  failed: 'border-red-300 text-red-600 dark:text-red-400',
+  cancelled: 'border-border text-muted-foreground',
+};
+
+export default function TelefoniaPage() {
+  const { isAdmin, accountRole } = useAuth();
+  const {
+    status,
+    loading: statusLoading,
+    phase,
+    startCall,
+    callable,
+    setOpen,
+    refresh,
+  } = useTelephony();
+
+  const [calls, setCalls] = useState<CallSession[]>([]);
+  const [members, setMembers] = useState<AccountMember[]>([]);
+  const [callsLoading, setCallsLoading] = useState(true);
+  const [dial, setDial] = useState('');
+  const [dialError, setDialError] = useState<string | null>(null);
+  const [transcriptCall, setTranscriptCall] = useState<CallSession | null>(
+    null
+  );
+  const [transcribingId, setTranscribingId] = useState<string | null>(null);
+
+  const [form, setForm] = useState<ConfigForm>(EMPTY_FORM);
+  const [saving, setSaving] = useState(false);
+
+  const loadCalls = useCallback(async () => {
+    setCallsLoading(true);
+    try {
+      const res = await fetch('/api/telephony/calls?limit=50', {
+        cache: 'no-store',
+      });
+      const body = (await res.json().catch(() => ({}))) as {
+        calls?: CallSession[];
+      };
+      if (res.ok && body.calls) setCalls(body.calls);
+    } catch {
+      // Sin red: se conserva el historial anterior.
+    } finally {
+      setCallsLoading(false);
+    }
+  }, []);
+
+  const loadMembers = useCallback(async () => {
+    try {
+      const res = await fetch('/api/account/members', { cache: 'no-store' });
+      const body = (await res.json().catch(() => ({}))) as {
+        members?: AccountMember[];
+      };
+      if (res.ok && body.members) setMembers(body.members);
+    } catch {
+      // El nombre del agente es cosmético.
+    }
+  }, []);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadCalls();
+    void loadMembers();
+  }, [loadCalls, loadMembers]);
+
+  // Al colgar, refrescar historial y estado.
+  useEffect(() => {
+    if (phase === 'idle') {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      void loadCalls();
+    }
+  }, [phase, loadCalls]);
+
+  // Prellenar el formulario cuando llega la configuración. El sondeo
+  // de estado trae un objeto nuevo cada 5 s; el ref evita que el
+  // formulario se reinicie mientras un admin está escribiendo.
+  const appliedConfigKey = useRef<string | null>(null);
+  const configKey = status?.config?.updated_at ?? status?.config?.id ?? 'none';
+  useEffect(() => {
+    if (appliedConfigKey.current === configKey) return;
+    appliedConfigKey.current = configKey;
+    setForm(formFromConfig(status?.config ?? null));
+  }, [configKey, status?.config]);
+
+  const memberName = useMemo(() => {
+    const map = new Map(members.map((m) => [m.user_id, m.full_name]));
+    return (userId: string | null) => (userId ? (map.get(userId) ?? '—') : '—');
+  }, [members]);
+
+  const metrics = useMemo(() => {
+    const today = new Date().toDateString();
+    const todays = calls.filter(
+      (call) => new Date(call.started_at).toDateString() === today
+    );
+    const answered = todays.filter((call) => call.answered_at);
+    const talk = answered.reduce(
+      (total, call) => total + (call.duration_seconds ?? 0),
+      0
+    );
+    return {
+      total: todays.length,
+      answered: answered.length,
+      missed: todays.filter(
+        (call) => call.status === 'missed' || call.status === 'failed'
+      ).length,
+      average: answered.length ? Math.round(talk / answered.length) : 0,
+    };
+  }, [calls]);
+
+  const submitDial = async () => {
+    setDialError(null);
+    if (!normalizePhone(dial)) {
+      setDialError('Escribe un número válido (0412… o +58…).');
+      return;
+    }
+    const ok = await startCall(dial);
+    if (ok) setDial('');
+  };
+
+  const saveConfig = async () => {
+    setSaving(true);
+    try {
+      const inboundNumbers = form.inboundNumbers
+        .split(/[,;\s]+/)
+        .map((value) => value.trim())
+        .filter(Boolean);
+      const res = await fetch('/api/telephony/config', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          enabled: form.enabled,
+          outboundCallerId: form.outboundCallerId.trim() || null,
+          sipOutboundTrunkId: form.sipOutboundTrunkId.trim() || null,
+          inboundNumbers,
+          recordingEnabled: form.recordingEnabled,
+          transcriptionEnabled: form.transcriptionEnabled,
+        }),
+      });
+      const body = (await res.json().catch(() => ({}))) as {
+        error?: string;
+      };
+      if (!res.ok) {
+        toast.error(body.error ?? 'No se pudo guardar la configuración.');
+        return;
+      }
+      toast.success('Configuración de telefonía guardada.');
+      await refresh();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const transcribe = async (call: CallSession) => {
+    setTranscribingId(call.id);
+    try {
+      const res = await fetch(`/api/telephony/calls/${call.id}/transcribe`, {
+        method: 'POST',
+      });
+      const body = (await res.json().catch(() => ({}))) as {
+        call?: CallSession;
+        error?: string;
+      };
+      if (!res.ok || !body.call) {
+        toast.error(body.error ?? 'No se pudo transcribir la llamada.');
+        return;
+      }
+      setCalls((current) =>
+        current.map((row) => (row.id === call.id ? body.call! : row))
+      );
+      toast.success('Transcripción lista.');
+    } finally {
+      setTranscribingId(null);
+    }
+  };
+
+  const notReady = !statusLoading && status && !status.dialReady;
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="text-foreground text-lg font-semibold">
+            Centro de llamadas
+          </h2>
+          <p className="text-muted-foreground mt-1 max-w-2xl text-sm">
+            Marca desde el navegador, registra cada llamada como actividad de
+            CRM y mide la operación. La voz viaja por LiveKit (open source) y la
+            PSTN por tu troncal SIP.
+          </p>
+        </div>
+        <Button
+          onClick={() => setOpen(true)}
+          className="bg-primary text-primary-foreground hover:bg-primary/90"
+        >
+          <PhoneCall className="mr-1.5 h-4 w-4" />
+          Abrir teléfono
+        </Button>
+      </div>
+
+      {notReady ? (
+        <div className="flex items-start gap-3 rounded-xl border border-amber-300/60 bg-amber-50 p-4 text-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+          <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
+          <div className="space-y-1 text-sm">
+            <p className="font-semibold">La telefonía aún no está operativa</p>
+            <p>{status?.blockReason}</p>
+            {status?.missing?.length ? (
+              <p className="font-mono text-xs">
+                Faltan: {status.missing.join(', ')}
+              </p>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <MetricCard
+          title="Llamadas hoy"
+          value={String(metrics.total)}
+          icon={Phone}
+        />
+        <MetricCard
+          title="Contestadas"
+          value={String(metrics.answered)}
+          icon={CheckCircle2}
+        />
+        <MetricCard
+          title="Duración media"
+          value={formatCallDuration(metrics.average)}
+          icon={Clock}
+        />
+        <MetricCard
+          title="Perdidas / fallidas"
+          value={String(metrics.missed)}
+          icon={PhoneMissed}
+        />
+      </div>
+
+      <div className="grid gap-5 lg:grid-cols-[1fr_20rem]">
+        <Panel
+          title="Historial de llamadas"
+          subtitle="Últimas 50. El resultado se guarda también en Actividades y Métricas → Llamadas."
+          actions={
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void loadCalls()}
+              disabled={callsLoading}
+            >
+              {callsLoading ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : null}
+              Actualizar
+            </Button>
+          }
+          bodyClassName="p-0"
+        >
+          {callsLoading && calls.length === 0 ? (
+            <p className="text-muted-foreground p-5 text-sm">Cargando…</p>
+          ) : calls.length === 0 ? (
+            <div className="p-8 text-center">
+              <Phone className="text-muted-foreground/60 mx-auto h-8 w-8" />
+              <p className="text-foreground mt-2 text-sm font-medium">
+                Todavía no hay llamadas
+              </p>
+              <p className="text-muted-foreground mt-1 text-xs">
+                Marca desde el teléfono y aparecerán aquí con su resultado.
+              </p>
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Fecha</TableHead>
+                  <TableHead>Dirección</TableHead>
+                  <TableHead>Número</TableHead>
+                  <TableHead>Agente</TableHead>
+                  <TableHead>Estado</TableHead>
+                  <TableHead>Duración</TableHead>
+                  <TableHead className="text-right">Transcripción</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {calls.map((call) => {
+                  const other =
+                    call.direction === 'inbound'
+                      ? call.from_number
+                      : call.to_number;
+                  return (
+                    <TableRow key={call.id}>
+                      <TableCell className="text-muted-foreground text-xs whitespace-nowrap">
+                        {format(new Date(call.started_at), 'dd/MM HH:mm')}
+                      </TableCell>
+                      <TableCell>
+                        <span className="text-muted-foreground inline-flex items-center gap-1 text-xs">
+                          {call.direction === 'inbound' ? (
+                            <PhoneIncoming className="h-3.5 w-3.5" />
+                          ) : (
+                            <PhoneOutgoing className="h-3.5 w-3.5" />
+                          )}
+                          {callDirectionLabel(call.direction)}
+                        </span>
+                      </TableCell>
+                      <TableCell>
+                        <div className="min-w-0">
+                          <p className="text-foreground truncate text-sm">
+                            {call.contact?.name ||
+                              formatPhoneDisplay(other) ||
+                              other ||
+                              '—'}
+                          </p>
+                          {call.contact?.name && other ? (
+                            <p className="text-muted-foreground truncate text-xs">
+                              {formatPhoneDisplay(other)}
+                            </p>
+                          ) : null}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-muted-foreground text-xs">
+                        {memberName(call.agent_user_id)}
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          variant="outline"
+                          className={cn(
+                            'text-[10px]',
+                            statusTone[call.status] ?? 'border-border'
+                          )}
+                          title={callResultLabel(
+                            call.answered_at ? 'answered' : 'no_answer'
+                          )}
+                        >
+                          {callSessionStatusLabel(call.status)}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-muted-foreground font-mono text-xs tabular-nums">
+                        {formatCallDuration(call.duration_seconds)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {call.transcript ? (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setTranscriptCall(call)}
+                          >
+                            <FileText className="mr-1 h-3.5 w-3.5" />
+                            Ver
+                          </Button>
+                        ) : call.recording_url ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={transcribingId === call.id}
+                            onClick={() => void transcribe(call)}
+                          >
+                            {transcribingId === call.id ? (
+                              <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <FileText className="mr-1 h-3.5 w-3.5" />
+                            )}
+                            Transcribir
+                          </Button>
+                        ) : (
+                          <span className="text-muted-foreground text-[11px]">
+                            {call.recording_url === null &&
+                            call.status === 'ended'
+                              ? 'Sin grabación'
+                              : '—'}
+                          </span>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          )}
+        </Panel>
+
+        <div className="space-y-5">
+          <Panel title="Marcar" subtitle="El audio se abre en el softphone.">
+            <div className="space-y-2">
+              <Label htmlFor="page-dial">Número</Label>
+              <Input
+                id="page-dial"
+                type="tel"
+                inputMode="tel"
+                placeholder="0412 123 4567"
+                value={dial}
+                onChange={(event) => setDial(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    void submitDial();
+                  }
+                }}
+                disabled={!callable}
+              />
+              {dialError ? (
+                <p className="text-xs text-red-600 dark:text-red-400">
+                  {dialError}
+                </p>
+              ) : null}
+              <Button
+                className="bg-primary text-primary-foreground hover:bg-primary/90 w-full"
+                onClick={() => void submitDial()}
+                disabled={!callable || !dial.trim()}
+              >
+                <Phone className="mr-1.5 h-4 w-4" />
+                Llamar
+              </Button>
+              <p className="text-muted-foreground text-[11px]">
+                {callable
+                  ? status?.callerId
+                    ? `Sale como ${formatPhoneDisplay(status.callerId)}`
+                    : 'Sale con el número de la troncal'
+                  : (status?.blockReason ?? 'Telefonía no configurada.')}
+              </p>
+            </div>
+          </Panel>
+
+          <Panel
+            title="Estado del servidor"
+            subtitle="Variables de entorno de LiveKit."
+          >
+            <div className="space-y-2 text-xs">
+              <StatusLine
+                label="LiveKit"
+                ok={Boolean(status?.ready)}
+                detail={
+                  status?.ready ? 'Credenciales presentes' : 'Sin configurar'
+                }
+              />
+              <StatusLine
+                label="Troncal SIP"
+                ok={Boolean(status?.trunkConfigured)}
+                detail={
+                  status?.trunkConfigured
+                    ? 'Saliente disponible'
+                    : 'Falta LIVEKIT_SIP_TRUNK_ID'
+                }
+              />
+              <StatusLine
+                label="Grabación (Egress)"
+                ok={Boolean(status?.recording.serverEnabled)}
+                detail={
+                  status?.recording.serverEnabled
+                    ? 'Habilitada en el servidor'
+                    : 'LIVEKIT_RECORDING_ENABLED apagado'
+                }
+              />
+              <StatusLine
+                label="Transcripción"
+                ok={Boolean(status?.recording.transcriptionEnabled)}
+                detail="Usa el proveedor de Ajustes → Asistente de IA"
+              />
+            </div>
+          </Panel>
+        </div>
+      </div>
+
+      {isAdmin || accountRole === 'owner' ? (
+        <Panel
+          title="Configuración del negocio"
+          subtitle="Solo admin+. Los secretos de LiveKit viven en el servidor, nunca aquí."
+          actions={
+            <Button
+              onClick={() => void saveConfig()}
+              disabled={saving || Boolean(status?.migrationMissing)}
+              className="bg-primary text-primary-foreground hover:bg-primary/90"
+            >
+              {saving ? (
+                <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+              ) : (
+                <Save className="mr-1.5 h-4 w-4" />
+              )}
+              Guardar
+            </Button>
+          }
+        >
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label>Telefonía activa</Label>
+              <div className="flex items-center gap-2">
+                <Switch
+                  checked={form.enabled}
+                  onCheckedChange={(value) =>
+                    setForm((current) => ({ ...current, enabled: !!value }))
+                  }
+                />
+                <span className="text-muted-foreground text-xs">
+                  Si se apaga, el softphone deja de marcar en este negocio.
+                </span>
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="caller-id">Número saliente (Caller ID)</Label>
+              <Input
+                id="caller-id"
+                placeholder="+584121234567 (opcional)"
+                value={form.outboundCallerId}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    outboundCallerId: event.target.value,
+                  }))
+                }
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="trunk-id">
+                Troncal SIP saliente (ID de LiveKit)
+              </Label>
+              <Input
+                id="trunk-id"
+                placeholder="ST_… (vacío = la del servidor)"
+                value={form.sipOutboundTrunkId}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    sipOutboundTrunkId: event.target.value,
+                  }))
+                }
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="inbound">Números entrantes</Label>
+              <Textarea
+                id="inbound"
+                rows={2}
+                placeholder="+584121234567, +582121234567"
+                value={form.inboundNumbers}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    inboundNumbers: event.target.value,
+                  }))
+                }
+              />
+              <p className="text-muted-foreground text-[11px]">
+                Sepáralos con comas. El webhook usa el número marcado para
+                asignar la llamada a este negocio.
+              </p>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Grabar llamadas</Label>
+              <div className="flex items-center gap-2">
+                <Switch
+                  checked={form.recordingEnabled}
+                  disabled={!status?.recording.serverEnabled}
+                  onCheckedChange={(value) =>
+                    setForm((current) => ({
+                      ...current,
+                      recordingEnabled: !!value,
+                    }))
+                  }
+                />
+                <span className="text-muted-foreground text-xs">
+                  {status?.recording.serverEnabled
+                    ? 'Egress graba solo audio al contestar.'
+                    : 'El servidor no tiene Egress habilitado.'}
+                </span>
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Transcribir grabaciones</Label>
+              <div className="flex items-center gap-2">
+                <Switch
+                  checked={form.transcriptionEnabled}
+                  onCheckedChange={(value) =>
+                    setForm((current) => ({
+                      ...current,
+                      transcriptionEnabled: !!value,
+                    }))
+                  }
+                />
+                <span className="text-muted-foreground text-xs">
+                  Usa OpenAI, Groq o Gemini del Asistente de IA.
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {status?.migrationMissing ? (
+            <p className="mt-4 rounded-lg border border-red-300/60 bg-red-50 p-3 text-xs text-red-700 dark:bg-red-950/30 dark:text-red-300">
+              Falta aplicar <code>112_telephony.sql</code> en Supabase. Hasta
+              entonces no se pueden guardar sesiones ni cambiar estados.
+            </p>
+          ) : null}
+        </Panel>
+      ) : null}
+
+      <Panel
+        title="Puesta en marcha"
+        subtitle="Qué falta del lado de infraestructura (una sola vez por despliegue)."
+      >
+        <ol className="text-muted-foreground ml-4 list-decimal space-y-2 text-sm">
+          <li>
+            Levanta LiveKit (Docker o LiveKit Cloud) y define{' '}
+            <code className="bg-muted rounded px-1 text-xs">LIVEKIT_URL</code>,{' '}
+            <code className="bg-muted rounded px-1 text-xs">
+              LIVEKIT_API_KEY
+            </code>{' '}
+            y{' '}
+            <code className="bg-muted rounded px-1 text-xs">
+              LIVEKIT_API_SECRET
+            </code>{' '}
+            en el servidor.
+          </li>
+          <li>
+            Crea una troncal SIP saliente en LiveKit (Telnyx, Twilio, un
+            operador local…) y copia su ID a{' '}
+            <code className="bg-muted rounded px-1 text-xs">
+              LIVEKIT_SIP_TRUNK_ID
+            </code>{' '}
+            o al campo de arriba.
+          </li>
+          <li>
+            Apunta el webhook de LiveKit a{' '}
+            <code className="bg-muted rounded px-1 text-xs">
+              https://TU-DOMINIO/api/telephony/webhook
+            </code>
+            . Sin él, una pestaña cerrada no cierra la llamada.
+          </li>
+          <li>
+            Para entrantes, crea una regla de despacho (individual) con prefijo
+            de sala{' '}
+            <code className="bg-muted rounded px-1 text-xs">crm-call-</code> y
+            metadata{' '}
+            <code className="bg-muted rounded px-1 text-xs">
+              {`{"account_id":"…"}`}
+            </code>{' '}
+            y registra el número en “Números entrantes”. El softphone avisa
+            cuando suena y el primer agente que contesta la reclama.
+          </li>
+          <li>
+            Grabación: habilita Egress + almacenamiento S3/Supabase y{' '}
+            <code className="bg-muted rounded px-1 text-xs">
+              LIVEKIT_RECORDING_ENABLED=true
+            </code>
+            . Para transcribir, publica la base de las grabaciones en{' '}
+            <code className="bg-muted rounded px-1 text-xs">
+              TELEPHONY_RECORDINGS_PUBLIC_BASE_URL
+            </code>
+            .
+          </li>
+        </ol>
+        <div className="border-border bg-muted/40 text-muted-foreground mt-4 flex items-start gap-2 rounded-lg border p-3 text-xs">
+          <Server className="mt-0.5 h-4 w-4 shrink-0" />
+          <p>
+            La guía completa está en{' '}
+            <code className="bg-background rounded px-1">
+              docs/telefonia-livekit.md
+            </code>
+            . Este módulo no guarda secretos en la base de datos.
+          </p>
+        </div>
+      </Panel>
+
+      <Dialog
+        open={Boolean(transcriptCall)}
+        onOpenChange={(open) => {
+          if (!open) setTranscriptCall(null);
+        }}
+      >
+        <DialogContent className="border-border bg-popover text-popover-foreground sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Transcripción de la llamada</DialogTitle>
+            <DialogDescription>
+              {transcriptCall
+                ? `${format(new Date(transcriptCall.started_at), 'dd/MM/yyyy HH:mm')} · ${transcriptCall.direction === 'inbound' ? 'Entrante' : 'Saliente'} · ${formatCallDuration(transcriptCall.duration_seconds)}`
+                : ''}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="border-border bg-muted/30 text-foreground max-h-[60vh] overflow-y-auto rounded-lg border p-3 text-sm whitespace-pre-wrap">
+            {transcriptCall?.transcript}
+          </div>
+          {transcriptCall?.recording_url ? (
+            <a
+              href={transcriptCall.recording_url}
+              target="_blank"
+              rel="noreferrer"
+              className="text-primary text-xs hover:underline"
+            >
+              Abrir grabación
+            </a>
+          ) : null}
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function StatusLine({
+  label,
+  ok,
+  detail,
+}: {
+  label: string;
+  ok: boolean;
+  detail: string;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-2">
+      <span className="text-muted-foreground">{label}</span>
+      <span
+        className={cn(
+          'text-right text-[11px]',
+          ok
+            ? 'text-emerald-600 dark:text-emerald-400'
+            : 'text-amber-600 dark:text-amber-400'
+        )}
+      >
+        {ok ? 'Listo' : 'Pendiente'} · {detail}
+      </span>
+    </div>
+  );
+}
