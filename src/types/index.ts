@@ -500,6 +500,25 @@ export interface CallEvent {
   created_at: string;
 }
 
+/** Evaluación de calidad de una llamada (migración 114). */
+export interface CallEvaluation {
+  id: string;
+  account_id: string;
+  call_id: string;
+  agent_user_id: string | null;
+  evaluator_user_id: string;
+  score: number;
+  criteria: {
+    key: string;
+    label: string;
+    score: number;
+    max: number;
+  }[];
+  comments: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export function callSessionStatusLabel(value?: string | null): string {
   if (!value) return '';
   return CALL_SESSION_STATUSES.find((s) => s.value === value)?.label ?? value;

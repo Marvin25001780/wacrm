@@ -31,7 +31,7 @@ Navegador (agente)  ──WebRTC──▶  LiveKit (media)  ──SIP──▶  
 | `telephony_config`             | Ajustes por negocio: activo, caller ID, troncal, números entrantes, grabación, transcripción. **Sin secretos.** |
 | `call_sessions`                | Una fila por llamada: dirección, estado, tiempos, agente, contacto, grabación, transcripción, resumen IA y cierre (disposición/notas). |
 | `call_events`                  | Bitácora append-only (creada, contestada, grabación lista, cerrada, disposición…).                              |
-| `member_presence.agent_status` | Disponibilidad operativa: `available`, `busy`, `wrap_up`, `break`.                                              |
+| `call_evaluations`             | QA de la llamada (migración 114): puntaje 0–100, rúbrica y comentarios del supervisor.                         || `member_presence.agent_status` | Disponibilidad operativa: `available`, `busy`, `wrap_up`, `break`.                                              |
 
 RLS: cualquier miembro lee; agente+ crea y cierra sus llamadas; admin+
 puede cerrar cualquiera. El estado de agente se cambia solo por RPC
@@ -42,6 +42,12 @@ La **migración 113** añade el cierre de llamada: `disposition`, `notes` y
 resultados (`sale`, `quote`, `support`, `complaint`, `follow_up`,
 `not_interested`, `wrong_number`, `other`) que vive en
 `src/types/index.ts`. No es una tabla configurable por negocio.
+
+La **migración 114** añade `call_evaluations`: una evaluación por
+llamada con rúbrica fija de cinco criterios (saludo, identificación,
+escucha, resolución y cierre), cada uno de 0 a 5. El puntaje 0–100 se
+calcula en el servidor (`src/lib/telephony/qa.ts`) y solo admin+ puede
+escribirlo.
 
 ## 2. Variables de entorno
 
@@ -198,6 +204,11 @@ requiere el interruptor maestro de **Ajustes → Asistente de IA**.
   Caracas), tabla por agente y resultados por disposición. La API
   (`GET /api/telephony/reports?days=N`) devuelve como máximo 5 000
   llamadas y avisa cuando la ventana se truncó.
+- **Calidad (QA)** (admin+): en el detalle de una llamada contestada y
+  cerrada, el supervisor puntúa cinco criterios de 0 a 5 y deja
+  comentarios. El puntaje 0–100 aparece en el detalle, en la bitácora
+  (`evaluated`) y en la columna QA de los reportes, junto con la
+  cobertura (evaluadas / contestadas).
 
 ### Permisos
 
@@ -205,7 +216,7 @@ requiere el interruptor maestro de **Ajustes → Asistente de IA**.
 | ------------- | ---------------------------------------------------------------------------------------------- |
 | Viewer        | Ver historial y configuración (solo lectura).                                                  |
 | Agent         | Marcar, contestar/cerrar sus llamadas, transcribir, resumir y cambiar su estado.                |
-| Admin / Owner | Todo lo anterior + cerrar llamadas ajenas + supervisión del equipo + reportes + configuración del negocio. |
+| Admin / Owner | Todo lo anterior + cerrar llamadas ajenas + supervisión + reportes + evaluar calidad + configuración. |
 
 ## 6. Límites y aspectos legales (Venezuela)
 
@@ -238,6 +249,7 @@ requiere el interruptor maestro de **Ajustes → Asistente de IA**.
 | “El negocio no tiene proveedor de transcripción” | Configura OpenAI/Groq/Gemini en Ajustes → Asistente de IA.                             |
 | “El asistente de IA no está configurado”         | El interruptor maestro del Asistente de IA está apagado o no hay API key guardada.     |
 | “Ponte Disponible para contestar llamadas”       | El agente está en pausa/cierre/ocupado; cambia de estado en el softphone.              |
+| “Solo se evalúan llamadas contestadas y cerradas” | La llamada sigue sonando/activa o nunca se contestó.                                  |
 
 ## 8. API
 
@@ -254,6 +266,7 @@ requiere el interruptor maestro de **Ajustes → Asistente de IA**.
 | POST      | `/api/telephony/calls/[id]/summary`    | Resumen IA de una llamada transcrita. |
 | GET       | `/api/telephony/agents`                | Supervisión del equipo (admin+).     |
 | GET       | `/api/telephony/reports`               | Reportes de operación (admin+).      |
+| GET/POST  | `/api/telephony/evaluations`           | QA de llamadas (POST admin+).        |
 | GET/PATCH | `/api/telephony/config`                | Configuración por negocio (admin+).  |
 | POST      | `/api/telephony/presence`              | Estado del agente.                   |
 | POST      | `/api/telephony/webhook`               | Eventos de LiveKit (firma).          |

@@ -6,6 +6,8 @@ import {
   aggregateCalls,
   businessDayKey,
   BUSINESS_TIME_ZONE,
+  mergeQaScores,
+  type QaScoreRow,
   type ReportCallRow,
 } from '@/lib/telephony/reports';
 
@@ -84,8 +86,21 @@ export async function GET(request: Request) {
       })),
     });
 
+    // QA: si la 114 aún no está aplicada, el reporte sigue funcionando
+    // sin la columna de calidad.
+    const qaResult = await ctx.supabase
+      .from('call_evaluations')
+      .select('agent_user_id, score')
+      .eq('account_id', ctx.accountId)
+      .gte('created_at', from)
+      .limit(MAX_ROWS);
+    const qaRows =
+      qaResult.error && !isMissingRelation(qaResult.error)
+        ? []
+        : ((qaResult.data ?? []) as QaScoreRow[]);
+
     return NextResponse.json({
-      ...report,
+      ...mergeQaScores(report, qaRows),
       migrationMissing: false,
       truncated,
       rowLimit: MAX_ROWS,

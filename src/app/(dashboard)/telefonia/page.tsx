@@ -18,6 +18,7 @@ import {
   AlertTriangle,
   BarChart3,
   CheckCircle2,
+  ClipboardCheck,
   Clock,
   FileText,
   Info,
@@ -67,12 +68,14 @@ import {
   type AccountMember,
   type AgentStatus,
   type CallEvent,
+  type CallEvaluation,
   type CallSession,
   type TelephonyConfig,
   type TelephonySupervision,
 } from '@/types';
-import { formatCallDuration } from '@/lib/telephony/calls';
+import { formatCallDuration, isTerminalCallStatus } from '@/lib/telephony/calls';
 import { formatPhoneDisplay, normalizePhone } from '@/lib/telephony/phone';
+import { QA_CRITERIA, QA_MAX_PER_CRITERION } from '@/lib/telephony/qa';
 
 interface ConfigForm {
   enabled: boolean;
@@ -151,6 +154,8 @@ const callEventText: Record<string, string> = {
   transcribed: 'Transcripción lista',
   transcription_failed: 'Error de transcripción',
   summarized: 'Resumen generado',
+  disposition_set: 'Disposición guardada',
+  evaluated: 'Evaluación de calidad',
 };
 
 export default function TelefoniaPage() {
@@ -177,6 +182,11 @@ export default function TelefoniaPage() {
   const [eventsLoading, setEventsLoading] = useState(false);
   const [transcribingId, setTranscribingId] = useState<string | null>(null);
   const [summarizingId, setSummarizingId] = useState<string | null>(null);
+  const [evaluation, setEvaluation] = useState<CallEvaluation | null>(null);
+  const [evaluationLoading, setEvaluationLoading] = useState(false);
+  const [qaScores, setQaScores] = useState<Record<string, number>>({});
+  const [qaComments, setQaComments] = useState('');
+  const [savingQa, setSavingQa] = useState(false);
   const [supervision, setSupervision] =
     useState<TelephonySupervision | null>(null);
   const [nowTick, setNowTick] = useState(() => Date.now());
@@ -249,13 +259,44 @@ export default function TelefoniaPage() {
     }
   }, []);
 
+  const loadEvaluation = useCallback(async (callId: string) => {
+    setEvaluationLoading(true);
+    try {
+      const res = await fetch(
+        `/api/telephony/evaluations?callId=${encodeURIComponent(callId)}`,
+        { cache: 'no-store' }
+      );
+      const body = (await res.json().catch(() => ({}))) as {
+        evaluation?: CallEvaluation | null;
+        migrationMissing?: boolean;
+      };
+      if (!res.ok) return;
+      const current = body.evaluation ?? null;
+      setEvaluation(current);
+      if (current) {
+        setQaScores(
+          Object.fromEntries(current.criteria.map((row) => [row.key, row.score]))
+        );
+        setQaComments(current.comments ?? '');
+      }
+    } catch {
+      // Sin red: el detalle se abre sin la sección de calidad.
+    } finally {
+      setEvaluationLoading(false);
+    }
+  }, []);
+
   const openCall = useCallback(
     (call: CallSession) => {
       setTranscriptCall(call);
       setCallEvents([]);
+      setEvaluation(null);
+      setQaScores({});
+      setQaComments('');
       void loadEvents(call.id);
+      void loadEvaluation(call.id);
     },
-    [loadEvents]
+    [loadEvents, loadEvaluation]
   );
 
   useEffect(() => {
@@ -433,7 +474,45 @@ export default function TelefoniaPage() {
     }
   };
 
+  const saveEvaluation = async () => {
+    if (!transcriptCall) return;
+    setSavingQa(true);
+    try {
+      const res = await fetch('/api/telephony/evaluations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          callId: transcriptCall.id,
+          criteria: qaScores,
+          comments: qaComments.trim() || null,
+        }),
+      });
+      const body = (await res.json().catch(() => ({}))) as {
+        evaluation?: CallEvaluation;
+        error?: string;
+      };
+      if (!res.ok || !body.evaluation) {
+        toast.error(body.error ?? 'No se pudo guardar la evaluación.');
+        return;
+      }
+      setEvaluation(body.evaluation);
+      setQaScores(
+        Object.fromEntries(
+          body.evaluation.criteria.map((row) => [row.key, row.score])
+        )
+      );
+      toast.success(`Evaluación guardada: ${body.evaluation.score}/100.`);
+      void loadEvents(transcriptCall.id);
+      void loadCalls(true);
+    } finally {
+      setSavingQa(false);
+    }
+  };
+
   const notReady = !statusLoading && status && !status.dialReady;
+  const qaComplete = QA_CRITERIA.every(
+    (criterion) => typeof qaScores[criterion.key] === 'number'
+  );
 
   return (
     <div className="space-y-5">
@@ -1113,6 +1192,9 @@ export default function TelefoniaPage() {
           if (!open) {
             setTranscriptCall(null);
             setCallEvents([]);
+            setEvaluation(null);
+            setQaScores({});
+            setQaComments('');
           }
         }}
       >
@@ -1213,6 +1295,112 @@ export default function TelefoniaPage() {
                   : 'Esta llamada no tiene grabación ni transcripción.'}
               </p>
             )}
+
+            {canSupervise &&
+            transcriptCall &&
+            transcriptCall.answered_at &&
+            isTerminalCallStatus(transcriptCall.status) ? (
+              <div className="border-border space-y-2 rounded-lg border p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-foreground flex items-center gap-1.5 text-xs font-medium">
+                    <ClipboardCheck className="h-3.5 w-3.5" />
+                    Evaluación de calidad
+                  </p>
+                  {evaluation ? (
+                    <Badge
+                      variant="outline"
+                      className={cn(
+                        'text-[10px]',
+                        evaluation.score >= 80
+                          ? 'border-emerald-300 text-emerald-700 dark:text-emerald-300'
+                          : evaluation.score >= 60
+                            ? 'border-amber-300 text-amber-700 dark:text-amber-300'
+                            : 'border-red-300 text-red-600 dark:text-red-400'
+                      )}
+                    >
+                      {evaluation.score}/100
+                    </Badge>
+                  ) : (
+                    <span className="text-muted-foreground text-[11px]">
+                      Sin evaluar
+                    </span>
+                  )}
+                </div>
+
+                {evaluationLoading ? (
+                  <p className="text-muted-foreground text-xs">Cargando…</p>
+                ) : (
+                  <div className="space-y-2">
+                    {QA_CRITERIA.map((criterion) => (
+                      <div
+                        key={criterion.key}
+                        className="grid gap-1 sm:grid-cols-[1fr_5rem] sm:items-center"
+                      >
+                        <div>
+                          <p className="text-foreground text-xs">
+                            {criterion.label}
+                          </p>
+                          <p className="text-muted-foreground text-[10px]">
+                            {criterion.hint}
+                          </p>
+                        </div>
+                        <select
+                          aria-label={criterion.label}
+                          value={qaScores[criterion.key] ?? ''}
+                          onChange={(event) => {
+                            const value = event.target.value;
+                            setQaScores((current) => {
+                              const next = { ...current };
+                              if (value === '') delete next[criterion.key];
+                              else next[criterion.key] = Number(value);
+                              return next;
+                            });
+                          }}
+                          className="border-border bg-background text-foreground h-8 w-full rounded-md border px-2 text-sm"
+                        >
+                          <option value="">—</option>
+                          {Array.from(
+                            { length: QA_MAX_PER_CRITERION + 1 },
+                            (_, score) => (
+                              <option key={score} value={score}>
+                                {score}
+                              </option>
+                            )
+                          )}
+                        </select>
+                      </div>
+                    ))}
+                    <textarea
+                      rows={2}
+                      value={qaComments}
+                      onChange={(event) =>
+                        setQaComments(event.target.value.slice(0, 2000))
+                      }
+                      placeholder="Comentarios para el agente (opcional)"
+                      className="border-border bg-background text-foreground w-full rounded-md border px-2 py-1.5 text-sm"
+                    />
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-muted-foreground text-[11px]">
+                        0 = no cumple · {QA_MAX_PER_CRITERION} = excelente
+                      </p>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={!qaComplete || savingQa}
+                        onClick={() => void saveEvaluation()}
+                      >
+                        {savingQa ? (
+                          <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <ClipboardCheck className="mr-1 h-3.5 w-3.5" />
+                        )}
+                        {evaluation ? 'Actualizar evaluación' : 'Guardar evaluación'}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : null}
 
             <div className="space-y-2">
               <p className="text-foreground flex items-center gap-1.5 text-xs font-medium">

@@ -15,6 +15,7 @@ import type {
   CallDisposition,
   CallSessionStatus,
 } from '@/types';
+import { summarizeQa } from './qa';
 
 export const BUSINESS_TIME_ZONE = 'America/Caracas';
 
@@ -59,6 +60,11 @@ export interface TelephonyReportTotals {
   transcribed: number;
   /** Tiempo medio de cierre (colgada → disposición guardada). */
   avgWrapUpSeconds: number | null;
+  /** 114 — evaluaciones de calidad del periodo. */
+  qaCount?: number;
+  avgQaScore?: number | null;
+  /** Evaluaciones / llamadas contestadas (0–1). */
+  qaCoverage?: number | null;
 }
 
 export interface TelephonyReportAgent {
@@ -70,6 +76,9 @@ export interface TelephonyReportAgent {
   talkSeconds: number;
   avgHandleSeconds: number | null;
   missed: number;
+  /** 114 — promedio de QA (0–100) y cantidad evaluada. */
+  qaScore?: number | null;
+  qaCount?: number;
 }
 
 export interface TelephonyReportDay {
@@ -356,5 +365,56 @@ export function aggregateCalls(
     daysSeries: daySeries,
     hours,
     dispositions,
+  };
+}
+
+export interface QaScoreRow {
+  agent_user_id: string | null;
+  score: number;
+}
+
+/**
+ * Añade las notas de QA al reporte. Se hace aparte de `aggregateCalls`
+ * porque las evaluaciones viven en otra tabla y pueden llegar después
+ * de la llamada; el reporte sigue siendo puro y testeable.
+ */
+export function mergeQaScores(
+  report: TelephonyReport,
+  rows: QaScoreRow[]
+): TelephonyReport {
+  const byAgent = new Map<string, number[]>();
+  const all: number[] = [];
+
+  for (const row of rows) {
+    if (!Number.isFinite(row.score)) continue;
+    all.push(row.score);
+    if (row.agent_user_id) {
+      const list = byAgent.get(row.agent_user_id) ?? [];
+      list.push(row.score);
+      byAgent.set(row.agent_user_id, list);
+    }
+  }
+
+  const summary = summarizeQa(all, report.totals.answered);
+  const agents = report.agents.map((agent) => {
+    const scores = byAgent.get(agent.user_id) ?? [];
+    return {
+      ...agent,
+      qaCount: scores.length,
+      qaScore: scores.length
+        ? Math.round(scores.reduce((sum, score) => sum + score, 0) / scores.length)
+        : null,
+    };
+  });
+
+  return {
+    ...report,
+    agents,
+    totals: {
+      ...report.totals,
+      qaCount: summary.count,
+      avgQaScore: summary.average,
+      qaCoverage: summary.coverage,
+    },
   };
 }

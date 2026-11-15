@@ -17,6 +17,7 @@ import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import {
   AlertTriangle,
+  ClipboardCheck,
   Clock,
   Loader2,
   Phone,
@@ -254,6 +255,18 @@ export default function TelephonyReportsPage() {
           icon={AlertTriangle}
           subtitle={`${totals?.cancelled ?? 0} canceladas`}
         />
+        <MetricCard
+          title="Calidad (QA)"
+          value={
+            loading
+              ? '…'
+              : totals?.avgQaScore != null
+                ? `${totals.avgQaScore}/100`
+                : '—'
+          }
+          icon={ClipboardCheck}
+          subtitle={`${totals?.qaCount ?? 0} evaluadas · cobertura ${percent(totals?.qaCoverage ?? null)}`}
+        />
       </div>
 
       <div className="grid gap-5 lg:grid-cols-2">
@@ -298,13 +311,14 @@ export default function TelephonyReportsPage() {
               <TableHead className="text-right">Perdidas</TableHead>
               <TableHead className="text-right">Tiempo hablado</TableHead>
               <TableHead className="text-right">Duración media</TableHead>
+              <TableHead className="text-right">QA</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {(report?.agents ?? []).length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={6}
+                  colSpan={7}
                   className="text-muted-foreground py-6 text-center text-sm"
                 >
                   Sin datos en la ventana seleccionada.
@@ -381,6 +395,25 @@ function AgentRow({ agent }: { agent: TelephonyReportAgent }) {
       </TableCell>
       <TableCell className="text-right tabular-nums">
         {formatCallDuration(agent.avgHandleSeconds)}
+      </TableCell>
+      <TableCell className="text-right tabular-nums">
+        {agent.qaScore != null ? (
+          <span
+            className={cn(
+              'font-medium',
+              agent.qaScore >= 80
+                ? 'text-emerald-600 dark:text-emerald-400'
+                : agent.qaScore >= 60
+                  ? 'text-amber-600 dark:text-amber-400'
+                  : 'text-red-600 dark:text-red-400'
+            )}
+            title={`${agent.qaCount ?? 0} evaluaciones`}
+          >
+            {agent.qaScore}
+          </span>
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        )}
       </TableCell>
     </TableRow>
   );

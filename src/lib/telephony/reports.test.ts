@@ -4,6 +4,7 @@ import {
   aggregateCalls,
   businessDayKey,
   businessHour,
+  mergeQaScores,
   type ReportCallRow,
 } from './reports';
 
@@ -158,5 +159,38 @@ describe('aggregateCalls', () => {
       { disposition: 'sale', count: 1 },
       { disposition: 'follow_up', count: 1 },
     ]);
+  });
+
+  it('añade las notas de QA sin tocar el resto del reporte', () => {
+    const withQa = mergeQaScores(report, [
+      { agent_user_id: 'agent-a', score: 80 },
+      { agent_user_id: 'agent-a', score: 100 },
+      { agent_user_id: 'agent-b', score: 60 },
+    ]);
+
+    expect(withQa.totals.qaCount).toBe(3);
+    expect(withQa.totals.avgQaScore).toBe(80);
+    expect(withQa.totals.qaCoverage).toBe(1);
+    expect(withQa.agents[0]).toMatchObject({
+      user_id: 'agent-a',
+      qaCount: 2,
+      qaScore: 90,
+    });
+    expect(withQa.agents[1]).toMatchObject({
+      user_id: 'agent-b',
+      qaCount: 1,
+      qaScore: 60,
+    });
+    // El resto de los agregados no cambia.
+    expect(withQa.totals.total).toBe(report.totals.total);
+    expect(withQa.daysSeries).toEqual(report.daysSeries);
+  });
+
+  it('sin evaluaciones deja la cobertura en cero y las notas en null', () => {
+    const withQa = mergeQaScores(report, []);
+    expect(withQa.totals.qaCount).toBe(0);
+    expect(withQa.totals.avgQaScore).toBeNull();
+    expect(withQa.totals.qaCoverage).toBe(0);
+    expect(withQa.agents.every((agent) => agent.qaScore === null)).toBe(true);
   });
 });
