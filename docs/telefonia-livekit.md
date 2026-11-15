@@ -164,6 +164,9 @@ requiere el interruptor maestro de **Ajustes → Asistente de IA**.
 - Cada llamada cerrada crea una actividad `type='call'` con dirección,
   resultado y duración. Por eso `/metrics/llamadas` sigue funcionando
   sin cambios.
+- El botón **Detalle** del historial abre la llamada con reproductor
+  de la grabación, resumen IA, transcripción y bitácora de eventos
+  (`call_events`) en orden cronológico.
 - Las llamadas entrantes sin agente no crean actividad (no hay a quién
   asignarlas); sí quedan en `call_sessions` como `missed`.
 - **Supervisión** (admin+): el panel de `/telefonia` muestra cada
@@ -217,6 +220,7 @@ requiere el interruptor maestro de **Ajustes → Asistente de IA**.
 | --------- | -------------------------------------- | ------------------------------------ |
 | GET       | `/api/telephony/status`                | Estado del softphone (sin secretos). |
 | GET/POST  | `/api/telephony/calls`                 | Historial / iniciar saliente.        |
+| GET       | `/api/telephony/calls/[id]`            | Detalle + bitácora de eventos.       |
 | POST      | `/api/telephony/calls/[id]/answer`     | Contestada (arranca grabación).      |
 | POST      | `/api/telephony/calls/[id]/claim`      | Reclamar una entrante que suena.     |
 | POST      | `/api/telephony/calls/[id]/end`        | Colgar / rechazar (crea actividad).  |

@@ -18,6 +18,7 @@ import {
   CheckCircle2,
   Clock,
   FileText,
+  Info,
   Loader2,
   Phone,
   PhoneCall,
@@ -63,6 +64,7 @@ import {
   callDirectionLabel,
   type AccountMember,
   type AgentStatus,
+  type CallEvent,
   type CallSession,
   type TelephonyConfig,
   type TelephonySupervision,
@@ -136,6 +138,19 @@ const roleText: Record<string, string> = {
   viewer: 'Espectador',
 };
 
+const callEventText: Record<string, string> = {
+  created: 'Llamada creada',
+  inbound_created: 'Entrante recibida',
+  claimed: 'Reclamada por un agente',
+  answered: 'Contestada',
+  ended: 'Finalizada',
+  recording_ready: 'Grabación lista',
+  recording_failed: 'Error de grabación',
+  transcribed: 'Transcripción lista',
+  transcription_failed: 'Error de transcripción',
+  summarized: 'Resumen generado',
+};
+
 export default function TelefoniaPage() {
   const { isAdmin, accountRole } = useAuth();
   const {
@@ -156,6 +171,8 @@ export default function TelefoniaPage() {
   const [transcriptCall, setTranscriptCall] = useState<CallSession | null>(
     null
   );
+  const [callEvents, setCallEvents] = useState<CallEvent[]>([]);
+  const [eventsLoading, setEventsLoading] = useState(false);
   const [transcribingId, setTranscribingId] = useState<string | null>(null);
   const [summarizingId, setSummarizingId] = useState<string | null>(null);
   const [supervision, setSupervision] =
@@ -210,6 +227,34 @@ export default function TelefoniaPage() {
       // Sin red: se conserva la última foto del equipo.
     }
   }, [canSupervise]);
+
+  const loadEvents = useCallback(async (callId: string) => {
+    setEventsLoading(true);
+    try {
+      const res = await fetch(`/api/telephony/calls/${callId}`, {
+        cache: 'no-store',
+      });
+      const body = (await res.json().catch(() => ({}))) as {
+        call?: CallSession;
+        events?: CallEvent[];
+      };
+      if (res.ok && body.events) setCallEvents(body.events);
+      if (res.ok && body.call) setTranscriptCall(body.call);
+    } catch {
+      // El detalle se queda con lo que ya traía el historial.
+    } finally {
+      setEventsLoading(false);
+    }
+  }, []);
+
+  const openCall = useCallback(
+    (call: CallSession) => {
+      setTranscriptCall(call);
+      setCallEvents([]);
+      void loadEvents(call.id);
+    },
+    [loadEvents]
+  );
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -379,6 +424,7 @@ export default function TelefoniaPage() {
         current.map((row) => (row.id === call.id ? body.call! : row))
       );
       setTranscriptCall(body.call);
+      void loadEvents(call.id);
       toast.success('Resumen listo.');
     } finally {
       setSummarizingId(null);
@@ -653,6 +699,7 @@ export default function TelefoniaPage() {
                   <TableHead>Estado</TableHead>
                   <TableHead>Duración</TableHead>
                   <TableHead className="text-right">Transcripción</TableHead>
+                  <TableHead className="text-right">Detalle</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -716,7 +763,7 @@ export default function TelefoniaPage() {
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => setTranscriptCall(call)}
+                            onClick={() => openCall(call)}
                           >
                             <FileText className="mr-1 h-3.5 w-3.5" />
                             Ver
@@ -743,6 +790,16 @@ export default function TelefoniaPage() {
                               : '—'}
                           </span>
                         )}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          title="Ver detalle y bitácora"
+                          onClick={() => openCall(call)}
+                        >
+                          <Info className="h-3.5 w-3.5" />
+                        </Button>
                       </TableCell>
                     </TableRow>
                   );
@@ -1040,68 +1097,145 @@ export default function TelefoniaPage() {
       <Dialog
         open={Boolean(transcriptCall)}
         onOpenChange={(open) => {
-          if (!open) setTranscriptCall(null);
+          if (!open) {
+            setTranscriptCall(null);
+            setCallEvents([]);
+          }
         }}
       >
         <DialogContent className="border-border bg-popover text-popover-foreground sm:max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Transcripción de la llamada</DialogTitle>
+            <DialogTitle>Detalle de la llamada</DialogTitle>
             <DialogDescription>
               {transcriptCall
-                ? `${format(new Date(transcriptCall.started_at), 'dd/MM/yyyy HH:mm')} · ${transcriptCall.direction === 'inbound' ? 'Entrante' : 'Saliente'} · ${formatCallDuration(transcriptCall.duration_seconds)}`
+                ? [
+                    format(
+                      new Date(transcriptCall.started_at),
+                      'dd/MM/yyyy HH:mm'
+                    ),
+                    transcriptCall.direction === 'inbound'
+                      ? 'Entrante'
+                      : 'Saliente',
+                    formatCallDuration(transcriptCall.duration_seconds),
+                    transcriptCall.contact?.name,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')
                 : ''}
             </DialogDescription>
           </DialogHeader>
-          {transcriptCall?.ai_summary ? (
-            <div className="rounded-lg border border-emerald-300/60 bg-emerald-50/60 p-3 dark:bg-emerald-950/20">
-              <p className="text-foreground mb-1 flex items-center gap-1.5 text-xs font-medium">
-                <Sparkles className="h-3.5 w-3.5" />
-                Resumen con IA
-              </p>
-              <p className="text-foreground text-sm whitespace-pre-wrap">
-                {transcriptCall.ai_summary}
-              </p>
-            </div>
-          ) : (
-            <div className="border-border flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3">
-              <p className="text-muted-foreground max-w-md text-xs">
-                Genera un resumen corto (motivo, acuerdos y siguiente paso) con
-                el Asistente de IA del negocio.
-              </p>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={
-                  !transcriptCall || summarizingId === transcriptCall.id
-                }
-                onClick={() => {
-                  if (transcriptCall) void summarize(transcriptCall);
-                }}
-              >
-                {summarizingId === transcriptCall?.id ? (
-                  <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+
+          <div className="max-h-[70vh] space-y-3 overflow-y-auto pr-1">
+            {transcriptCall?.recording_url ? (
+              <div className="space-y-1">
+                <p className="text-foreground text-xs font-medium">
+                  Grabación
+                </p>
+                <audio
+                  controls
+                  preload="none"
+                  src={transcriptCall.recording_url}
+                  className="w-full"
+                />
+                <a
+                  href={transcriptCall.recording_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-primary text-[11px] hover:underline"
+                >
+                  Abrir en otra pestaña
+                </a>
+              </div>
+            ) : null}
+
+            {transcriptCall?.transcript ? (
+              <>
+                {transcriptCall.ai_summary ? (
+                  <div className="rounded-lg border border-emerald-300/60 bg-emerald-50/60 p-3 dark:bg-emerald-950/20">
+                    <p className="text-foreground mb-1 flex items-center gap-1.5 text-xs font-medium">
+                      <Sparkles className="h-3.5 w-3.5" />
+                      Resumen con IA
+                    </p>
+                    <p className="text-foreground text-sm whitespace-pre-wrap">
+                      {transcriptCall.ai_summary}
+                    </p>
+                  </div>
                 ) : (
-                  <Sparkles className="mr-1 h-3.5 w-3.5" />
+                  <div className="border-border flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3">
+                    <p className="text-muted-foreground max-w-md text-xs">
+                      Genera un resumen corto (motivo, acuerdos y siguiente
+                      paso) con el Asistente de IA del negocio.
+                    </p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={summarizingId === transcriptCall.id}
+                      onClick={() => void summarize(transcriptCall)}
+                    >
+                      {summarizingId === transcriptCall.id ? (
+                        <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Sparkles className="mr-1 h-3.5 w-3.5" />
+                      )}
+                      {summarizingId === transcriptCall.id
+                        ? 'Generando…'
+                        : 'Resumir'}
+                    </Button>
+                  </div>
                 )}
-                {summarizingId === transcriptCall?.id
-                  ? 'Generando…'
-                  : 'Resumir'}
-              </Button>
+
+                <div className="space-y-1">
+                  <p className="text-foreground text-xs font-medium">
+                    Transcripción
+                  </p>
+                  <div className="border-border bg-muted/30 text-foreground max-h-56 overflow-y-auto rounded-lg border p-3 text-sm whitespace-pre-wrap">
+                    {transcriptCall.transcript}
+                  </div>
+                </div>
+              </>
+            ) : (
+              <p className="text-muted-foreground text-xs">
+                {transcriptCall?.recording_url
+                  ? 'La grabación aún no tiene transcripción. Usa “Transcribir” en el historial.'
+                  : 'Esta llamada no tiene grabación ni transcripción.'}
+              </p>
+            )}
+
+            <div className="space-y-2">
+              <p className="text-foreground flex items-center gap-1.5 text-xs font-medium">
+                <Clock className="h-3.5 w-3.5" />
+                Bitácora
+              </p>
+              {eventsLoading ? (
+                <p className="text-muted-foreground text-xs">Cargando…</p>
+              ) : callEvents.length === 0 ? (
+                <p className="text-muted-foreground text-xs">
+                  Sin eventos registrados.
+                </p>
+              ) : (
+                <ol className="space-y-1.5">
+                  {callEvents.map((event) => (
+                    <li
+                      key={event.id}
+                      className="flex flex-wrap items-baseline gap-x-2 text-xs"
+                    >
+                      <span className="text-muted-foreground font-mono tabular-nums">
+                        {format(new Date(event.created_at), 'HH:mm:ss')}
+                      </span>
+                      <span className="text-foreground">
+                        {callEventText[event.type] ?? event.type}
+                      </span>
+                      {typeof event.payload?.message === 'string' ? (
+                        <span className="text-muted-foreground truncate">
+                          — {event.payload.message}
+                        </span>
+                      ) : null}
+                    </li>
+                  ))}
+                </ol>
+              )}
             </div>
-          )}
-          <div className="border-border bg-muted/30 text-foreground max-h-[60vh] overflow-y-auto rounded-lg border p-3 text-sm whitespace-pre-wrap">
-            {transcriptCall?.transcript}
           </div>
-          {transcriptCall?.recording_url ? (
-            <a
-              href={transcriptCall.recording_url}
-              target="_blank"
-              rel="noreferrer"
-              className="text-primary text-xs hover:underline"
-            >
-              Abrir grabación
-            </a>
-          ) : null}
         </DialogContent>
       </Dialog>
     </div>
