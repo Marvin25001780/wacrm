@@ -65,6 +65,9 @@ export interface TelephonyReportTotals {
   avgQaScore?: number | null;
   /** Evaluaciones / llamadas contestadas (0–1). */
   qaCoverage?: number | null;
+  /** 115 — evaluaciones automáticas con IA del periodo. */
+  aiQaCount?: number;
+  aiAvgQaScore?: number | null;
 }
 
 export interface TelephonyReportAgent {
@@ -79,6 +82,9 @@ export interface TelephonyReportAgent {
   /** 114 — promedio de QA (0–100) y cantidad evaluada. */
   qaScore?: number | null;
   qaCount?: number;
+  /** 115 — promedio de QA con IA y cuántas evaluaciones generó. */
+  aiQaScore?: number | null;
+  aiQaCount?: number;
 }
 
 export interface TelephonyReportDay {
@@ -371,6 +377,9 @@ export function aggregateCalls(
 export interface QaScoreRow {
   agent_user_id: string | null;
   score: number;
+  /** 114 — nota humana del supervisor; 115 — nota automática con IA. */
+  source?: 'human' | 'ai';
+  call_id?: string | null;
 }
 
 /**
@@ -382,10 +391,13 @@ export function mergeQaScores(
   report: TelephonyReport,
   rows: QaScoreRow[]
 ): TelephonyReport {
+  const humanRows = rows.filter((row) => !row.source || row.source === 'human');
+  const aiRows = rows.filter((row) => row.source === 'ai');
+
   const byAgent = new Map<string, number[]>();
   const all: number[] = [];
 
-  for (const row of rows) {
+  for (const row of humanRows) {
     if (!Number.isFinite(row.score)) continue;
     all.push(row.score);
     if (row.agent_user_id) {
@@ -396,14 +408,35 @@ export function mergeQaScores(
   }
 
   const summary = summarizeQa(all, report.totals.answered);
+
+  // QA automática con IA (115): promedio por agente y global. Se
+  // calcula aparte de la humana para poder compararlas después.
+  const aiByAgent = new Map<string, number[]>();
+  const aiAll: number[] = [];
+  for (const row of aiRows) {
+    if (!Number.isFinite(row.score) || row.score < 0 || row.score > 100) continue;
+    aiAll.push(row.score);
+    if (row.agent_user_id) {
+      const list = aiByAgent.get(row.agent_user_id) ?? [];
+      list.push(row.score);
+      aiByAgent.set(row.agent_user_id, list);
+    }
+  }
+
+  const aiAverage =
+    aiAll.length > 0 ? aiAll.reduce((sum, value) => sum + value, 0) / aiAll.length : null;
+
   const agents = report.agents.map((agent) => {
     const scores = byAgent.get(agent.user_id) ?? [];
+    const aiScores = aiByAgent.get(agent.user_id) ?? [];
+    const mean = (list: number[]) =>
+      list.length ? list.reduce((sum, value) => sum + value, 0) / list.length : null;
     return {
       ...agent,
       qaCount: scores.length,
-      qaScore: scores.length
-        ? Math.round(scores.reduce((sum, score) => sum + score, 0) / scores.length)
-        : null,
+      qaScore: scores.length ? Math.round(mean(scores) ?? 0) : null,
+      aiQaCount: aiScores.length,
+      aiQaScore: aiScores.length ? Math.round(mean(aiScores) ?? 0) : null,
     };
   });
 
@@ -415,6 +448,8 @@ export function mergeQaScores(
       qaCount: summary.count,
       avgQaScore: summary.average,
       qaCoverage: summary.coverage,
+      aiQaCount: aiAll.length,
+      aiAvgQaScore: aiAverage == null ? null : Math.round(aiAverage),
     },
   };
 }

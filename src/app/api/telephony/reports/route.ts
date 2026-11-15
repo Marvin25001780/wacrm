@@ -87,20 +87,40 @@ export async function GET(request: Request) {
     });
 
     // QA: si la 114 aún no está aplicada, el reporte sigue funcionando
-    // sin la columna de calidad.
+    // sin la columna de calidad. Con la 115 se suman también las
+    // evaluaciones automáticas con IA para la comparativa.
     const qaResult = await ctx.supabase
       .from('call_evaluations')
       .select('agent_user_id, score')
       .eq('account_id', ctx.accountId)
       .gte('created_at', from)
       .limit(MAX_ROWS);
-    const qaRows =
+    const humanRows =
       qaResult.error && !isMissingRelation(qaResult.error)
         ? []
-        : ((qaResult.data ?? []) as QaScoreRow[]);
+        : ((qaResult.data ?? []) as QaScoreRow[]).map((row) => ({
+            ...row,
+            source: 'human' as const,
+          }));
+
+    const aiResult = await ctx.supabase
+      .from('call_ai_evaluations')
+      .select('agent_user_id, score')
+      .eq('account_id', ctx.accountId)
+      .gte('created_at', from)
+      .limit(MAX_ROWS);
+    const aiRows =
+      aiResult.error && !isMissingRelation(aiResult.error)
+        ? []
+        : ((aiResult.data ?? []) as QaScoreRow[]).map((row) => ({
+            ...row,
+            source: 'ai' as const,
+          }));
+
+    const reportWithQa = mergeQaScores(report, [...humanRows, ...aiRows]);
 
     return NextResponse.json({
-      ...mergeQaScores(report, qaRows),
+      ...reportWithQa,
       migrationMissing: false,
       truncated,
       rowLimit: MAX_ROWS,

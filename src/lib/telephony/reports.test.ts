@@ -191,6 +191,58 @@ describe('aggregateCalls', () => {
     expect(withQa.totals.qaCount).toBe(0);
     expect(withQa.totals.avgQaScore).toBeNull();
     expect(withQa.totals.qaCoverage).toBe(0);
+    expect(withQa.totals.aiQaCount).toBe(0);
+    expect(withQa.totals.aiAvgQaScore).toBeNull();
     expect(withQa.agents.every((agent) => agent.qaScore === null)).toBe(true);
+  });
+
+  it('suma las evaluaciones automáticas con IA sin mezclar con la humana', () => {
+    const withAi = mergeQaScores(report, [
+      { agent_user_id: 'agent-a', score: 70, source: 'ai' },
+      { agent_user_id: 'agent-a', score: 90, source: 'ai' },
+      { agent_user_id: 'agent-b', score: 55, source: 'ai' },
+    ]);
+
+    expect(withAi.totals.aiQaCount).toBe(3);
+    expect(withAi.totals.aiAvgQaScore).toBe(72);
+    expect(withAi.totals.qaCount).toBe(0);
+    expect(withAi.totals.avgQaScore).toBeNull();
+    expect(withAi.agents[0]).toMatchObject({
+      user_id: 'agent-a',
+      qaCount: 0,
+      qaScore: null,
+      aiQaCount: 2,
+      aiQaScore: 80,
+    });
+    expect(withAi.agents[1]).toMatchObject({
+      user_id: 'agent-b',
+      aiQaCount: 1,
+      aiQaScore: 55,
+    });
+  });
+
+  it('compara humana y automática en la misma fusión', () => {
+    const withBoth = mergeQaScores(report, [
+      { agent_user_id: 'agent-a', score: 90, source: 'human' },
+      { agent_user_id: 'agent-a', score: 70, source: 'ai' },
+      { agent_user_id: 'agent-b', score: 60, source: 'human' },
+      { agent_user_id: 'agent-b', score: 55, source: 'ai' },
+    ]);
+
+    expect(withBoth.totals.qaCount).toBe(2);
+    expect(withBoth.totals.aiQaCount).toBe(2);
+    expect(withBoth.totals.aiAvgQaScore).toBe(63);
+    expect(withBoth.agents[0]).toMatchObject({
+      qaCount: 1,
+      qaScore: 90,
+      aiQaCount: 1,
+      aiQaScore: 70,
+    });
+    expect(withBoth.agents[1]).toMatchObject({
+      qaCount: 1,
+      qaScore: 60,
+      aiQaCount: 1,
+      aiQaScore: 55,
+    });
   });
 });

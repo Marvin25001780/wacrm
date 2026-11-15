@@ -248,7 +248,9 @@ requiere el interruptor maestro de **Ajustes → Asistente de IA**.
   botón **Evaluar con IA** pide al proveedor del negocio una nota por
   criterio y un feedback corto. Se guarda aparte de la nota humana, se
   puede regenerar y deja un evento `ai_evaluated`. Sirve para priorizar
-  qué llamadas revisar, no para sustituir al supervisor.
+  qué llamadas revisar, no para sustituir al supervisor. Los reportes
+  incluyen **ambas**: promedio humano, promedio de IA por agente y
+  evaluaciones IA del periodo (`call_ai_evaluations`).
 
 - **Campañas salientes** (admin+): `/telefonia/campanas` arma campañas
   (migración 117) con una lista de contactos. V1 es *preview*: el CRM no

@@ -265,7 +265,7 @@ export default function TelephonyReportsPage() {
                 : '—'
           }
           icon={ClipboardCheck}
-          subtitle={`${totals?.qaCount ?? 0} evaluadas · cobertura ${percent(totals?.qaCoverage ?? null)}`}
+          subtitle={`${totals?.qaCount ?? 0} humanas · IA ${totals?.aiQaCount ?? 0} · cobertura ${percent(totals?.qaCoverage ?? null)}`}
         />
       </div>
 
@@ -312,13 +312,14 @@ export default function TelephonyReportsPage() {
               <TableHead className="text-right">Tiempo hablado</TableHead>
               <TableHead className="text-right">Duración media</TableHead>
               <TableHead className="text-right">QA</TableHead>
+              <TableHead className="text-right">QA (IA)</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {(report?.agents ?? []).length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={7}
+                  colSpan={8}
                   className="text-muted-foreground py-6 text-center text-sm"
                 >
                   Sin datos en la ventana seleccionada.
@@ -407,9 +408,28 @@ function AgentRow({ agent }: { agent: TelephonyReportAgent }) {
                   ? 'text-amber-600 dark:text-amber-400'
                   : 'text-red-600 dark:text-red-400'
             )}
-            title={`${agent.qaCount ?? 0} evaluaciones`}
+            title={`${agent.qaCount ?? 0} evaluaciones humanas`}
           >
             {agent.qaScore}
+          </span>
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        )}
+      </TableCell>
+      <TableCell className="text-right tabular-nums">
+        {agent.aiQaScore != null ? (
+          <span
+            className={cn(
+              'font-medium',
+              agent.aiQaScore >= 80
+                ? 'text-emerald-600 dark:text-emerald-400'
+                : agent.aiQaScore >= 60
+                  ? 'text-amber-600 dark:text-amber-400'
+                  : 'text-red-600 dark:text-red-400'
+            )}
+            title={`${agent.aiQaCount ?? 0} evaluaciones automáticas`}
+          >
+            {agent.aiQaScore}
           </span>
         ) : (
           <span className="text-muted-foreground">—</span>
