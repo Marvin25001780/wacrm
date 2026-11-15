@@ -65,6 +65,10 @@
    comentarios y reporte de calidad por agente.
 9. **QA automática con IA**: segunda opinión sobre la transcripción,
    con la misma rúbrica y validación del JSON en el servidor.
+10. **ACD v1**: espera máxima en cola por negocio, barrido perezoso,
+    timeout de la entrante y liberación de sala.
+11. **Campañas salientes** (preview): lista de contactos por campaña y
+    vínculo con las llamadas salientes (estado pending/called).
 
 Nada de eso copia código de terceros: se usan SDKs Apache-2.0 y APIs.
 
@@ -73,8 +77,8 @@ Nada de eso copia código de terceros: se usan SDKs Apache-2.0 y APIs.
 | Fase | Qué se construye | Depende de |
 | --- | --- | --- |
 | WEM 1 | **QA de llamadas**: rúbrica fija, puntaje por agente y reporte. | Nada (datos propios). ✅ Hecho (migración 114). |
-| CCaaS 1 | **ACD**: prioridad, habilidades, tiempo de timbrado y overflow. | LiveKit + troncal para probar de verdad. |
-| CCaaS 2 | **Campañas salientes** (preview/progresivo) con lista y ritmo. | Troncal SIP. |
+| CCaaS 1 | **ACD**: prioridad, habilidades, tiempo de timbrado y overflow. | LiveKit + troncal para probar de verdad. ✅ Parcial: espera máxima en cola y timeout (migración 116) listos; faltan prioridad/habilidades/overflow. |
+| CCaaS 2 | **Campañas salientes** (preview/progresivo) con lista y ritmo. | Troncal SIP. ✅ Parcial: CRUD de campañas + vínculo con llamadas (migración 117) listos; falta fan-out automático. |
 | IA 1 | **Agente de voz** (IVR/contestador) con LiveKit Agents. | Servidor LiveKit + API keys de STT/LLM/TTS. |
 | WEM 2 | **Adherencia**: horarios, pausas y cumplimiento. | Datos de presencia (ya existen). |
 | IA 2 | **QA automática**: puntuar la transcripción con el LLM y comparar con el humano. | Transcripciones + proveedor de IA. ✅ Hecho (migración 115); falta comparativa en reportes. |

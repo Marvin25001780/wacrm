@@ -60,6 +60,8 @@ export interface ResolvedTelephony {
   /** Grabación pedida por el negocio Y habilitada en el servidor. */
   recordingEnabled: boolean;
   transcriptionEnabled: boolean;
+  /** 116 — máximo de espera en cola del negocio (0 = sin límite). */
+  queueMaxWaitSeconds: number;
   env: TelephonyEnv;
   livekitReady: boolean;
   dialReady: boolean;
@@ -80,6 +82,10 @@ export function resolveTelephony(
     inboundNumbers: row?.inbound_numbers ?? [],
     recordingEnabled: Boolean(row?.recording_enabled) && env.recordingEnabled,
     transcriptionEnabled: row?.transcription_enabled ?? true,
+    queueMaxWaitSeconds:
+      row?.queue_max_wait_seconds != null
+        ? normalizeQueueMaxWaitSeconds(row.queue_max_wait_seconds) ?? env.queueMaxWaitSeconds
+        : env.queueMaxWaitSeconds,
     env,
     livekitReady: isLivekitReady(env),
     dialReady: canDialPstn(env, row?.sip_outbound_trunk_id ?? null),
@@ -103,6 +109,17 @@ export function telephonyBlockReason(
     return 'Falta la troncal SIP saliente (LIVEKIT_SIP_TRUNK_ID o Configuración → Telefonía).';
   }
   return null;
+}
+
+/**
+ * Valida el máximo de espera en cola del negocio (migración 116):
+ * entero entre 0 y 3600 segundos; `0` = sin límite.
+ */
+export function normalizeQueueMaxWaitSeconds(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  const n = Math.floor(Number(value));
+  if (!Number.isFinite(n) || n < 0 || n > 3600) return null;
+  return n;
 }
 
 /**

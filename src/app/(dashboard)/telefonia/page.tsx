@@ -85,6 +85,8 @@ interface ConfigForm {
   inboundNumbers: string;
   recordingEnabled: boolean;
   transcriptionEnabled: boolean;
+  /** 116 — segundos de espera en cola (0 = sin límite). */
+  queueMaxWaitSeconds: number;
 }
 
 const EMPTY_FORM: ConfigForm = {
@@ -94,6 +96,7 @@ const EMPTY_FORM: ConfigForm = {
   inboundNumbers: '',
   recordingEnabled: false,
   transcriptionEnabled: true,
+  queueMaxWaitSeconds: 60,
 };
 
 function formFromConfig(config: TelephonyConfig | null): ConfigForm {
@@ -105,6 +108,7 @@ function formFromConfig(config: TelephonyConfig | null): ConfigForm {
     inboundNumbers: (config.inbound_numbers ?? []).join(', '),
     recordingEnabled: config.recording_enabled,
     transcriptionEnabled: config.transcription_enabled,
+    queueMaxWaitSeconds: config.queue_max_wait_seconds ?? 60,
   };
 }
 
@@ -439,6 +443,7 @@ export default function TelefoniaPage() {
           inboundNumbers,
           recordingEnabled: form.recordingEnabled,
           transcriptionEnabled: form.transcriptionEnabled,
+          queueMaxWaitSeconds: form.queueMaxWaitSeconds,
         }),
       });
       const body = (await res.json().catch(() => ({}))) as {
@@ -1160,6 +1165,30 @@ export default function TelefoniaPage() {
                   Usa OpenAI, Groq o Gemini del Asistente de IA.
                 </span>
               </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="queue-max-wait">
+                Espera máxima en cola (segundos)
+              </Label>
+              <Input
+                id="queue-max-wait"
+                type="number"
+                min={0}
+                max={3600}
+                step={5}
+                value={form.queueMaxWaitSeconds}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    queueMaxWaitSeconds: Number(event.target.value) || 0,
+                  }))
+                }
+              />
+              <p className="text-muted-foreground text-[11px]">
+                0 = sin límite. Si una entrante supera este tiempo sonando,
+                la cola la retira automáticamente.
+              </p>
             </div>
           </div>
 

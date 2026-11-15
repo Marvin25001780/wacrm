@@ -37,6 +37,8 @@ export interface FinalizableCall {
   status: CallSessionStatus;
   activity_id: string | null;
   transcript?: string | null;
+  /** Metadata de la sesión (p. ej. campaña a la que pertenece la llamada). */
+  metadata?: Record<string, unknown> | null;
 }
 
 export interface FinalizeResult {
@@ -54,6 +56,15 @@ export async function finalizeCall(args: {
   contactName?: string | null;
   /** false para flujos donde no hay agente (p. ej. entrante perdida). */
   createActivity?: boolean;
+  /**
+   * Condiciones que deben seguir cumplirse al cerrar. Las usa el
+   * barrido de cola: solo cierra si la entrante sigue sin agente y
+   * sonando (la reclamación atómica de un agente la protege).
+   */
+  guard?: {
+    status?: CallSessionStatus;
+    agent_user_id?: string | null;
+  };
 }): Promise<FinalizeResult> {
   const { db, call } = args;
   const endedAt = args.endedAt ?? new Date().toISOString();
@@ -127,7 +138,7 @@ export async function finalizeCall(args: {
     }
   }
 
-  const { error: updateError } = await db
+  let query = db
     .from('call_sessions')
     .update({
       status,
@@ -137,6 +148,16 @@ export async function finalizeCall(args: {
       activity_id: activityId,
     })
     .eq('id', call.id);
+  if (args.guard?.status) {
+    query = query.eq('status', args.guard.status);
+  }
+  if (args.guard && 'agent_user_id' in args.guard) {
+    query = args.guard.agent_user_id == null
+      ? query.is('agent_user_id', null)
+      : query.eq('agent_user_id', args.guard.agent_user_id);
+  }
+
+  const { error: updateError } = await query;
 
   if (updateError) {
     console.error('[telephony] no se pudo cerrar la llamada:', updateError);
@@ -160,6 +181,29 @@ export async function finalizeCall(args: {
       '[telephony] no se pudo escribir el evento de cierre:',
       eventError
     );
+  }
+
+  // Si la llamada salió de una campaña saliente, el vínculo queda
+  // registrado en el contacto de campaña (status → called).
+  const campaignContactId =
+    typeof call.metadata?.campaign_contact_id === 'string'
+      ? (call.metadata.campaign_contact_id as string)
+      : null;
+  if (campaignContactId) {
+    const { error: campaignError } = await db
+      .from('outbound_campaign_contacts')
+      .update({
+        status: 'called',
+        called_at: endedAt,
+        call_session_id: call.id,
+      })
+      .eq('id', campaignContactId);
+    if (campaignError) {
+      console.warn(
+        '[telephony] no se pudo marcar el contacto de campaña:',
+        campaignError
+      );
+    }
   }
 
   return {

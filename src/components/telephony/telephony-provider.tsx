@@ -45,6 +45,8 @@ export interface WrapUpState {
 interface StartCallOptions {
   contactId?: string | null;
   conversationId?: string | null;
+  /** Contacto de campaña (migración 117) al que se marca. */
+  campaignContactId?: string | null;
 }
 
 interface TelephonyContextValue {
@@ -405,6 +407,7 @@ export function TelephonyProvider({ children }: { children: ReactNode }) {
             contactId: options?.contactId ?? undefined,
             conversationId: options?.conversationId ?? undefined,
             tabId: TAB_ID,
+            campaignContactId: options?.campaignContactId ?? undefined,
           }),
         });
         payload = (await res.json().catch(() => ({}))) as typeof payload;

@@ -28,6 +28,11 @@ export interface TelephonyEnv {
    * ubicación cruda de Egress, pero no se puede transcribir.
    */
   recordingsPublicBaseUrl: string | null;
+  /**
+   * Espera máxima en cola (segundos). `0` = sin límite. Override del
+   * despliegue; por negocio la columna `telephony_config`.
+   */
+  queueMaxWaitSeconds: number;
   /** Nombres legibles de lo que falta para poder marcar. */
   missing: string[];
 }
@@ -70,8 +75,20 @@ export function telephonyEnv(env: EnvLike = process.env): TelephonyEnv {
     recordingEnabled: env.LIVEKIT_RECORDING_ENABLED === 'true',
     recordingsPublicBaseUrl:
       env.TELEPHONY_RECORDINGS_PUBLIC_BASE_URL?.replace(/\/+$/, '') || null,
+    queueMaxWaitSeconds: clampQueueMaxWait(
+      Number(env.TELEPHONY_QUEUE_MAX_WAIT_SECONDS ?? 60)
+    ),
     missing,
   };
+}
+
+/** Espera máxima en cola: 0 = sin límite, máximo 3600 segundos. */
+export function clampQueueMaxWait(
+  seconds: number | null | undefined
+): number {
+  const value = Number(seconds);
+  if (!Number.isFinite(value) || value < 0) return 60;
+  return Math.min(3600, Math.floor(value));
 }
 
 /** ¿Hay credenciales para abrir salas y emitir tokens? */

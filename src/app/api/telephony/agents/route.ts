@@ -3,7 +3,9 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
 import { derivePresence } from '@/lib/presence';
+import { loadTelephonyConfig, resolveTelephony } from '@/lib/telephony/config';
 import { loadTelephonyRoster } from '@/lib/telephony/roster';
+import { sweepExpiredQueue } from '@/lib/telephony/queue-sweep';
 import type {
   AgentStatus,
   CallDirection,
@@ -44,6 +46,22 @@ export async function GET() {
   try {
     const ctx = await requireRole('admin');
     const now = Date.now();
+
+    // Barrido perezoso de la cola antes de listar: las entrantes que
+    // excedieron la espera máxima salen de la cola (timeout de ACD).
+    const loadedConfig = await loadTelephonyConfig(ctx.supabase, ctx.accountId);
+    const resolvedConfig = resolveTelephony(loadedConfig);
+    if (!loadedConfig.migrationMissing) {
+      try {
+        await sweepExpiredQueue({
+          db: ctx.supabase,
+          accountId: ctx.accountId,
+          maxWaitSeconds: resolvedConfig.queueMaxWaitSeconds,
+        });
+      } catch (sweepError) {
+        console.warn('[telephony] barrido de cola falló:', sweepError);
+      }
+    }
 
     const presenceResult = await loadPresence(ctx.supabase, ctx.accountId);
     const liveResult = await ctx.supabase

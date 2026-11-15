@@ -10,6 +10,7 @@ import {
   EgressClient,
   EncodedFileOutput,
   EncodedFileType,
+  RoomServiceClient,
   SipClient,
 } from 'livekit-server-sdk';
 
@@ -157,5 +158,24 @@ export async function stopCallRecording(egressId: string): Promise<void> {
     await client.stopEgress(egressId);
   } catch (err) {
     console.warn('[telephony] no se pudo detener la grabación:', err);
+  }
+}
+
+/**
+ * Cierra la sala de LiveKit de una llamada (timeout de cola,
+ * colgado, etc.). LiveKit la elimina y el webhook recibe
+ * `room_finished`; la sesión ya está terminal en ese momento, así que
+ * el cierre por sala es idempotente. Nunca lanza: si LiveKit no
+ * responde el barrido de la cola sigue con la actualización en base.
+ */
+export async function closeCallRoom(roomName: string): Promise<boolean> {
+  const env = requireLivekit();
+  const client = new RoomServiceClient(host(env), env.apiKey!, env.apiSecret!);
+  try {
+    await client.deleteRoom(roomName);
+    return true;
+  } catch (err) {
+    console.warn('[telephony] no se pudo cerrar la sala:', roomName, err);
+    return false;
   }
 }

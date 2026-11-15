@@ -4,6 +4,7 @@ import { requireRole, toErrorResponse } from '@/lib/auth/account';
 import {
   loadTelephonyConfig,
   normalizeInboundNumbers,
+  normalizeQueueMaxWaitSeconds,
 } from '@/lib/telephony/config';
 import { telephonyEnv } from '@/lib/telephony/env';
 import { normalizePhone } from '@/lib/telephony/phone';
@@ -14,7 +15,7 @@ import { normalizePhone } from '@/lib/telephony/phone';
  *
  * Body (todos opcionales):
  *   { enabled, outboundCallerId, sipOutboundTrunkId, inboundNumbers,
- *     recordingEnabled, transcriptionEnabled }
+ *     recordingEnabled, transcriptionEnabled, queueMaxWaitSeconds }
  */
 export async function GET() {
   try {
@@ -114,6 +115,22 @@ export async function PATCH(request: Request) {
 
     if ('transcriptionEnabled' in body) {
       patch.transcription_enabled = Boolean(body.transcriptionEnabled);
+    }
+
+    if ('queueMaxWaitSeconds' in body) {
+      const queueMaxWaitSeconds = normalizeQueueMaxWaitSeconds(
+        body.queueMaxWaitSeconds
+      );
+      if (queueMaxWaitSeconds === null) {
+        return NextResponse.json(
+          {
+            error:
+              'La espera máxima en cola debe ser un número entre 0 y 3600 segundos.',
+          },
+          { status: 400 }
+        );
+      }
+      patch.queue_max_wait_seconds = queueMaxWaitSeconds;
     }
 
     if (Object.keys(patch).length === 0) {

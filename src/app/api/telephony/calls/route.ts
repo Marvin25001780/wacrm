@@ -17,10 +17,14 @@ import type { CallSession } from '@/types';
  * GET  /api/telephony/calls — historial (últimas 50 por defecto).
  * POST /api/telephony/calls — inicia una llamada saliente a la PSTN.
  *
- * Body POST: { to, contactId?, conversationId?, leadId? }
+ * Body POST: { to, contactId?, conversationId?, leadId?, tabId?, campaignContactId? }
  * Devuelve la sesión + el token de LiveKit para que el navegador
  * entre a la sala. Si el marcado SIP falla, la sesión queda como
  * `failed` (auditoría) y la API responde 502 con el motivo.
+ *
+ * `campaignContactId` vincula la llamada saliente con un contacto de
+ * una campaña (migración 117); al cerrarla, el contacto pasa a
+ * `called`.
  */
 export async function GET(request: Request) {
   try {
@@ -57,6 +61,7 @@ export async function POST(request: Request) {
       conversationId?: unknown;
       leadId?: unknown;
       tabId?: unknown;
+      campaignContactId?: unknown;
     };
 
     const to = normalizePhone(body.to);
@@ -136,6 +141,10 @@ export async function POST(request: Request) {
           tab_id:
             typeof body.tabId === 'string'
               ? body.tabId.slice(0, 100)
+              : undefined,
+          campaign_contact_id:
+            typeof body.campaignContactId === 'string'
+              ? body.campaignContactId.slice(0, 100)
               : undefined,
         },
       })

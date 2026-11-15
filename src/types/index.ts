@@ -445,6 +445,8 @@ export interface TelephonyConfig {
   inbound_numbers: string[];
   recording_enabled: boolean;
   transcription_enabled: boolean;
+  /** 116 — segundos máximos de espera en cola (0 = sin límite). */
+  queue_max_wait_seconds: number;
   created_by?: string | null;
   created_at: string;
   updated_at: string;
@@ -590,6 +592,13 @@ export interface TelephonyStatus {
   activeCall: CallSession | null;
   /** Entrante sonando, sin agente asignado (para contestar/rechazar). */
   incomingCall: CallSession | null;
+  /**
+   * 116 — máximo de espera en cola del negocio en segundos
+   * (`0` = sin límite). Lo usan el softphone y el barrido.
+   */
+  queueMaxWaitSeconds: number;
+  /** Entrantes cerradas por timeout de cola en el último barrido. */
+  queueClosed: string[];
 }
 
 /** Fila del panel de supervisión (GET /api/telephony/agents). */
@@ -626,6 +635,31 @@ export interface TelephonySupervision {
   updated_at: string;
   /** Falta aplicar la 112: no hay tablas de llamadas todavía. */
   migrationMissing: boolean;
+}
+
+/** Campaña saliente (migración 117): lista de contactos a marcar. */
+export interface OutboundCampaign {
+  id: string;
+  account_id: string;
+  name: string;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Contacto dentro de una campaña saliente. */
+export interface OutboundCampaignContact {
+  id: string;
+  campaign_id: string;
+  contact_id: string;
+  status: 'pending' | 'called';
+  called_at: string | null;
+  call_session_id: string | null;
+}
+
+/** Campaña con sus contactos (GET /api/telephony/campaigns). */
+export interface OutboundCampaignDetail extends OutboundCampaign {
+  contacts: OutboundCampaignContact[];
 }
 
 /** Etiquetas de conveniencia. */

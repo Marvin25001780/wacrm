@@ -8,7 +8,7 @@
 // registra la llamada en call_sessions + activities.
 // ============================================================
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import {
   ArrowRight,
@@ -30,6 +30,11 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { formatPhoneDisplay } from '@/lib/telephony/phone';
 import { formatCallDuration } from '@/lib/telephony/calls';
+import {
+  isQueueExpired,
+  queueWaitSeconds,
+  QUEUE_MAX_WAIT_SECONDS,
+} from '@/lib/telephony/queue';
 import {
   AGENT_STATUSES,
   agentStatusLabel,
@@ -68,6 +73,14 @@ export function Softphone() {
   const [disposition, setDisposition] = useState<CallDisposition | ''>('');
   const [notes, setNotes] = useState('');
   const [savingWrapUp, setSavingWrapUp] = useState(false);
+  const [queueNow, setQueueNow] = useState(() => Date.now());
+
+  // Reloj de la espera en cola mientras hay una entrante sonando.
+  useEffect(() => {
+    if (!incomingCall) return;
+    const timer = setInterval(() => setQueueNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [incomingCall]);
 
   if (!open) return null;
 
@@ -75,6 +88,22 @@ export function Softphone() {
   const busy = inCall || Boolean(wrapUp);
   const ready = Boolean(
     status?.dialReady && status.enabled && !status.migrationMissing
+  );
+  const queueMaxWaitSeconds = status?.queueMaxWaitSeconds ?? QUEUE_MAX_WAIT_SECONDS;
+  const incomingQueueWaitSeconds = incomingCall
+    ? queueWaitSeconds({
+        startedAt: incomingCall.started_at,
+        maxWaitSeconds: queueMaxWaitSeconds,
+        now: queueNow,
+      })
+    : 0;
+  const incomingQueueExpired = Boolean(
+    incomingCall &&
+      isQueueExpired({
+        startedAt: incomingCall.started_at,
+        maxWaitSeconds: queueMaxWaitSeconds,
+        now: queueNow,
+      })
   );
 
   const submit = async () => {
@@ -236,6 +265,13 @@ export function Softphone() {
                       Marcó a {formatPhoneDisplay(incomingCall.to_number)}
                     </p>
                   ) : null}
+                  <p className="text-muted-foreground mt-1 text-[11px]">
+                    {queueMaxWaitSeconds > 0
+                      ? incomingQueueExpired
+                        ? 'Espera máxima agotada: la cola retira la llamada.'
+                        : `En cola · ${formatCallDuration(incomingQueueWaitSeconds)}`
+                      : 'En cola · sin límite de espera'}
+                  </p>
                 </div>
                 <div className="flex items-center gap-2">
                   <Button

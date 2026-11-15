@@ -32,7 +32,8 @@ Navegador (agente)  ──WebRTC──▶  LiveKit (media)  ──SIP──▶  
 | `call_sessions`                | Una fila por llamada: dirección, estado, tiempos, agente, contacto, grabación, transcripción, resumen IA y cierre (disposición/notas). |
 | `call_events`                  | Bitácora append-only (creada, contestada, grabación lista, cerrada, disposición…).                              |
 | `call_evaluations`             | QA de la llamada (migración 114): puntaje 0–100, rúbrica y comentarios del supervisor.                         |
-| `call_ai_evaluations`          | QA automática con IA (migración 115): nota, rúbrica, proveedor/modelo y feedback.                               || `member_presence.agent_status` | Disponibilidad operativa: `available`, `busy`, `wrap_up`, `break`.                                              |
+| `call_ai_evaluations`          | QA automática con IA (migración 115): nota, rúbrica, proveedor/modelo y feedback.                               |
+| `member_presence.agent_status` | Disponibilidad operativa: `available`, `busy`, `wrap_up`, `break`.                                              |
 
 RLS: cualquier miembro lee; agente+ crea y cierra sus llamadas; admin+
 puede cerrar cualquiera. El estado de agente se cambia solo por RPC
@@ -56,6 +57,13 @@ JSON del modelo se valida y se recalcula en el servidor
 (`src/lib/telephony/ai-qa.ts`); no se guarda nada que el modelo no haya
 devuelto por criterio.
 
+La **migración 116** añade `telephony_config.queue_max_wait_seconds`
+(espera máxima en cola, segundos; `0` = sin límite). Con ella entra el
+ACD v1: el barrido (`src/lib/telephony/queue-sweep.ts`) cierra las
+entrantes que exceden el máximo como `missed` con motivo `timeout` y
+escribe el evento `queue_timeout`. Corre desde `/api/telephony/status`
+y desde el panel de supervisión, de forma perezosa.
+
 ## 2. Variables de entorno
 
 Solo en el servidor. Si faltan, la UI muestra la lista y **no permite
@@ -71,6 +79,8 @@ LIVEKIT_SIP_TRUNK_ID=ST_...
 LIVEKIT_RECORDING_ENABLED=false
 # Base pública para descargar/transcribir la grabación
 TELEPHONY_RECORDINGS_PUBLIC_BASE_URL=https://.../storage/v1/object/public/recordings
+# Espera máxima en cola del despliegue (por negocio se puede sobrescribir; 0 = sin límite)
+TELEPHONY_QUEUE_MAX_WAIT_SECONDS=60
 ```
 
 `LIVEKIT_URL` acepta `https://` (se normaliza a `wss://`) o `wss://`.
@@ -136,6 +146,24 @@ Cuando entra una llamada:
    Si el agente no está `available`, el claim responde 409.
 4. **Rechazar** la cierra como `cancelled` sin asignarla. Si nadie
    contesta, queda como `missed` cuando el cliente cuelga.
+
+### 3.5 Espera máxima en cola (ACD v1)
+
+- Configuración → Telefonía → “Espera máxima en cola (segundos)” (por
+  negocio: `telephony_config.queue_max_wait_seconds`, rango 0–3600,
+  default 60; `0` = sin límite). El despliegue puede forzar el default
+  con `TELEPHONY_QUEUE_MAX_WAIT_SECONDS`.
+- El softphone muestra la espera en cola con cronómetro
+  (“En cola · 0:45”); al agotarse el máximo, la barrido retira la
+  entrante.
+- El barrido es **perezoso**: corre desde `GET /api/telephony/status`
+  y desde el panel de supervisión (admin+), no desde un cron. Busca
+  llamadas entrantes `ringing` sin agente asignado cuyo
+  `started_at` ya excedió el máximo y las cierra con motivo `timeout`
+  (estado `missed`, evento `queue_timeout` en la bitácora, sala de
+  LiveKit liberada).
+- Solo retira entrantes sin agente; una reclamación atómica de un agente
+  siempre gana al cierre (guard `ringing` + `agent_user_id IS NULL`).
 
 ## 4. Grabación y transcripción
 
@@ -222,6 +250,13 @@ requiere el interruptor maestro de **Ajustes → Asistente de IA**.
   puede regenerar y deja un evento `ai_evaluated`. Sirve para priorizar
   qué llamadas revisar, no para sustituir al supervisor.
 
+- **Campañas salientes** (admin+): `/telefonia/campanas` arma campañas
+  (migración 117) con una lista de contactos. V1 es *preview*: el CRM no
+  hace fan-out automático; cada contacto se marca con el flujo normal de
+  llamadas desde el botón **Marcar** (softphone → claim → answer →
+  disposition). Al colgar, el contacto pasa a `called` y la campaña
+  registra el estado. Las campañas sin llamada no consumen contactos.
+
 ### Permisos
 
 | Rol           | Puede                                                                                          |
@@ -262,6 +297,7 @@ requiere el interruptor maestro de **Ajustes → Asistente de IA**.
 | “El asistente de IA no está configurado”         | El interruptor maestro del Asistente de IA está apagado o no hay API key guardada.     |
 | “Ponte Disponible para contestar llamadas”       | El agente está en pausa/cierre/ocupado; cambia de estado en el softphone.              |
 | “Solo se evalúan llamadas contestadas y cerradas” | La llamada sigue sonando/activa o nunca se contestó.                                  |
+| La entrante suena mucho tiempo y nadie la contesta | Espera máxima configurada (`queue_max_wait_seconds`) o agente sin estado `available`. |
 
 ## 8. API
 
@@ -280,6 +316,9 @@ requiere el interruptor maestro de **Ajustes → Asistente de IA**.
 | GET       | `/api/telephony/reports`               | Reportes de operación (admin+).      |
 | GET/POST  | `/api/telephony/evaluations`           | QA de llamadas (POST admin+).        |
 | GET/POST  | `/api/telephony/calls/[id]/ai-evaluate` | QA automática con IA (POST admin+). |
+| GET       | `/api/telephony/campaigns`              | Campañas salientes con contactos (admin+). |
+| DELETE    | `/api/telephony/campaigns/[id]`        | Eliminar una campaña (admin+).      |
+| GET       | `/api/telephony/campaigns/contacts`    | Contactos para armar campañas (admin+). |
 | GET/PATCH | `/api/telephony/config`                | Configuración por negocio (admin+).  |
 | POST      | `/api/telephony/presence`              | Estado del agente.                   |
 | POST      | `/api/telephony/webhook`               | Eventos de LiveKit (firma).          |
