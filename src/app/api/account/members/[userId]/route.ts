@@ -9,7 +9,8 @@
 // Role changes delegate to the SECURITY DEFINER RPC from migration
 // 018 (`set_member_role`). Display names go through
 // `set_member_display_name` (110), because `account_members` only has
-// a SELECT policy for the caller's own rows.
+// a SELECT policy for the caller's own rows. Agent skills go through
+// `set_member_agent_skills` (119) for the same reason.
 //
 // The RPCs do the *real* authorisation work — caller must be admin+,
 // target must be in caller's account, target can't be the owner (for
@@ -35,6 +36,7 @@ import {
   rateLimitResponse,
   RATE_LIMITS,
 } from "@/lib/rate-limit";
+import { MAX_SKILLS, normalizeSkillList } from "@/lib/telephony/skills";
 
 /** Mismo tope que el CHECK de la 110. */
 const MAX_DISPLAY_NAME = 60;
@@ -59,6 +61,7 @@ function rpcErrorToResponse(err: PostgrestError): NextResponse {
 interface PatchBody {
   role?: unknown;
   display_name?: unknown;
+  agentSkills?: unknown;
 }
 
 export async function PATCH(
@@ -83,10 +86,14 @@ export async function PATCH(
       body,
       "display_name",
     );
+    const updatesSkills = Object.prototype.hasOwnProperty.call(
+      body,
+      "agentSkills",
+    );
 
-    if (!updatesRole && !updatesName) {
+    if (!updatesRole && !updatesName && !updatesSkills) {
       return NextResponse.json(
-        { error: "'role' or 'display_name' is required" },
+        { error: "'role', 'display_name' or 'agentSkills' is required" },
         { status: 400 },
       );
     }
@@ -151,11 +158,33 @@ export async function PATCH(
       nextDisplayName = trimmed === "" ? null : trimmed;
     }
 
+    let nextSkills: string[] | null = null;
+    if (updatesSkills) {
+      const normalized = normalizeSkillList(body.agentSkills);
+      if (normalized.rejected.length > 0) {
+        return NextResponse.json(
+          {
+            error:
+              "Cada habilidad debe ser texto de hasta 30 caracteres (sin comas)",
+          },
+          { status: 400 },
+        );
+      }
+      if (normalized.overflow > 0) {
+        return NextResponse.json(
+          { error: `Máximo ${MAX_SKILLS} habilidades por agente` },
+          { status: 400 },
+        );
+      }
+      nextSkills = normalized.skills;
+    }
+
     // ----------------------------------------------------------
     // Apply
     // ----------------------------------------------------------
 
     let savedDisplayName: string | null | undefined;
+    let savedSkills: string[] | undefined;
 
     if (nextDisplayName !== undefined) {
       const limit = checkRateLimit(
@@ -191,11 +220,31 @@ export async function PATCH(
       if (error) return rpcErrorToResponse(error);
     }
 
+    if (nextSkills) {
+      const limit = checkRateLimit(
+        `member:agentSkills:${ctx.userId}`,
+        RATE_LIMITS.adminAction,
+      );
+      if (!limit.success) return rateLimitResponse(limit);
+
+      const { data, error } = await ctx.supabase.rpc(
+        "set_member_agent_skills",
+        {
+          p_user_id: userId,
+          p_skills: nextSkills,
+        },
+      );
+
+      if (error) return rpcErrorToResponse(error);
+      savedSkills = (data as string[] | null) ?? [];
+    }
+
     return NextResponse.json({
       ok: true,
       ...(savedDisplayName !== undefined
         ? { display_name: savedDisplayName }
         : {}),
+      ...(savedSkills !== undefined ? { agent_skills: savedSkills } : {}),
     });
   } catch (err) {
     return toErrorResponse(err);

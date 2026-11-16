@@ -2,7 +2,9 @@ import { NextResponse } from 'next/server';
 
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
 import { isTerminalCallStatus } from '@/lib/telephony/calls';
+import { loadAgentSkills } from '@/lib/telephony/config';
 import { createAgentToken } from '@/lib/telephony/livekit';
+import { agentCanTakeCall, missingSkills } from '@/lib/telephony/skills';
 import type { CallSession } from '@/types';
 
 /**
@@ -59,6 +61,23 @@ export async function POST(
     if (call.agent_user_id && call.agent_user_id !== ctx.userId) {
       return NextResponse.json(
         { error: 'Otro agente ya tomó esta llamada.' },
+        { status: 409 }
+      );
+    }
+
+    // 119 — la entrante puede exigir habilidades. Solo la toma quien
+    // las tenga todas, salvo que el desbordamiento ya haya corrido.
+    const agentSkills = await loadAgentSkills(
+      ctx.supabase,
+      ctx.accountId,
+      ctx.userId
+    );
+    if (!agentCanTakeCall(call, agentSkills)) {
+      const missing = missingSkills(call, agentSkills);
+      return NextResponse.json(
+        {
+          error: `Esta llamada requiere habilidades que no tienes: ${missing.join(', ')}.`,
+        },
         { status: 409 }
       );
     }

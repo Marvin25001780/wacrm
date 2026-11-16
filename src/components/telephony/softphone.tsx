@@ -265,6 +265,13 @@ export function Softphone() {
                       Marcó a {formatPhoneDisplay(incomingCall.to_number)}
                     </p>
                   ) : null}
+                  {(incomingCall.required_skills ?? []).length > 0 ? (
+                    <p className="mt-1 text-[11px] font-medium text-emerald-700 dark:text-emerald-300">
+                      {incomingCall.overflowed_at
+                        ? 'Desbordada: cualquier agente disponible puede tomarla'
+                        : `Requiere: ${(incomingCall.required_skills ?? []).join(', ')}`}
+                    </p>
+                  ) : null}
                   <p className="text-muted-foreground mt-1 text-[11px]">
                     {queueMaxWaitSeconds > 0
                       ? incomingQueueExpired

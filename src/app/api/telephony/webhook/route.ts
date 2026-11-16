@@ -3,11 +3,12 @@ import { WebhookReceiver } from 'livekit-server-sdk';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { supabaseAdmin } from '@/lib/ai/admin-client';
-import { findAccountByInboundNumber } from '@/lib/telephony/config';
+import { findAccountByInboundNumber, loadRequiredSkills } from '@/lib/telephony/config';
 import { isTerminalCallStatus, isTelephonyRoom } from '@/lib/telephony/calls';
 import { recordingUrlFromEgress, telephonyEnv } from '@/lib/telephony/env';
 import { finalizeCall } from '@/lib/telephony/finalize';
 import { normalizePhone } from '@/lib/telephony/phone';
+import { normalizeSkillList } from '@/lib/telephony/skills';
 import { transcribeCallRecording } from '@/lib/telephony/transcribe-call';
 import type { CallSession } from '@/types';
 
@@ -117,15 +118,16 @@ async function handleParticipantJoined(
   const existing = await findCall(db, args.roomName);
   if (existing) return; // saliente: la sesión ya la creó la API
 
-  const accountId = await resolveInboundAccountId(
+  const resolved = await resolveInboundAccount(
     db,
     args.roomMetadata,
     dialed
   );
-  if (!accountId) {
+  if (!resolved) {
     console.warn('[telephony] llamada entrante sin negocio asignado:', dialed);
     return;
   }
+  const { accountId, requiredSkills } = resolved;
 
   // Contacto por teléfono (misma normalización que el CRM).
   const digits = caller.replace(/\D/g, '');
@@ -150,7 +152,8 @@ async function handleParticipantJoined(
       to_number: dialed,
       contact_id: (contact?.id as string | undefined) ?? null,
       priority,
-      metadata: { source: 'inbound', priority },
+      required_skills: requiredSkills,
+      metadata: { source: 'inbound', priority, required_skills: requiredSkills },
     })
     .select('*')
     .single();
@@ -161,36 +164,62 @@ async function handleParticipantJoined(
     account_id: accountId,
     call_id: (created as CallSession).id,
     type: 'inbound_created',
-    payload: { from: caller, to: dialed },
+    payload: { from: caller, to: dialed, required_skills: requiredSkills },
   });
 }
 
-async function resolveInboundAccountId(
+async function resolveInboundAccount(
   db: SupabaseClient,
   roomMetadata: string | undefined,
   dialed: string | null
-): Promise<string | null> {
-  if (roomMetadata) {
-    try {
-      const parsed = JSON.parse(roomMetadata) as { account_id?: unknown };
-      if (typeof parsed.account_id === 'string') return parsed.account_id;
-    } catch {
-      // metadata no-JSON: seguimos con el número marcado.
-    }
+): Promise<{ accountId: string; requiredSkills: string[] } | null> {
+  const metadata = parseRoomMetadata(roomMetadata);
+  const fromMetadata =
+    typeof metadata?.account_id === 'string' ? metadata.account_id : null;
+
+  if (fromMetadata) {
+    // La regla de despacho puede fijar el requisito por sala; si no,
+    // manda el del negocio.
+    const explicit = normalizeSkillList(metadata?.required_skills).skills;
+    const requiredSkills =
+      explicit.length > 0
+        ? explicit
+        : await loadRequiredSkills(db, fromMetadata);
+    return { accountId: fromMetadata, requiredSkills };
   }
+
   const match = await findAccountByInboundNumber(db, dialed);
-  return match?.accountId ?? null;
+  if (!match) return null;
+  const explicit = normalizeSkillList(metadata?.required_skills).skills;
+  return {
+    accountId: match.accountId,
+    requiredSkills:
+      explicit.length > 0
+        ? explicit
+        : normalizeSkillList(match.row.required_skills).skills,
+  };
+}
+
+interface RoomMetadata {
+  account_id?: unknown;
+  priority?: unknown;
+  required_skills?: unknown;
+}
+
+function parseRoomMetadata(roomMetadata: string | undefined): RoomMetadata | null {
+  if (!roomMetadata) return null;
+  try {
+    return JSON.parse(roomMetadata) as RoomMetadata;
+  } catch {
+    // metadata no-JSON: se sigue con el número marcado.
+    return null;
+  }
 }
 
 /** Prioridad de la entrante desde el metadata de la sala (0..5). */
 function roomMetadataPriority(roomMetadata: string | undefined): number {
-  if (!roomMetadata) return 0;
-  try {
-    const parsed = JSON.parse(roomMetadata) as { priority?: unknown };
-    if (typeof parsed.priority === 'number') return parsed.priority;
-  } catch {
-    // metadata no-JSON: prioridad normal.
-  }
+  const parsed = parseRoomMetadata(roomMetadata);
+  if (typeof parsed?.priority === 'number') return parsed.priority;
   return 0;
 }
 

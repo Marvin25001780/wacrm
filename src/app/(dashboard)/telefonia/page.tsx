@@ -28,6 +28,7 @@ import {
   PhoneIncoming,
   PhoneMissed,
   PhoneOutgoing,
+  Pencil,
   Save,
   Server,
   Sparkles,
@@ -43,6 +44,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
@@ -87,6 +89,10 @@ interface ConfigForm {
   transcriptionEnabled: boolean;
   /** 116 — segundos de espera en cola (0 = sin límite). */
   queueMaxWaitSeconds: number;
+  /** 119 — habilidades exigidas a la cola, separadas por comas. */
+  requiredSkills: string;
+  /** 119 — segundos antes de levantar el requisito (0 = sin desbordamiento). */
+  skillOverflowSeconds: number;
 }
 
 const EMPTY_FORM: ConfigForm = {
@@ -97,6 +103,8 @@ const EMPTY_FORM: ConfigForm = {
   recordingEnabled: false,
   transcriptionEnabled: true,
   queueMaxWaitSeconds: 60,
+  requiredSkills: '',
+  skillOverflowSeconds: 0,
 };
 
 function formFromConfig(config: TelephonyConfig | null): ConfigForm {
@@ -109,6 +117,8 @@ function formFromConfig(config: TelephonyConfig | null): ConfigForm {
     recordingEnabled: config.recording_enabled,
     transcriptionEnabled: config.transcription_enabled,
     queueMaxWaitSeconds: config.queue_max_wait_seconds ?? 60,
+    requiredSkills: (config.required_skills ?? []).join(', '),
+    skillOverflowSeconds: config.skill_overflow_seconds ?? 0,
   };
 }
 
@@ -162,6 +172,8 @@ const callEventText: Record<string, string> = {
   disposition_set: 'Disposición guardada',
   evaluated: 'Evaluación de calidad',
   ai_evaluated: 'Evaluación con IA',
+  queue_timeout: 'Retirada por espera máxima',
+  skill_overflow: 'Desbordamiento por habilidad',
 };
 
 export default function TelefoniaPage() {
@@ -202,6 +214,13 @@ export default function TelefoniaPage() {
   const [supervision, setSupervision] =
     useState<TelephonySupervision | null>(null);
   const [nowTick, setNowTick] = useState(() => Date.now());
+  const [skillMember, setSkillMember] = useState<{
+    user_id: string;
+    name: string;
+    skills: string[];
+  } | null>(null);
+  const [skillDraft, setSkillDraft] = useState('');
+  const [savingSkills, setSavingSkills] = useState(false);
 
   const [form, setForm] = useState<ConfigForm>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
@@ -444,6 +463,8 @@ export default function TelefoniaPage() {
           recordingEnabled: form.recordingEnabled,
           transcriptionEnabled: form.transcriptionEnabled,
           queueMaxWaitSeconds: form.queueMaxWaitSeconds,
+          requiredSkills: form.requiredSkills,
+          skillOverflowSeconds: form.skillOverflowSeconds,
         }),
       });
       const body = (await res.json().catch(() => ({}))) as {
@@ -457,6 +478,35 @@ export default function TelefoniaPage() {
       await refresh();
     } finally {
       setSaving(false);
+    }
+  };
+
+  const saveSkills = async () => {
+    if (!skillMember) return;
+    setSavingSkills(true);
+    try {
+      const skills = skillDraft
+        .split(',')
+        .map((value) => value.trim())
+        .filter(Boolean);
+      const res = await fetch(`/api/account/members/${skillMember.user_id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agentSkills: skills }),
+      });
+      const body = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        agent_skills?: string[];
+      };
+      if (!res.ok) {
+        toast.error(body.error ?? 'No se pudieron guardar las habilidades.');
+        return;
+      }
+      toast.success('Habilidades guardadas.');
+      setSkillMember(null);
+      await loadSupervision();
+    } finally {
+      setSavingSkills(false);
     }
   };
 
@@ -702,6 +752,26 @@ export default function TelefoniaPage() {
                             ? ` · marcó a ${formatPhoneDisplay(item.to_number)}`
                             : ''}
                         </span>
+                        {item.required_skills.length > 0 ? (
+                          <span className="inline-flex items-center gap-1">
+                            <Badge
+                              variant="outline"
+                              className="text-[10px]"
+                              title={`Requiere: ${item.required_skills.join(', ')}`}
+                            >
+                              {item.required_skills.join(' · ')}
+                            </Badge>
+                            {item.overflowed_at ? (
+                              <Badge
+                                variant="outline"
+                                className="border-indigo-300 text-[10px] text-indigo-700 dark:text-indigo-300"
+                                title="El requisito se levantó: cualquier agente disponible puede tomarla."
+                              >
+                                desbordada
+                              </Badge>
+                            ) : null}
+                          </span>
+                        ) : null}
                       </li>
                     ))}
                   </ul>
@@ -713,6 +783,7 @@ export default function TelefoniaPage() {
                     <TableHead>Agente</TableHead>
                     <TableHead>Presencia</TableHead>
                     <TableHead>Estado</TableHead>
+                    <TableHead>Habilidades</TableHead>
                     <TableHead>Llamada en curso</TableHead>
                     <TableHead>Última conexión</TableHead>
                   </TableRow>
@@ -766,6 +837,39 @@ export default function TelefoniaPage() {
                               {agentStatusLabel(agent.agent_status)}
                             </Badge>
                           )}
+                        </TableCell>
+                        <TableCell className="text-xs">
+                          <div className="flex flex-wrap items-center gap-1">
+                            {agent.skills.length > 0 ? (
+                              agent.skills.map((skill) => (
+                                <Badge
+                                  key={skill}
+                                  variant="outline"
+                                  className="text-[10px]"
+                                >
+                                  {skill}
+                                </Badge>
+                              ))
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-6 w-6"
+                              title="Editar habilidades"
+                              onClick={() => {
+                                setSkillMember({
+                                  user_id: agent.user_id,
+                                  name: agent.name,
+                                  skills: agent.skills,
+                                });
+                                setSkillDraft(agent.skills.join(', '));
+                              }}
+                            >
+                              <Pencil className="h-3 w-3" />
+                            </Button>
+                          </div>
                         </TableCell>
                         <TableCell className="text-xs">
                           {call ? (
@@ -1190,6 +1294,52 @@ export default function TelefoniaPage() {
                 la cola la retira automáticamente.
               </p>
             </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="required-skills">
+                Habilidades requeridas en la cola
+              </Label>
+              <Input
+                id="required-skills"
+                placeholder="ventas, soporte"
+                value={form.requiredSkills}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    requiredSkills: event.target.value,
+                  }))
+                }
+              />
+              <p className="text-muted-foreground text-[11px]">
+                Sepáralas con comas (máx. 8). Solo se ofrece la entrante a
+                agentes que tengan todas. Vacío = entra cualquier agente.
+                Asigna las habilidades de cada persona en la supervisión.
+              </p>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="skill-overflow">
+                Desbordamiento por habilidad (segundos)
+              </Label>
+              <Input
+                id="skill-overflow"
+                type="number"
+                min={0}
+                max={3600}
+                step={5}
+                value={form.skillOverflowSeconds}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    skillOverflowSeconds: Number(event.target.value) || 0,
+                  }))
+                }
+              />
+              <p className="text-muted-foreground text-[11px]">
+                0 = sin desbordamiento. Si nadie con las habilidades la toma en
+                este tiempo, la llamada pasa a cualquier agente disponible.
+              </p>
+            </div>
           </div>
 
           {status?.migrationMissing ? (
@@ -1579,6 +1729,56 @@ export default function TelefoniaPage() {
               )}
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(skillMember)}
+        onOpenChange={(open) => {
+          if (!open) setSkillMember(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Habilidades del agente</DialogTitle>
+            <DialogDescription>
+              {skillMember?.name}. Sepáralas con comas (máx. 8). Una llamada
+              que exija habilidades solo se le ofrece a quien las tenga todas;
+              vacío = solo recibe las que no exigen nada o ya desbordaron.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="skills-draft">Habilidades</Label>
+              <Input
+                id="skills-draft"
+                placeholder="ventas, cobranza"
+                value={skillDraft}
+                onChange={(event) => setSkillDraft(event.target.value)}
+              />
+            </div>
+            <p className="text-muted-foreground text-[11px]">
+              Se guardan en minúsculas y sin duplicados. El agente las recibe al
+              instante; las llamadas que ya están sonando no cambian.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setSkillMember(null)}
+              disabled={savingSkills}
+            >
+              Cancelar
+            </Button>
+            <Button onClick={() => void saveSkills()} disabled={savingSkills}>
+              {savingSkills ? (
+                <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Save className="mr-1 h-3.5 w-3.5" />
+              )}
+              Guardar
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

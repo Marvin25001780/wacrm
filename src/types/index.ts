@@ -94,6 +94,8 @@ export interface AccountMember {
   avatar_url: string | null;
   role: AccountRole;
   joined_at: string;
+  /** 119 — habilidades del agente en este negocio (vacío = ninguna). */
+  agent_skills?: string[];
 }
 
 /**
@@ -447,6 +449,10 @@ export interface TelephonyConfig {
   transcription_enabled: boolean;
   /** 116 — segundos máximos de espera en cola (0 = sin límite). */
   queue_max_wait_seconds: number;
+  /** 119 — habilidades que debe tener el agente (vacío = ninguna). */
+  required_skills: string[];
+  /** 119 — segundos antes de levantar el requisito (0 = sin desbordamiento). */
+  skill_overflow_seconds: number;
   created_by?: string | null;
   created_at: string;
   updated_at: string;
@@ -483,6 +489,10 @@ export interface CallSession {
   activity_id: string | null;
   /** 118 — prioridad en la cola entrante (mayor = más urgente). */
   priority: number;
+  /** 119 — habilidades exigidas al entrar (copia de la config). */
+  required_skills: string[];
+  /** 119 — si el requisito de habilidad ya se levantó. */
+  overflowed_at: string | null;
   metadata: Record<string, unknown>;
   created_at: string;
   updated_at: string;
@@ -601,6 +611,12 @@ export interface TelephonyStatus {
   queueMaxWaitSeconds: number;
   /** Entrantes cerradas por timeout de cola en el último barrido. */
   queueClosed: string[];
+  /** 119 — habilidades del agente en este negocio. */
+  agentSkills: string[];
+  /** 119 — segundos de desbordamiento configurados (0 = sin desbordamiento). */
+  skillOverflowSeconds: number;
+  /** 119 — entrantes cuyo requisito se levantó en el último barrido. */
+  queueOverflowed: string[];
 }
 
 /** Fila del panel de supervisión (GET /api/telephony/agents). */
@@ -611,6 +627,8 @@ export interface TelephonyAgentSupervision {
   presence: 'online' | 'away' | 'offline';
   agent_status: AgentStatus;
   last_seen_at: string | null;
+  /** 119 — habilidades del agente en este negocio. */
+  skills: string[];
   active_call: {
     id: string;
     direction: CallDirection;
@@ -628,6 +646,9 @@ export interface TelephonyQueueItem {
   to_number: string | null;
   started_at: string;
   contact_name: string | null;
+  /** 119 — requisito de habilidad y si ya se levantó. */
+  required_skills: string[];
+  overflowed_at: string | null;
 }
 
 /** Respuesta de GET /api/telephony/agents (solo admin+). */

@@ -8,6 +8,11 @@ import {
 } from '@/lib/telephony/config';
 import { telephonyEnv } from '@/lib/telephony/env';
 import { normalizePhone } from '@/lib/telephony/phone';
+import {
+  MAX_SKILLS,
+  normalizeSkillList,
+  normalizeSkillOverflowSeconds,
+} from '@/lib/telephony/skills';
 
 /**
  * GET   /api/telephony/config — configuración del negocio (admin+).
@@ -15,7 +20,8 @@ import { normalizePhone } from '@/lib/telephony/phone';
  *
  * Body (todos opcionales):
  *   { enabled, outboundCallerId, sipOutboundTrunkId, inboundNumbers,
- *     recordingEnabled, transcriptionEnabled, queueMaxWaitSeconds }
+ *     recordingEnabled, transcriptionEnabled, queueMaxWaitSeconds,
+ *     requiredSkills, skillOverflowSeconds }
  */
 export async function GET() {
   try {
@@ -131,6 +137,42 @@ export async function PATCH(request: Request) {
         );
       }
       patch.queue_max_wait_seconds = queueMaxWaitSeconds;
+    }
+
+    if ('requiredSkills' in body) {
+      const normalized = normalizeSkillList(body.requiredSkills);
+      if (normalized.rejected.length > 0) {
+        return NextResponse.json(
+          {
+            error:
+              'Cada habilidad debe ser texto de hasta 30 caracteres (sin comas).',
+          },
+          { status: 400 }
+        );
+      }
+      if (normalized.overflow > 0) {
+        return NextResponse.json(
+          { error: `Máximo ${MAX_SKILLS} habilidades por cola.` },
+          { status: 400 }
+        );
+      }
+      patch.required_skills = normalized.skills;
+    }
+
+    if ('skillOverflowSeconds' in body) {
+      const skillOverflowSeconds = normalizeSkillOverflowSeconds(
+        body.skillOverflowSeconds
+      );
+      if (skillOverflowSeconds === null) {
+        return NextResponse.json(
+          {
+            error:
+              'El desbordamiento por habilidad debe ser un número entre 0 y 3600 segundos.',
+          },
+          { status: 400 }
+        );
+      }
+      patch.skill_overflow_seconds = skillOverflowSeconds;
     }
 
     if (Object.keys(patch).length === 0) {

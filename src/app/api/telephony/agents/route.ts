@@ -5,7 +5,8 @@ import { requireRole, toErrorResponse } from '@/lib/auth/account';
 import { derivePresence } from '@/lib/presence';
 import { loadTelephonyConfig, resolveTelephony } from '@/lib/telephony/config';
 import { loadTelephonyRoster } from '@/lib/telephony/roster';
-import { sweepExpiredQueue } from '@/lib/telephony/queue-sweep';
+import { normalizeSkillList } from '@/lib/telephony/skills';
+import { sweepExpiredQueue, sweepSkillOverflow } from '@/lib/telephony/queue-sweep';
 import type {
   AgentStatus,
   CallDirection,
@@ -31,6 +32,8 @@ interface LiveCallRow {
   started_at: string;
   answered_at: string | null;
   agent_user_id: string | null;
+  required_skills?: string[] | null;
+  overflowed_at?: string | null;
   contact: { name: string | null } | null;
 }
 
@@ -58,27 +61,21 @@ export async function GET() {
           accountId: ctx.accountId,
           maxWaitSeconds: resolvedConfig.queueMaxWaitSeconds,
         });
+        await sweepSkillOverflow({
+          db: ctx.supabase,
+          accountId: ctx.accountId,
+          overflowSeconds: resolvedConfig.skillOverflowSeconds,
+        });
       } catch (sweepError) {
         console.warn('[telephony] barrido de cola falló:', sweepError);
       }
     }
 
     const presenceResult = await loadPresence(ctx.supabase, ctx.accountId);
-    const liveResult = await ctx.supabase
-      .from('call_sessions')
-      .select(
-        'id, direction, status, from_number, to_number, started_at, answered_at, agent_user_id, contact:contacts(name)'
-      )
-      .eq('account_id', ctx.accountId)
-      .in('status', ['ringing', 'active'])
-      .order('priority', { ascending: false })
-      .order('started_at', { ascending: true })
-      .limit(100);
+    const live = await loadLiveCalls(ctx.supabase, ctx.accountId);
 
-    const callsMissing = isMissingRelation(liveResult.error);
-    const calls = callsMissing
-      ? []
-      : ((liveResult.data ?? []) as unknown as LiveCallRow[]);
+    const callsMissing = live.missing;
+    const calls: LiveCallRow[] = live.rows;
 
     const roster = await loadTelephonyRoster(ctx.supabase, ctx.accountId);
     if (!roster) {
@@ -103,6 +100,8 @@ export async function GET() {
             to_number: call.to_number,
             started_at: call.started_at,
             contact_name: call.contact?.name ?? null,
+            required_skills: normalizeSkillList(call.required_skills).skills,
+            overflowed_at: call.overflowed_at ?? null,
           });
         }
         continue;
@@ -125,6 +124,7 @@ export async function GET() {
         agent_status:
           rawStatus && AGENT_STATUSES.has(rawStatus) ? rawStatus : 'available',
         last_seen_at: presence?.last_seen_at ?? null,
+        skills: member.skills,
         active_call: call
           ? {
               id: call.id,
@@ -158,6 +158,53 @@ interface PresenceRowLite {
   status: 'online' | 'away';
   last_seen_at: string;
   agent_status: AgentStatus;
+}
+
+/**
+ * Llamadas sonando o en curso. Si la 119 no está aplicada, las
+ * columnas de habilidad no existen (42703) y se leen sin ellas: la
+ * cola funciona como antes del desbordamiento.
+ */
+async function loadLiveCalls(
+  db: SupabaseClient,
+  accountId: string
+): Promise<{ rows: LiveCallRow[]; missing: boolean }> {
+  const base =
+    'id, direction, status, from_number, to_number, started_at, answered_at, agent_user_id, contact:contacts(name)';
+
+  const withSkills = await db
+    .from('call_sessions')
+    .select(`${base}, required_skills, overflowed_at`)
+    .eq('account_id', accountId)
+    .in('status', ['ringing', 'active'])
+    .order('priority', { ascending: false })
+    .order('started_at', { ascending: true })
+    .limit(100);
+
+  if (!withSkills.error) {
+    return {
+      rows: (withSkills.data ?? []) as unknown as LiveCallRow[],
+      missing: false,
+    };
+  }
+
+  if (withSkills.error.code !== '42703') {
+    return { rows: [], missing: isMissingRelation(withSkills.error) };
+  }
+
+  const legacy = await db
+    .from('call_sessions')
+    .select(base)
+    .eq('account_id', accountId)
+    .in('status', ['ringing', 'active'])
+    .order('priority', { ascending: false })
+    .order('started_at', { ascending: true })
+    .limit(100);
+
+  return {
+    rows: (legacy.data ?? []) as unknown as LiveCallRow[],
+    missing: isMissingRelation(legacy.error),
+  };
 }
 
 /**

@@ -31,6 +31,8 @@ function row(patch: Partial<TelephonyConfig> = {}): TelephonyConfig {
     recording_enabled: false,
     transcription_enabled: true,
     queue_max_wait_seconds: 60,
+    required_skills: [],
+    skill_overflow_seconds: 0,
     created_by: null,
     created_at: '2026-01-01T00:00:00.000Z',
     updated_at: '2026-01-01T00:00:00.000Z',

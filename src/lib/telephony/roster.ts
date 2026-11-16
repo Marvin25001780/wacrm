@@ -10,11 +10,14 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { isAccountRole } from '@/lib/auth/roles';
 import type { AccountRole } from '@/lib/auth/roles';
+import { normalizeSkillList } from './skills';
 
 export interface TelephonyRosterMember {
   user_id: string;
   name: string;
   role: AccountRole;
+  /** 119 — habilidades en este negocio (vacío si la 119 no está aplicada). */
+  skills: string[];
 }
 
 /**
@@ -34,6 +37,7 @@ export async function loadTelephonyRoster(
       display_name?: string | null;
       email: string | null;
       role: string;
+      agent_skills?: unknown;
     }[];
     return rows.flatMap((row) => {
       if (!isAccountRole(row.role)) return [];
@@ -46,6 +50,7 @@ export async function loadTelephonyRoster(
             row.email ||
             'Sin nombre',
           role: row.role,
+          skills: normalizeSkillList(row.agent_skills).skills,
         },
       ];
     });
@@ -76,6 +81,7 @@ export async function loadTelephonyRoster(
           (row.email as string | null) ||
           'Sin nombre',
         role: row.account_role,
+        skills: [],
       },
     ];
   });

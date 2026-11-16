@@ -38,6 +38,7 @@ interface RosterRow {
   avatar_url: string | null;
   role: string;
   joined_at: string;
+  agent_skills?: unknown;
 }
 
 export async function GET() {
@@ -94,6 +95,7 @@ export async function GET() {
         avatar_url: row.avatar_url,
         role: row.account_role,
         joined_at: row.created_at,
+        agent_skills: [],
       }));
     } else {
       rows = (data ?? []) as RosterRow[];
@@ -115,6 +117,11 @@ export async function GET() {
           avatar_url: row.avatar_url,
           role: row.role,
           joined_at: row.joined_at,
+          agent_skills: Array.isArray(row.agent_skills)
+            ? row.agent_skills.filter(
+                (skill): skill is string => typeof skill === "string",
+              )
+            : [],
         },
       ];
     });

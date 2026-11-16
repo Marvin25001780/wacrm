@@ -13,11 +13,17 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { closeCallRoom } from './livekit';
 import { finalizeCall } from './finalize';
+import { isSkillOverflowDue } from './skills';
 import type { CallSession } from '@/types';
 
 export interface QueueSweepResult {
   /** Entrantes que excedieron el máximo y fueron cerrados. */
   closed: CallSession[];
+}
+
+export interface SkillOverflowResult {
+  /** Entrantes cuyo requisito de habilidad se levantó. */
+  overflowed: CallSession[];
 }
 
 const SWEEP_LIMIT = 50;
@@ -93,4 +99,95 @@ export async function sweepExpiredQueue(args: {
   }
 
   return { closed };
+}
+
+/**
+ * Desbordamiento por habilidad (119): si la entrante exige
+ * habilidades y nadie con ellas la tomó en `overflowSeconds`, se
+ * levanta el requisito para que cualquier agente disponible pueda
+ * reclamarla. No cierra la llamada ni le asigna agente: solo quita
+ * la restricción y deja el evento `skill_overflow`.
+ *
+ * El guard del UPDATE exige que siga sonando, sin agente y sin
+ * desbordar, para no pisar una reclamación que ocurra en paralelo.
+ */
+export async function sweepSkillOverflow(args: {
+  db: SupabaseClient;
+  accountId: string;
+  /** Segundos antes de levantar el requisito; `0` = desactivado. */
+  overflowSeconds: number;
+  /** Reloj inyectable para tests. */
+  now?: number;
+}): Promise<SkillOverflowResult> {
+  const overflowSeconds = args.overflowSeconds ?? 0;
+  if (overflowSeconds <= 0) return { overflowed: [] };
+
+  const nowMs = args.now ?? Date.now();
+  const cutoff = new Date(nowMs - overflowSeconds * 1000).toISOString();
+
+  const { data, error } = await args.db
+    .from('call_sessions')
+    .select('*')
+    .eq('account_id', args.accountId)
+    .eq('direction', 'inbound')
+    .eq('status', 'ringing')
+    .is('agent_user_id', null)
+    .is('overflowed_at', null)
+    .lt('started_at', cutoff)
+    .limit(SWEEP_LIMIT);
+
+  if (error) {
+    // Sin la 119 aplicada la columna `overflowed_at` no existe: el
+    // desbordamiento simplemente no corre.
+    console.warn(
+      '[telephony] barrido de habilidades sin resultados:',
+      error.message
+    );
+    return { overflowed: [] };
+  }
+
+  const candidates = ((data ?? []) as CallSession[]).filter(
+    (call) =>
+      (call.required_skills ?? []).length > 0 &&
+      isSkillOverflowDue({
+        startedAt: call.started_at,
+        overflowSeconds,
+        now: nowMs,
+      })
+  );
+
+  const overflowedAt = new Date(nowMs).toISOString();
+  const overflowed: CallSession[] = [];
+
+  for (const call of candidates) {
+    const { data: updated, error: updateError } = await args.db
+      .from('call_sessions')
+      .update({ overflowed_at: overflowedAt })
+      .eq('id', call.id)
+      .eq('status', 'ringing')
+      .is('agent_user_id', null)
+      .is('overflowed_at', null)
+      .select('*')
+      .maybeSingle();
+
+    if (updateError) {
+      console.error('[telephony] desbordamiento de habilidad falló:', call.id, updateError);
+      continue;
+    }
+    if (!updated) continue; // otro proceso la reclamó o ya desbordó
+
+    await args.db.from('call_events').insert({
+      account_id: args.accountId,
+      call_id: call.id,
+      type: 'skill_overflow',
+      payload: {
+        required_skills: call.required_skills ?? [],
+        overflow_seconds: overflowSeconds,
+      },
+    });
+
+    overflowed.push(updated as CallSession);
+  }
+
+  return { overflowed };
 }

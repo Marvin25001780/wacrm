@@ -10,6 +10,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 
 import type { TelephonyConfig } from '@/types';
 import { normalizePhone } from './phone';
+import { normalizeSkillList, normalizeSkillOverflowSeconds } from './skills';
 import {
   canDialPstn,
   isLivekitReady,
@@ -62,6 +63,10 @@ export interface ResolvedTelephony {
   transcriptionEnabled: boolean;
   /** 116 — máximo de espera en cola del negocio (0 = sin límite). */
   queueMaxWaitSeconds: number;
+  /** 119 — habilidades que exige la cola entrante (vacío = ninguna). */
+  requiredSkills: string[];
+  /** 119 — segundos antes de levantar el requisito (0 = sin desbordamiento). */
+  skillOverflowSeconds: number;
   env: TelephonyEnv;
   livekitReady: boolean;
   dialReady: boolean;
@@ -86,6 +91,9 @@ export function resolveTelephony(
       row?.queue_max_wait_seconds != null
         ? normalizeQueueMaxWaitSeconds(row.queue_max_wait_seconds) ?? env.queueMaxWaitSeconds
         : env.queueMaxWaitSeconds,
+    requiredSkills: normalizeSkillList(row?.required_skills ?? []).skills,
+    skillOverflowSeconds:
+      normalizeSkillOverflowSeconds(row?.skill_overflow_seconds ?? 0) ?? 0,
     env,
     livekitReady: isLivekitReady(env),
     dialReady: canDialPstn(env, row?.sip_outbound_trunk_id ?? null),
@@ -160,4 +168,65 @@ export async function findAccountByInboundNumber(
   if (error || !data) return null;
   const row = data as TelephonyConfig;
   return { accountId: row.account_id, row };
+}
+
+/**
+ * Habilidades del agente en este negocio (119). Se lee su propia fila
+ * de `account_members`, que la RLS de la 066 sí deja ver. Sin la 119
+ * aplicada devuelve `[]`: la cola funciona como antes.
+ */
+export async function loadAgentSkills(
+  db: SupabaseClient,
+  accountId: string,
+  userId: string
+): Promise<string[]> {
+  const { data, error } = await db
+    .from('account_members')
+    .select('agent_skills')
+    .eq('account_id', accountId)
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (error) {
+    if (isMissingColumn(error)) return [];
+    console.warn('[telephony] no se pudieron leer las habilidades:', error.message);
+    return [];
+  }
+
+  const raw = (data as { agent_skills?: unknown } | null)?.agent_skills;
+  return normalizeSkillList(raw).skills;
+}
+
+/**
+ * Requisito de habilidad de la cola entrante del negocio. Se usa al
+ * crear la sesión para copiarlo en `call_sessions.required_skills`.
+ */
+export async function loadRequiredSkills(
+  db: SupabaseClient,
+  accountId: string
+): Promise<string[]> {
+  const { data, error } = await db
+    .from('telephony_config')
+    .select('required_skills')
+    .eq('account_id', accountId)
+    .maybeSingle();
+
+  if (error) {
+    if (isMissingColumn(error)) return [];
+    console.warn('[telephony] no se pudo leer el requisito de habilidades:', error.message);
+    return [];
+  }
+
+  const raw = (data as { required_skills?: unknown } | null)?.required_skills;
+  return normalizeSkillList(raw).skills;
+}
+
+/** Columna/tabla que todavía no existe (migración pendiente). */
+function isMissingColumn(error: { code?: string }): boolean {
+  return (
+    error.code === '42703' || // undefined_column
+    error.code === '42P01' || // undefined_table
+    error.code === 'PGRST204' || // columna desconocida para PostgREST
+    error.code === 'PGRST205' // tabla desconocida para PostgREST
+  );
 }

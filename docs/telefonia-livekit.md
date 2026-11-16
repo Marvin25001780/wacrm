@@ -171,6 +171,47 @@ Cuando entra una llamada:
 - Solo retira entrantes sin agente; una reclamación atómica de un agente
   siempre gana al cierre (guard `ringing` + `agent_user_id IS NULL`).
 
+### 3.6 Habilidades y desbordamiento (ACD v2)
+
+**Habilidades requeridas** (Configuración → Telefonía): lista separada
+por comas, máx. 8, guardada en `telephony_config.required_skills`.
+Al entrar una llamada, el requisito se **copia** en
+`call_sessions.required_skills`: cambiarlo después no altera la cola en
+curso. La regla de despacho puede fijar otro requisito por sala con
+`{"account_id":"…","required_skills":["ventas"]}`; si no lo trae, manda
+el del negocio.
+
+**Habilidades del agente**: se asignan en el panel de supervisión
+(lápiz en la columna Habilidades) y viven en
+`account_members.agent_skills` (minúsculas, sin duplicados, máx. 8).
+Solo admin+ las edita; un admin no puede tocar las de otro admin ni las
+del dueño (RPC `set_member_agent_skills`).
+
+Cómo se reparte la cola:
+
+| Situación | Quién la ve |
+| --- | --- |
+| `required_skills` vacío | Cualquier agente disponible |
+| Exige habilidades | Solo quien las tenga **todas** |
+| Ya desbordada (`overflowed_at`) | Cualquier agente disponible |
+
+**Desbordamiento por habilidad** (`skill_overflow_seconds`, 0–3600,
+0 = desactivado): si nadie con las habilidades la toma en ese tiempo,
+el barrido perezoso levanta el requisito (`call_sessions.overflowed_at`,
+evento `skill_overflow`) y la llamada pasa a cualquier agente
+disponible. No asigna agente ni cierra la llamada: solo quita la
+restricción. El `UPDATE` exige `ringing`, sin agente y sin desbordar,
+así que una reclamación simultánea siempre gana.
+
+El softphone muestra “Requiere: …” (o “Desbordada: cualquier agente
+disponible puede tomarla”) y el `claim` responde 409 con las
+habilidades que faltan si el agente no cumple. Un agente sin
+habilidades solo recibe las llamadas sin requisito o ya desbordadas.
+
+> El desbordamiento actual es **por habilidad** (local, sin troncal).
+> Desviar a otro número externo exigiría una transferencia SIP y queda
+> pendiente hasta tener LiveKit + troncal.
+
 ## 4. Grabación y transcripción
 
 ### Grabación (opcional)
@@ -328,5 +369,11 @@ requiere el interruptor maestro de **Ajustes → Asistente de IA**.
 | DELETE    | `/api/telephony/campaigns/[id]`        | Eliminar una campaña (admin+).      |
 | GET       | `/api/telephony/campaigns/contacts`    | Contactos para armar campañas (admin+). |
 | GET/PATCH | `/api/telephony/config`                | Configuración por negocio (admin+).  |
+| PATCH     | `/api/account/members/[userId]`        | Alias, rol y habilidades (`agentSkills`, 119; admin+). |
 | POST      | `/api/telephony/presence`              | Estado del agente.                   |
 | POST      | `/api/telephony/webhook`               | Eventos de LiveKit (firma).          |
+
+`PATCH /api/telephony/config` acepta `requiredSkills` (array o texto
+separado por comas, máx. 8) y `skillOverflowSeconds` (0–3600; 0 =
+desactivado), además de los campos de troncal, números, grabación y
+espera en cola.
