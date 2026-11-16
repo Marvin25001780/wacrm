@@ -69,6 +69,10 @@
     timeout de la entrante y liberación de sala.
 11. **Campañas salientes** (preview): lista de contactos por campaña y
     vínculo con las llamadas salientes (estado pending/called).
+12. **ACD v2**: habilidades por agente, requisito por cola y
+    desbordamiento local por habilidad.
+13. **WEM**: turnos semanales, bitácora de estados con motivo de pausa,
+    adherencia al turno y ocupación por agente.
 
 Nada de eso copia código de terceros: se usan SDKs Apache-2.0 y APIs.
 
@@ -80,7 +84,7 @@ Nada de eso copia código de terceros: se usan SDKs Apache-2.0 y APIs.
 | CCaaS 1 | **ACD**: prioridad, habilidades, tiempo de timbrado y overflow. | LiveKit + troncal para probar de verdad. ✅ Parcial: espera máxima, timeout, prioridad/FIFO (116 y 118) y habilidades con desbordamiento por habilidad (119) listos; faltan prioridad por despacho avanzada y overflow a número externo (requiere transferencia SIP). |
 | CCaaS 2 | **Campañas salientes** (preview/progresivo) con lista y ritmo. | Troncal SIP. ✅ Parcial: CRUD de campañas + vínculo con llamadas (migración 117) listos; falta fan-out automático. |
 | IA 1 | **Agente de voz** (IVR/contestador) con LiveKit Agents. | Servidor LiveKit + API keys de STT/LLM/TTS. |
-| WEM 2 | **Adherencia**: horarios, pausas y cumplimiento. | Datos de presencia (ya existen). |
+| WEM 2 | **Adherencia**: horarios, pausas y cumplimiento. | Datos de presencia (ya existen). ✅ Hecho (migración 120): turnos, motivos de pausa, adherencia y ocupación. Faltan pausas programadas. |
 | IA 2 | **QA automática**: puntuar la transcripción con el LLM y comparar con el humano. | Transcripciones + proveedor de IA. ✅ Hecho (migración 115); falta comparativa en reportes. |
 
 ## 5. Reglas de integración

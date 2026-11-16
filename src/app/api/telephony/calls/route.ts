@@ -11,6 +11,7 @@ import { finalizeCall } from '@/lib/telephony/finalize';
 import { telephonyErrorResponse } from '@/lib/telephony/http';
 import { createAgentToken, dialPstn } from '@/lib/telephony/livekit';
 import { normalizePhone } from '@/lib/telephony/phone';
+import { setAgentStatusRpc } from '@/lib/telephony/status';
 import type { CallSession } from '@/types';
 
 /**
@@ -175,7 +176,7 @@ export async function POST(request: Request) {
     });
 
     // El agente queda ocupado en cuanto marca.
-    await ctx.supabase.rpc('set_agent_status', { p_status: 'busy' });
+    await setAgentStatusRpc(ctx.supabase, 'busy', { source: 'system' });
 
     try {
       await dialPstn({

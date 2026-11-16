@@ -660,6 +660,38 @@ export interface TelephonySupervision {
   migrationMissing: boolean;
 }
 
+/** Turno semanal recurrente de un agente (migración 120, WEM). */
+export interface AgentShift {
+  id: string;
+  account_id: string;
+  user_id: string;
+  /** 0 = domingo … 6 = sábado, en hora de Venezuela. */
+  weekday: number;
+  /** `HH:MM:SS` en hora local. */
+  start_time: string;
+  end_time: string;
+  label: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Fila de GET /api/telephony/adherence (migración 120, WEM). */
+export interface TelephonyAdherenceRow {
+  user_id: string;
+  name: string;
+  role: AccountRole;
+  scheduledSeconds: number;
+  loggedSeconds: number;
+  workSeconds: number;
+  availableSeconds: number;
+  breakSeconds: number;
+  breakCount: number;
+  talkSeconds: number;
+  adherence: number | null;
+  occupancy: number | null;
+  shifts: AgentShift[];
+}
+
 /** Campaña saliente (migración 117): lista de contactos a marcar. */
 export interface OutboundCampaign {
   id: string;

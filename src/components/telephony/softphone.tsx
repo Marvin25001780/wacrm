@@ -28,6 +28,7 @@ import { useTelephony } from '@/components/telephony/telephony-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { PAUSE_REASONS, pauseReasonLabel } from '@/lib/telephony/adherence';
 import { formatPhoneDisplay } from '@/lib/telephony/phone';
 import { formatCallDuration } from '@/lib/telephony/calls';
 import {
@@ -74,6 +75,10 @@ export function Softphone() {
   const [notes, setNotes] = useState('');
   const [savingWrapUp, setSavingWrapUp] = useState(false);
   const [queueNow, setQueueNow] = useState(() => Date.now());
+  // Motivo de la pausa en curso (migración 120). Se elige antes de
+  // pasar a `break` para que quede en la bitácora.
+  const [pausePicker, setPausePicker] = useState(false);
+  const [pauseReason, setPauseReason] = useState('');
 
   // Reloj de la espera en cola mientras hay una entrante sonando.
   useEffect(() => {
@@ -204,9 +209,19 @@ export function Softphone() {
                       key={option.value}
                       type="button"
                       disabled={busy}
-                      onClick={() =>
-                        void setAgentStatus(option.value as AgentStatus)
-                      }
+                      onClick={() => {
+                        if (option.value === 'break') {
+                          // Ya está en pausa: cambiar el motivo no genera
+                          // un evento nuevo en la bitácora, así que no se
+                          // ofrece un cambio que no se registraría.
+                          if (active) return;
+                          setPausePicker((prev) => !prev);
+                          return;
+                        }
+                        setPausePicker(false);
+                        setPauseReason('');
+                        void setAgentStatus(option.value as AgentStatus);
+                      }}
                       className={cn(
                         'rounded-md border px-1 py-1.5 text-[11px] font-medium transition-colors',
                         active
@@ -220,6 +235,34 @@ export function Softphone() {
                   );
                 })}
               </div>
+              {pausePicker && !busy ? (
+                <div className="border-border bg-muted/40 mt-1.5 space-y-1.5 rounded-lg border p-2">
+                  <p className="text-muted-foreground text-[11px] font-medium">
+                    Motivo de la pausa
+                  </p>
+                  <div className="grid grid-cols-2 gap-1">
+                    {PAUSE_REASONS.map((reason) => (
+                      <button
+                        key={reason.value}
+                        type="button"
+                        onClick={() => {
+                          setPauseReason(reason.value);
+                          setPausePicker(false);
+                          void setAgentStatus('break', reason.value);
+                        }}
+                        className="border-border text-muted-foreground hover:bg-muted hover:text-foreground rounded-md border px-1 py-1 text-[11px] transition-colors"
+                      >
+                        {reason.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              {!pausePicker && status?.agentStatus === 'break' && pauseReason ? (
+                <p className="text-muted-foreground mt-1 text-[11px]">
+                  Pausa: {pauseReasonLabel(pauseReason)}
+                </p>
+              ) : null}
               {busy ? (
                 <p className="text-muted-foreground mt-1 text-[11px]">
                   En llamada o en cierre: el estado se actualiza

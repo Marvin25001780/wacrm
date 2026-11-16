@@ -4,6 +4,7 @@ import { requireRole, toErrorResponse } from '@/lib/auth/account';
 import { normalizeHangupReason } from '@/lib/telephony/calls';
 import { finalizeCall } from '@/lib/telephony/finalize';
 import { stopCallRecording } from '@/lib/telephony/livekit';
+import { setAgentStatusRpc } from '@/lib/telephony/status';
 import type { CallSession } from '@/types';
 
 /**
@@ -84,7 +85,7 @@ export async function POST(
     // mismo vuelve a Disponible cuando termina sus notas. Si solo
     // rechazó una entrante ajena, no se le cambia el estado.
     if (call.agent_user_id === ctx.userId) {
-      await ctx.supabase.rpc('set_agent_status', { p_status: 'wrap_up' });
+      await setAgentStatusRpc(ctx.supabase, 'wrap_up', { source: 'system' });
     }
 
     return NextResponse.json({ call: updated ?? call, result });

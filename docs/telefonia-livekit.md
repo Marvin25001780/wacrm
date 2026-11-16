@@ -24,7 +24,7 @@ Navegador (agente)  ──WebRTC──▶  LiveKit (media)  ──SIP──▶  
   la pestaña), el webhook `room_finished` cierra la sesión y escribe la
   **actividad de CRM** que alimenta Métricas → Llamadas.
 
-### Tablas (migraciones 112 y 113)
+### Tablas (migraciones 112–120)
 
 | Tabla                          | Para qué                                                                                                        |
 | ------------------------------ | --------------------------------------------------------------------------------------------------------------- |
@@ -34,6 +34,8 @@ Navegador (agente)  ──WebRTC──▶  LiveKit (media)  ──SIP──▶  
 | `call_evaluations`             | QA de la llamada (migración 114): puntaje 0–100, rúbrica y comentarios del supervisor.                         |
 | `call_ai_evaluations`          | QA automática con IA (migración 115): nota, rúbrica, proveedor/modelo y feedback.                               |
 | `member_presence.agent_status` | Disponibilidad operativa: `available`, `busy`, `wrap_up`, `break`.                                              |
+| `agent_shifts`                 | Turnos semanales recurrentes del agente (migración 120), en hora local de Venezuela.                            |
+| `agent_status_log`             | Bitácora de cambios de estado con motivo y origen (migración 120); base de la adherencia.                        |
 
 RLS: cualquier miembro lee; agente+ crea y cierra sus llamadas; admin+
 puede cerrar cualquiera. El estado de agente se cambia solo por RPC
@@ -69,6 +71,19 @@ urgente) y define el orden de salida de la cola: prioridad descendente
 y, dentro de la misma prioridad, orden de llegada (FIFO). El webhook
 toloca la prioridad desde el metadata de la sala
 (`{"account_id":"…","priority":5}`); las salientes arrancan en 0.
+
+La **migración 119** añade `account_members.agent_skills` (habilidades
+del agente en el negocio) y `telephony_config.required_skills` /
+`skill_overflow_seconds`. El requisito se copia a
+`call_sessions.required_skills` al entrar la llamada y el desbordamiento
+queda marcado en `call_sessions.overflowed_at`.
+
+La **migración 120** añade `agent_shifts` (turnos semanales) y
+`agent_status_log` (bitácora de estados con motivo). Amplía
+`set_agent_status` a `(p_status, p_reason, p_source)`; las llamadas
+antiguas con un solo argumento siguen funcionando por los valores por
+defecto. Solo se registra un evento cuando el estado **cambia**: repetir
+el mismo estado es heartbeat y no abre un intervalo nuevo.
 
 ## 2. Variables de entorno
 
@@ -211,6 +226,43 @@ habilidades solo recibe las llamadas sin requisito o ya desbordadas.
 > El desbordamiento actual es **por habilidad** (local, sin troncal).
 > Desviar a otro número externo exigiría una transferencia SIP y queda
 > pendiente hasta tener LiveKit + troncal.
+
+### 3.7 WEM: turnos, pausas y adherencia (migración 120)
+
+**Turnos** (`/telefonia/adherencia` → Turnos): cada agente tiene turnos
+semanales recurrentes (`agent_shifts`), con día (0 = domingo … 6 =
+sábado), entrada, salida y etiqueta opcional. Se guardan en hora local
+de Venezuela; un turno cuyo fin es menor que el inicio cruza medianoche
+(22:00–06:00). Solo admin+ los crea y borra; todo el negocio los lee.
+
+**Pausas**: al pulsar Pausa en el softphone se elige un motivo de la
+lista fija (`src/lib/telephony/adherence.ts`): almuerzo, descanso,
+capacitación, reunión, personal, falla técnica u otro. El motivo viaja
+a `set_agent_status` y queda en `agent_status_log.reason`; los cambios
+automáticos (marcar, reclamar, pasar a cierre) se registran con
+`source = 'system'`.
+
+**Definiciones v1** de la ventana consultada (máx. 31 días):
+
+| Indicador   | Cálculo                                                              |
+| ----------- | -------------------------------------------------------------------- |
+| Programado  | suma de los turnos que caen dentro de la ventana                     |
+| Conectado   | cualquier estado de agente registrado en la bitácora                 |
+| Disponible  | tiempo en `available`                                                |
+| Pausa       | tiempo en `break`; el número entre paréntesis son las pausas        |
+| Hablado     | llamadas contestadas (`answered_at` → `ended_at`)                    |
+| Adherencia  | trabajo dentro del turno ÷ programado                                |
+| Ocupación   | hablado ÷ trabajo (`available` + `busy` + `wrap_up`)                 |
+
+Sin turno, la adherencia es `—` (no se inventa un 100 %) pero la
+ocupación sí se calcula. La API lee 7 días antes del inicio para saber
+con qué estado arrancaba la ventana; si no hay evento previo, el primer
+intervalo empieza en el primer cambio real.
+
+La lógica pura vive en `src/lib/telephony/adherence.ts` (con pruebas) y
+la API en `GET /api/telephony/adherence?from=ISO&to=ISO` (admin+). Igual
+que los reportes, la lectura tiene tope de 20 000 filas y avisa con
+`truncated` si se alcanzó.
 
 ## 4. Grabación y transcripción
 
@@ -368,9 +420,12 @@ requiere el interruptor maestro de **Ajustes → Asistente de IA**.
 | GET       | `/api/telephony/campaigns`              | Campañas salientes con contactos (admin+). |
 | DELETE    | `/api/telephony/campaigns/[id]`        | Eliminar una campaña (admin+).      |
 | GET       | `/api/telephony/campaigns/contacts`    | Contactos para armar campañas (admin+). |
+| GET       | `/api/telephony/adherence`             | Adherencia y ocupación por agente (admin+, 120). |
+| GET/POST  | `/api/telephony/shifts`                | Turnos semanales del negocio (admin+, 120). |
+| DELETE    | `/api/telephony/shifts/[id]`           | Borrar un turno (admin+, 120).       |
 | GET/PATCH | `/api/telephony/config`                | Configuración por negocio (admin+).  |
 | PATCH     | `/api/account/members/[userId]`        | Alias, rol y habilidades (`agentSkills`, 119; admin+). |
-| POST      | `/api/telephony/presence`              | Estado del agente.                   |
+| POST      | `/api/telephony/presence`              | Estado del agente (`status` + `reason` opcional en pausa, 120). |
 | POST      | `/api/telephony/webhook`               | Eventos de LiveKit (firma).          |
 
 `PATCH /api/telephony/config` acepta `requiredSkills` (array o texto

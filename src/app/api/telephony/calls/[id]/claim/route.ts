@@ -5,6 +5,7 @@ import { isTerminalCallStatus } from '@/lib/telephony/calls';
 import { loadAgentSkills } from '@/lib/telephony/config';
 import { createAgentToken } from '@/lib/telephony/livekit';
 import { agentCanTakeCall, missingSkills } from '@/lib/telephony/skills';
+import { setAgentStatusRpc } from '@/lib/telephony/status';
 import type { CallSession } from '@/types';
 
 /**
@@ -142,7 +143,7 @@ export async function POST(
       payload: { room: call.room_name },
     });
 
-    await ctx.supabase.rpc('set_agent_status', { p_status: 'busy' });
+    await setAgentStatusRpc(ctx.supabase, 'busy', { source: 'system' });
 
     return NextResponse.json({
       call: updated as CallSession,

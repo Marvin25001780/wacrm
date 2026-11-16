@@ -72,7 +72,11 @@ interface TelephonyContextValue {
   declineIncoming: () => Promise<void>;
   hangup: () => Promise<void>;
   toggleMute: () => Promise<void>;
-  setAgentStatus: (next: AgentStatus) => Promise<void>;
+  /**
+   * Cambia el estado del agente. El motivo solo aplica a `break`; se
+   * guarda en la bitácora de la migración 120 para la adherencia.
+   */
+  setAgentStatus: (next: AgentStatus, reason?: string) => Promise<void>;
   /** Llamada recién cerrada pendiente de disposición y notas. */
   wrapUp: WrapUpState | null;
   saveWrapUp: (input: {
@@ -511,13 +515,15 @@ export function TelephonyProvider({ children }: { children: ReactNode }) {
   }, [muted]);
 
   const setAgentStatus = useCallback(
-    async (next: AgentStatus) => {
+    async (next: AgentStatus, reason?: string) => {
       setStatus((prev) => (prev ? { ...prev, agentStatus: next } : prev));
       try {
         const res = await fetch('/api/telephony/presence', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ status: next }),
+          body: JSON.stringify(
+            next === 'break' && reason ? { status: next, reason } : { status: next }
+          ),
         });
         if (!res.ok) {
           const body = (await res.json().catch(() => ({}))) as {
