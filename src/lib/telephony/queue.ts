@@ -57,3 +57,40 @@ export function queueDeadlineIso(
   if (Number.isNaN(deadline)) return null;
   return new Date(deadline).toISOString();
 }
+
+/** Prioridad mínima de la cola (0 = normal). */
+export const QUEUE_PRIORITY_MIN = 0;
+
+/** Prioridad máxima de la cola (5 = la más urgente). */
+export const QUEUE_PRIORITY_MAX = 5;
+
+/**
+ * Normaliza la prioridad de una entrante: entero 0..5; valores fuera
+ * de rango o inválidos caen a 0 (normal).
+ */
+export function normalizeQueuePriority(value: unknown): number {
+  const n = Math.floor(Number(value));
+  if (!Number.isFinite(n)) return QUEUE_PRIORITY_MIN;
+  return Math.min(QUEUE_PRIORITY_MAX, Math.max(QUEUE_PRIORITY_MIN, n));
+}
+
+export interface QueueOrderEntry {
+  priority: number;
+  started_at: string;
+}
+
+/**
+ * Orden de salida de la cola: primero la prioridad más alta y, dentro
+ * de la misma prioridad, el orden de llegada (FIFO).
+ */
+export function compareQueueOrder(
+  a: QueueOrderEntry,
+  b: QueueOrderEntry
+): number {
+  if (a.priority !== b.priority) return b.priority - a.priority;
+  const startedA = new Date(a.started_at).getTime();
+  const startedB = new Date(b.started_at).getTime();
+  const diff = (startedA || 0) - (startedB || 0);
+  if (diff !== 0) return diff;
+  return 0;
+}

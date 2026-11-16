@@ -55,7 +55,8 @@ export async function GET() {
         .eq('direction', 'inbound')
         .eq('status', 'ringing')
         .is('agent_user_id', null)
-        .order('started_at', { ascending: false })
+        .order('priority', { ascending: false })
+        .order('started_at', { ascending: true })
         .limit(1)
         .maybeSingle(),
     ]);

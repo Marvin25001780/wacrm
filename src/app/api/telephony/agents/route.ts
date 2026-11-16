@@ -71,6 +71,7 @@ export async function GET() {
       )
       .eq('account_id', ctx.accountId)
       .in('status', ['ringing', 'active'])
+      .order('priority', { ascending: false })
       .order('started_at', { ascending: true })
       .limit(100);
 

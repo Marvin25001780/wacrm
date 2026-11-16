@@ -64,6 +64,12 @@ entrantes que exceden el máximo como `missed` con motivo `timeout` y
 escribe el evento `queue_timeout`. Corre desde `/api/telephony/status`
 y desde el panel de supervisión, de forma perezosa.
 
+La **migración 118** añade `call_sessions.priority` (0–5, mayor = más
+urgente) y define el orden de salida de la cola: prioridad descendente
+y, dentro de la misma prioridad, orden de llegada (FIFO). El webhook
+toloca la prioridad desde el metadata de la sala
+(`{"account_id":"…","priority":5}`); las salientes arrancan en 0.
+
 ## 2. Variables de entorno
 
 Solo en el servidor. Si faltan, la UI muestra la lista y **no permite

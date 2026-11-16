@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  compareQueueOrder,
   isQueueExpired,
+  normalizeQueuePriority,
   queueDeadlineIso,
   queueWaitSeconds,
   QUEUE_MAX_WAIT_SECONDS,
@@ -55,5 +57,37 @@ describe('cola: espera y expiración', () => {
 
   it('usa un máximo por defecto de 60 segundos', () => {
     expect(QUEUE_MAX_WAIT_SECONDS).toBe(60);
+  });
+});
+
+describe('cola: prioridad y orden', () => {
+  const entry = (priority: number, startedAt: string) => ({
+    priority,
+    started_at: startedAt,
+  });
+
+  it('normaliza la prioridad dentro de 0..5', () => {
+    expect(normalizeQueuePriority(0)).toBe(0);
+    expect(normalizeQueuePriority(3)).toBe(3);
+    expect(normalizeQueuePriority(5)).toBe(5);
+    expect(normalizeQueuePriority(-1)).toBe(0);
+    expect(normalizeQueuePriority(9)).toBe(5);
+    expect(normalizeQueuePriority(null)).toBe(0);
+    expect(normalizeQueuePriority('x')).toBe(0);
+  });
+
+  it('ordena por prioridad descendente y FIFO dentro de la misma', () => {
+    const older = entry(2, '2026-01-01T10:00:00.000Z');
+    const newer = entry(2, '2026-01-01T10:05:00.000Z');
+    const urgent = entry(5, '2026-01-01T11:00:00.000Z');
+    expect(compareQueueOrder(older, newer) <= 0).toBe(true);
+    expect(compareQueueOrder(older, urgent) > 0).toBe(true);
+    expect(compareQueueOrder(urgent, older) < 0).toBe(true);
+  });
+
+  it('respeta el desempate FIFO con la misma prioridad', () => {
+    const a = entry(1, '2026-01-01T09:00:00.000Z');
+    const b = entry(1, '2026-01-01T08:00:00.000Z');
+    expect(compareQueueOrder(a, b) > 0).toBe(true);
   });
 });

@@ -136,6 +136,8 @@ async function handleParticipantJoined(
     .eq('phone_normalized', digits)
     .maybeSingle();
 
+  const priority = roomMetadataPriority(args.roomMetadata);
+
   const { data: created, error } = await db
     .from('call_sessions')
     .insert({
@@ -147,7 +149,8 @@ async function handleParticipantJoined(
       from_number: caller,
       to_number: dialed,
       contact_id: (contact?.id as string | undefined) ?? null,
-      metadata: { source: 'inbound' },
+      priority,
+      metadata: { source: 'inbound', priority },
     })
     .select('*')
     .single();
@@ -177,6 +180,18 @@ async function resolveInboundAccountId(
   }
   const match = await findAccountByInboundNumber(db, dialed);
   return match?.accountId ?? null;
+}
+
+/** Prioridad de la entrante desde el metadata de la sala (0..5). */
+function roomMetadataPriority(roomMetadata: string | undefined): number {
+  if (!roomMetadata) return 0;
+  try {
+    const parsed = JSON.parse(roomMetadata) as { priority?: unknown };
+    if (typeof parsed.priority === 'number') return parsed.priority;
+  } catch {
+    // metadata no-JSON: prioridad normal.
+  }
+  return 0;
 }
 
 async function handleParticipantLeft(

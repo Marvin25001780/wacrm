@@ -481,6 +481,8 @@ export interface CallSession {
   notes: string | null;
   wrap_up_completed_at: string | null;
   activity_id: string | null;
+  /** 118 — prioridad en la cola entrante (mayor = más urgente). */
+  priority: number;
   metadata: Record<string, unknown>;
   created_at: string;
   updated_at: string;
