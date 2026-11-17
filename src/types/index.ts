@@ -504,6 +504,75 @@ export interface CallSession {
   } | null;
 }
 
+// ------------------------------------------------------------
+// Devoluciones de llamadas perdidas (migración 122)
+// ------------------------------------------------------------
+
+export type CallbackReason = 'missed' | 'timeout' | 'declined' | 'manual';
+export type CallbackStatus = 'pending' | 'in_progress' | 'done' | 'cancelled';
+
+export const CALLBACK_REASONS: { value: CallbackReason; label: string }[] = [
+  { value: 'missed', label: 'Llamada perdida' },
+  { value: 'timeout', label: 'Timeout de cola' },
+  { value: 'declined', label: 'Rechazada por el agente' },
+  { value: 'manual', label: 'Registrada a mano' },
+];
+
+export const CALLBACK_STATUSES: { value: CallbackStatus; label: string }[] = [
+  { value: 'pending', label: 'Pendiente' },
+  { value: 'in_progress', label: 'En curso' },
+  { value: 'done', label: 'Atendida' },
+  { value: 'cancelled', label: 'Cancelada' },
+];
+
+export function callbackReasonLabel(value?: string | null): string {
+  if (!value) return '';
+  return CALLBACK_REASONS.find((r) => r.value === value)?.label ?? value;
+}
+
+export function callbackStatusLabel(value?: string | null): string {
+  if (!value) return '';
+  return CALLBACK_STATUSES.find((s) => s.value === value)?.label ?? value;
+}
+
+export function isCallbackReason(value: unknown): value is CallbackReason {
+  return (
+    typeof value === 'string' &&
+    CALLBACK_REASONS.some((reason) => reason.value === value)
+  );
+}
+
+/**
+ * Fila de `callback_requests`. `contact` y `assigned` los hidrata la
+ * API; no viven en la tabla.
+ */
+export interface CallbackRequest {
+  id: string;
+  account_id: string;
+  contact_id: string | null;
+  /** E.164. */
+  phone: string;
+  source_call_id: string | null;
+  reason: CallbackReason;
+  note: string | null;
+  status: CallbackStatus;
+  assigned_user_id: string | null;
+  claimed_at: string | null;
+  completed_at: string | null;
+  completed_by: string | null;
+  call_session_id: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  contact?: {
+    id: string;
+    name: string | null;
+    phone: string | null;
+  } | null;
+  /** Nombre del agente asignado (roster del negocio). */
+  assigned_name?: string | null;
+}
+
 export interface CallEvent {
   id: string;
   account_id: string;

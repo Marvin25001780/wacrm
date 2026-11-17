@@ -65,7 +65,11 @@ interface TelephonyContextValue {
   error: string | null;
   notice: string | null;
   clearError: () => void;
-  startCall: (to: string, options?: StartCallOptions) => Promise<boolean>;
+  /**
+   * Marca un número. Devuelve la sesión creada o `null` si no se pudo
+   * (así la devolución de llamada puede vincular la saliente).
+   */
+  startCall: (to: string, options?: StartCallOptions) => Promise<CallSession | null>;
   /** Contesta la entrante que está sonando (la reclama para este agente). */
   answerIncoming: () => Promise<boolean>;
   /** Rechaza la entrante sin asignarla. */
@@ -367,7 +371,7 @@ export function TelephonyProvider({ children }: { children: ReactNode }) {
   );
 
   const startCall = useCallback(
-    async (raw: string, options?: StartCallOptions): Promise<boolean> => {
+    async (raw: string, options?: StartCallOptions): Promise<CallSession | null> => {
       setError(null);
       setNotice(null);
       setWrapUp(null);
@@ -375,17 +379,17 @@ export function TelephonyProvider({ children }: { children: ReactNode }) {
 
       if (phase !== 'idle' && phase !== 'error') {
         setError('Ya hay una llamada en curso.');
-        return false;
+        return null;
       }
 
       const to = normalizePhone(raw);
       if (!to) {
         setError('Número inválido. Usa formato local (0412…) o +58….');
-        return false;
+        return null;
       }
       if (!status?.dialReady) {
         setError(status?.blockReason ?? 'La telefonía no está configurada.');
-        return false;
+        return null;
       }
 
       setPhase('connecting');
@@ -418,15 +422,16 @@ export function TelephonyProvider({ children }: { children: ReactNode }) {
         if (!res.ok || !payload.call || !payload.token || !payload.url) {
           setError(payload.error ?? 'No se pudo iniciar la llamada.');
           setPhase('error');
-          return false;
+          return null;
         }
       } catch {
         setError('Sin conexión con el servidor. No se pudo marcar.');
         setPhase('error');
-        return false;
+        return null;
       }
 
-      return joinRoom(payload.call, payload.token, payload.url);
+      const joined = await joinRoom(payload.call, payload.token, payload.url);
+      return joined ? payload.call : null;
     },
     [joinRoom, phase, status]
   );

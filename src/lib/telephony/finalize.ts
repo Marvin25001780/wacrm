@@ -164,6 +164,44 @@ export async function finalizeCall(args: {
     throw updateError;
   }
 
+  // Devolución de llamada perdida (migración 122): entrante que nunca
+  // se contestó y terminó perdida o rechazada. El índice único por
+  // `source_call_id` evita duplicados si dos procesos cierran a la vez.
+  const callbackPhone = call.from_number;
+  const shouldCreateCallback =
+    shouldCreateCallbackForCall({
+      direction: call.direction,
+      answeredAt: call.answered_at,
+      status,
+      phone: callbackPhone,
+    });
+
+  if (shouldCreateCallback && callbackPhone) {
+    const { error: callbackError } = await db
+      .from('callback_requests')
+      .upsert(
+        {
+          account_id: call.account_id,
+          contact_id: call.contact_id,
+          phone: callbackPhone,
+          source_call_id: call.id,
+          reason: callbackReasonFor(args.reason),
+          status: 'pending',
+        },
+        { onConflict: 'source_call_id', ignoreDuplicates: true }
+      );
+    if (
+      callbackError &&
+      callbackError.code !== '42P01' &&
+      callbackError.code !== 'PGRST205'
+    ) {
+      console.warn(
+        '[telephony] no se pudo crear la devolución de llamada:',
+        callbackError
+      );
+    }
+  }
+
   const { error: eventError } = await db.from('call_events').insert({
     account_id: call.account_id,
     call_id: call.id,
@@ -212,4 +250,34 @@ export async function finalizeCall(args: {
     activityId,
     alreadyClosed: false,
   };
+}
+
+/** Motivo de la devolución a partir del cierre de la llamada. */
+export function callbackReasonFor(
+  reason?: HangupReason
+): 'missed' | 'timeout' | 'declined' {
+  if (reason === 'timeout') return 'timeout';
+  if (reason === 'declined') return 'declined';
+  return 'missed';
+}
+
+/**
+ * ¿La llamada cerrada debe generar una devolución?
+ *
+ * Solo entrantes que nunca se contestaron y terminaron perdidas o
+ * rechazadas. Un fallo de transporte (`failed`) no se devuelve: no
+ * hubo un cliente esperando.
+ */
+export function shouldCreateCallbackForCall(args: {
+  direction: 'inbound' | 'outbound';
+  answeredAt: string | null;
+  status: CallSessionStatus;
+  phone: string | null;
+}): boolean {
+  return (
+    args.direction === 'inbound' &&
+    !args.answeredAt &&
+    (args.status === 'missed' || args.status === 'cancelled') &&
+    Boolean(args.phone)
+  );
 }

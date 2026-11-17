@@ -24,7 +24,7 @@ Navegador (agente)  ──WebRTC──▶  LiveKit (media)  ──SIP──▶  
   la pestaña), el webhook `room_finished` cierra la sesión y escribe la
   **actividad de CRM** que alimenta Métricas → Llamadas.
 
-### Tablas (migraciones 112–121)
+### Tablas (migraciones 112–122)
 
 | Tabla                          | Para qué                                                                                                        |
 | ------------------------------ | --------------------------------------------------------------------------------------------------------------- |
@@ -36,6 +36,7 @@ Navegador (agente)  ──WebRTC──▶  LiveKit (media)  ──SIP──▶  
 | `member_presence.agent_status` | Disponibilidad operativa: `available`, `busy`, `wrap_up`, `break`.                                              |
 | `agent_shifts`                 | Turnos semanales recurrentes del agente (migración 120), en hora local de Venezuela.                            |
 | `agent_status_log`             | Bitácora de cambios de estado con motivo y origen (migración 120); base de la adherencia.                        |
+| `callback_requests`            | Devoluciones de llamadas perdidas (migración 122): cola compartida, asignación y vínculo con la saliente.        |
 
 RLS: cualquier miembro lee; agente+ crea y cierra sus llamadas; admin+
 puede cerrar cualquiera. El estado de agente se cambia solo por RPC
@@ -88,6 +89,11 @@ el mismo estado es heartbeat y no abre un intervalo nuevo.
 La **migración 121** añade `break_start`, `break_end` y `break_label` a
 `agent_shifts`: la pausa programada del turno. Ambas horas van juntas o
 no van; la etiqueta es libre (máx. 60 caracteres).
+
+La **migración 122** añade `callback_requests`: la cola de devoluciones
+de llamadas perdidas. Una entrante que no se contesta deja una fila
+`pending`; el agente la reclama y la cierra. Un índice único por
+`source_call_id` impide duplicados (las altas manuales llevan NULL).
 
 ## 2. Variables de entorno
 
@@ -276,6 +282,36 @@ la API en `GET /api/telephony/adherence?from=ISO&to=ISO` (admin+). Igual
 que los reportes, la lectura tiene tope de 20 000 filas y avisa con
 `truncated` si se alcanzó.
 
+### 3.8 Devoluciones de llamadas perdidas (migración 122)
+
+**Cuándo se crea sola.** Al cerrar una entrante que nunca se contestó y
+terminó `missed` (cuelgue del cliente, timeout de cola) o `cancelled`
+(rechazo del agente), `finalizeCall` deja una fila `pending` en
+`callback_requests` con el número, el contacto si se pudo casar y el
+motivo (`timeout`, `declined` o `missed`). Un fallo de transporte
+(`failed`) no genera devolución. El índice único por `source_call_id`
+hace la creación idempotente si el webhook y el navegador cierran a la
+vez.
+
+**Cola compartida** (`/telefonia/devoluciones`, agente+): las
+pendientes se ven por orden de llegada y se refrescan cada 20 s. Al
+pulsar **Llamar**:
+
+1. el `UPDATE` atómico reclama la fila (`status = pending` → el primero
+   gana; el segundo recibe 409);
+2. se marca con el softphone y la llamada queda vinculada en
+   `call_session_id`;
+3. la devolución pasa a `done` con `completed_at` y `completed_by`.
+
+Un agente no puede tener dos devoluciones en curso a la vez. Si la
+llamada no se puede iniciar (sin LiveKit/troncal), la fila queda en
+curso y se puede **Liberar**. También se puede **Completar** sin llamada
+(si se atendió por fuera) y **Cancelar** (admin+). Las altas manuales
+(`reason = manual`) sirven para “el cliente pidió que lo llamen”.
+
+> Reclamar y completar funcionan sin telefonía; marcar requiere LiveKit
+> y troncal, igual que el resto del softphone.
+
 ## 4. Grabación y transcripción
 
 ### Grabación (opcional)
@@ -432,6 +468,11 @@ requiere el interruptor maestro de **Ajustes → Asistente de IA**.
 | GET       | `/api/telephony/campaigns`              | Campañas salientes con contactos (admin+). |
 | DELETE    | `/api/telephony/campaigns/[id]`        | Eliminar una campaña (admin+).      |
 | GET       | `/api/telephony/campaigns/contacts`    | Contactos para armar campañas (admin+). |
+| GET/POST  | `/api/telephony/callbacks`             | Devoluciones de llamadas perdidas (agente+, 122). |
+| POST      | `/api/telephony/callbacks/[id]/claim`  | Reclamar una devolución (atómico).   |
+| POST      | `/api/telephony/callbacks/[id]/release` | Devolverla a la cola.               |
+| POST      | `/api/telephony/callbacks/[id]/complete` | Cerrarla como atendida (vincula la llamada). |
+| POST      | `/api/telephony/callbacks/[id]/cancel` | Cancelarla (admin+).                 |
 | GET       | `/api/telephony/adherence`             | Adherencia y ocupación por agente (admin+, 120). |
 | GET/POST  | `/api/telephony/shifts`                | Turnos semanales del negocio (admin+, 120). |
 | DELETE    | `/api/telephony/shifts/[id]`           | Borrar un turno (admin+, 120).       |

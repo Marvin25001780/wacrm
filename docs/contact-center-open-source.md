@@ -73,6 +73,8 @@
     desbordamiento local por habilidad.
 13. **WEM**: turnos semanales, bitácora de estados con motivo de pausa,
     adherencia al turno, ocupación y cumplimiento de pausas programadas.
+14. **Devoluciones de llamadas perdidas**: cola compartida, reclamo
+    atómico, altas manuales y vínculo con la saliente.
 
 Nada de eso copia código de terceros: se usan SDKs Apache-2.0 y APIs.
 
@@ -83,6 +85,7 @@ Nada de eso copia código de terceros: se usan SDKs Apache-2.0 y APIs.
 | WEM 1 | **QA de llamadas**: rúbrica fija, puntaje por agente y reporte. | Nada (datos propios). ✅ Hecho (migración 114). |
 | CCaaS 1 | **ACD**: prioridad, habilidades, tiempo de timbrado y overflow. | LiveKit + troncal para probar de verdad. ✅ Parcial: espera máxima, timeout, prioridad/FIFO (116 y 118) y habilidades con desbordamiento por habilidad (119) listos; faltan prioridad por despacho avanzada y overflow a número externo (requiere transferencia SIP). |
 | CCaaS 2 | **Campañas salientes** (preview/progresivo) con lista y ritmo. | Troncal SIP. ✅ Parcial: CRUD de campañas + vínculo con llamadas (migración 117) listos; falta fan-out automático. |
+| CCaaS 3 | **Devoluciones de llamadas perdidas**: cola compartida, reclamo atómico, altas manuales y vínculo con la saliente. | Nada (datos propios). ✅ Hecho (migración 122). |
 | IA 1 | **Agente de voz** (IVR/contestador) con LiveKit Agents. | Servidor LiveKit + API keys de STT/LLM/TTS. |
 | WEM 2 | **Adherencia**: horarios, pausas y cumplimiento. | Datos de presencia (ya existen). ✅ Hecho (migraciones 120 y 121): turnos, motivos de pausa, adherencia, ocupación y cumplimiento de pausas programadas. |
 | IA 2 | **QA automática**: puntuar la transcripción con el LLM y comparar con el humano. | Transcripciones + proveedor de IA. ✅ Hecho (migración 115); comparativa humano vs IA en reportes. |

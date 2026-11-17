@@ -636,6 +636,13 @@ export default function TelefoniaPage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant="outline"
+            render={<Link href="/telefonia/devoluciones" />}
+          >
+            <PhoneMissed className="mr-1.5 h-4 w-4" />
+            Devoluciones
+          </Button>
           {canSupervise ? (
             <Button
               variant="outline"
