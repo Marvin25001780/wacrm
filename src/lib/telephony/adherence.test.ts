@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   BUSINESS_TZ_OFFSET_MINUTES,
+  breakIntervals,
   computeAdherence,
   computeAdherenceReport,
   formatRatio,
@@ -247,5 +248,118 @@ describe('WEM: adherencia y ocupación', () => {
     expect(pauseReasonLabel('almuerzo')).toBe('Almuerzo');
     expect(pauseReasonLabel('otro')).toBe('Otro');
     expect(pauseReasonLabel(null)).toBe('Pausa');
+  });
+});
+
+describe('WEM: pausas programadas', () => {
+  const shiftWithBreak = {
+    user_id: 'u1',
+    weekday: 1,
+    start_time: '08:00',
+    end_time: '16:00',
+    break_start: '12:00',
+    break_end: '13:00',
+  };
+
+  it('convierte la pausa programada en un intervalo', () => {
+    const intervals = breakIntervals([shiftWithBreak], at(0, 0), at(1, 0));
+    expect(intervals).toHaveLength(1);
+    expect(intervals[0].start).toBe(at(0, 12));
+    expect(intervals[0].end).toBe(at(0, 13));
+  });
+
+  it('ignora turnos sin pausa programada', () => {
+    expect(
+      breakIntervals(
+        [
+          {
+            user_id: 'u1',
+            weekday: 1,
+            start_time: '08:00',
+            end_time: '16:00',
+            break_start: null,
+            break_end: null,
+          },
+        ],
+        at(0, 0),
+        at(1, 0)
+      )
+    ).toEqual([]);
+  });
+
+  it('mide la pausa tomada dentro de la ventana programada', () => {
+    const row = computeAdherence('u1', {
+      windowStart: at(0, 0),
+      windowEnd: at(0, 16),
+      shifts: [shiftWithBreak],
+      events: [
+        { user_id: 'u1', status: 'available', changed_at: new Date(at(0, 8)).toISOString() },
+        { user_id: 'u1', status: 'break', changed_at: new Date(at(0, 12)).toISOString() },
+        { user_id: 'u1', status: 'available', changed_at: new Date(at(0, 13)).toISOString() },
+      ],
+      calls: [],
+    });
+
+    expect(row.scheduledBreakSeconds).toBe(3600);
+    expect(row.breakSeconds).toBe(3600);
+    expect(row.breakInsideSeconds).toBe(3600);
+    expect(row.breakOutsideSeconds).toBe(0);
+    expect(row.breakAdherence).toBe(1);
+  });
+
+  it('marca la pausa tomada fuera de la ventana programada', () => {
+    const row = computeAdherence('u1', {
+      windowStart: at(0, 0),
+      windowEnd: at(0, 16),
+      shifts: [shiftWithBreak],
+      events: [
+        { user_id: 'u1', status: 'available', changed_at: new Date(at(0, 8)).toISOString() },
+        { user_id: 'u1', status: 'break', changed_at: new Date(at(0, 10)).toISOString() },
+        { user_id: 'u1', status: 'available', changed_at: new Date(at(0, 11)).toISOString() },
+      ],
+      calls: [],
+    });
+
+    expect(row.scheduledBreakSeconds).toBe(3600);
+    expect(row.breakSeconds).toBe(3600);
+    expect(row.breakInsideSeconds).toBe(0);
+    expect(row.breakOutsideSeconds).toBe(3600);
+    expect(row.breakAdherence).toBe(0);
+  });
+
+  it('sin pausa programada el cumplimiento es null', () => {
+    const row = computeAdherence('u1', {
+      windowStart: at(0, 0),
+      windowEnd: at(0, 16),
+      shifts: [
+        {
+          user_id: 'u1',
+          weekday: 1,
+          start_time: '08:00',
+          end_time: '16:00',
+        },
+      ],
+      events: [
+        { user_id: 'u1', status: 'break', changed_at: new Date(at(0, 10)).toISOString() },
+        { user_id: 'u1', status: 'available', changed_at: new Date(at(0, 11)).toISOString() },
+      ],
+      calls: [],
+    });
+
+    expect(row.scheduledBreakSeconds).toBe(0);
+    expect(row.breakSeconds).toBe(3600);
+    expect(row.breakAdherence).toBeNull();
+  });
+
+  it('recorta la pausa a la ventana consultada', () => {
+    const row = computeAdherence('u1', {
+      windowStart: at(0, 12, 30),
+      windowEnd: at(0, 16),
+      shifts: [shiftWithBreak],
+      events: [],
+      calls: [],
+    });
+    expect(row.scheduledBreakSeconds).toBe(30 * 60);
+    expect(row.scheduledSeconds).toBe(3.5 * 3600);
   });
 });

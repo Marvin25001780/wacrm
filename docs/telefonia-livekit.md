@@ -24,7 +24,7 @@ Navegador (agente)  ──WebRTC──▶  LiveKit (media)  ──SIP──▶  
   la pestaña), el webhook `room_finished` cierra la sesión y escribe la
   **actividad de CRM** que alimenta Métricas → Llamadas.
 
-### Tablas (migraciones 112–120)
+### Tablas (migraciones 112–121)
 
 | Tabla                          | Para qué                                                                                                        |
 | ------------------------------ | --------------------------------------------------------------------------------------------------------------- |
@@ -84,6 +84,10 @@ La **migración 120** añade `agent_shifts` (turnos semanales) y
 antiguas con un solo argumento siguen funcionando por los valores por
 defecto. Solo se registra un evento cuando el estado **cambia**: repetir
 el mismo estado es heartbeat y no abre un intervalo nuevo.
+
+La **migración 121** añade `break_start`, `break_end` y `break_label` a
+`agent_shifts`: la pausa programada del turno. Ambas horas van juntas o
+no van; la etiqueta es libre (máx. 60 caracteres).
 
 ## 2. Variables de entorno
 
@@ -235,6 +239,12 @@ sábado), entrada, salida y etiqueta opcional. Se guardan en hora local
 de Venezuela; un turno cuyo fin es menor que el inicio cruza medianoche
 (22:00–06:00). Solo admin+ los crea y borra; todo el negocio los lee.
 
+**Pausa programada** (migración 121): cada turno puede llevar una ventana
+de pausa (`break_start` / `break_end` / `break_label`), por ejemplo
+12:00–13:00 “Almuerzo”. Es opcional y se repite con el turno. Si el
+agente no tiene pausa programada, el cumplimiento de pausa queda en `—`
+(no se inventa un 100 %).
+
 **Pausas**: al pulsar Pausa en el softphone se elige un motivo de la
 lista fija (`src/lib/telephony/adherence.ts`): almuerzo, descanso,
 capacitación, reunión, personal, falla técnica u otro. El motivo viaja
@@ -250,6 +260,8 @@ automáticos (marcar, reclamar, pasar a cierre) se registran con
 | Conectado   | cualquier estado de agente registrado en la bitácora                 |
 | Disponible  | tiempo en `available`                                                |
 | Pausa       | tiempo en `break`; el número entre paréntesis son las pausas        |
+| Pausa prog. | tiempo de las ventanas de pausa planificadas                        |
+| Cumple pausa| pausa real dentro de la ventana programada ÷ pausa programada        |
 | Hablado     | llamadas contestadas (`answered_at` → `ended_at`)                    |
 | Adherencia  | trabajo dentro del turno ÷ programado                                |
 | Ocupación   | hablado ÷ trabajo (`available` + `busy` + `wrap_up`)                 |

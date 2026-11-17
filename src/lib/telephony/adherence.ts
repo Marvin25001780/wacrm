@@ -11,11 +11,13 @@
 // convierten a milisegundos UTC.
 //
 // Definiciones (v1, documentadas en docs/telefonia-livekit.md):
-//   - Programado: turnos del agente dentro de la ventana.
-//   - Conectado:  tiempo con cualquier estado de agente registrado.
-//   - Trabajo:    Disponible + Ocupado + Cierre.
-//   - Adherencia: trabajo dentro del turno / programado.
-//   - Ocupación:  tiempo hablado / tiempo de trabajo.
+//   - Programado:   turnos del agente dentro de la ventana.
+//   - Conectado:    tiempo con cualquier estado de agente registrado.
+//   - Trabajo:      Disponible + Ocupado + Cierre.
+//   - Adherencia:   trabajo dentro del turno / programado.
+//   - Ocupación:    tiempo hablado / tiempo de trabajo.
+//   - Pausa prog.:  ventana de pausa del turno (migración 121).
+//   - Cumple pausa: pausa real dentro de la ventana / programada.
 // ============================================================
 
 import type { AgentStatus } from '@/types';
@@ -80,6 +82,9 @@ export interface ShiftRow {
   /** `HH:MM` o `HH:MM:SS`. */
   start_time: string;
   end_time: string;
+  /** Ventana de pausa planificada (migración 121), opcional. */
+  break_start?: string | null;
+  break_end?: string | null;
 }
 
 export interface TimeInterval {
@@ -91,15 +96,21 @@ export interface ShiftInterval extends TimeInterval {
   user_id: string;
 }
 
+interface WeeklyFields {
+  startField: 'start_time' | 'break_start';
+  endField: 'end_time' | 'break_end';
+}
+
 /**
- * Convierte los turnos semanales en intervalos absolutos dentro de la
- * ventana. Un turno que termina antes de empezar cruza medianoche
- * (22:00–06:00) y se cuenta en el día en que empieza.
+ * Convierte filas semanales (turno o pausa) en intervalos absolutos
+ * dentro de la ventana. Una ventana que termina antes de empezar cruza
+ * medianoche y se cuenta en el día en que empieza.
  */
-export function shiftIntervals(
+function weeklyIntervals(
   shifts: ShiftRow[],
   windowStart: number,
-  windowEnd: number
+  windowEnd: number,
+  fields: WeeklyFields
 ): ShiftInterval[] {
   if (windowEnd <= windowStart) return [];
 
@@ -113,8 +124,11 @@ export function shiftIntervals(
     const weekday = localWeekday(day);
     for (const shift of shifts) {
       if (shift.weekday !== weekday) continue;
-      const startMinutes = parseTimeToMinutes(shift.start_time);
-      const endMinutes = parseTimeToMinutes(shift.end_time);
+      const rawStart = shift[fields.startField];
+      const rawEnd = shift[fields.endField];
+      if (!rawStart || !rawEnd) continue;
+      const startMinutes = parseTimeToMinutes(rawStart);
+      const endMinutes = parseTimeToMinutes(rawEnd);
       if (startMinutes === null || endMinutes === null) continue;
       if (startMinutes === endMinutes) continue;
 
@@ -135,6 +149,30 @@ export function shiftIntervals(
   }
 
   return intervals.sort((a, b) => a.start - b.start);
+}
+
+/** Intervalos de los turnos planificados. */
+export function shiftIntervals(
+  shifts: ShiftRow[],
+  windowStart: number,
+  windowEnd: number
+): ShiftInterval[] {
+  return weeklyIntervals(shifts, windowStart, windowEnd, {
+    startField: 'start_time',
+    endField: 'end_time',
+  });
+}
+
+/** Intervalos de las pausas programadas (migración 121). */
+export function breakIntervals(
+  shifts: ShiftRow[],
+  windowStart: number,
+  windowEnd: number
+): ShiftInterval[] {
+  return weeklyIntervals(shifts, windowStart, windowEnd, {
+    startField: 'break_start',
+    endField: 'break_end',
+  });
 }
 
 export interface StatusEventRow {
@@ -224,11 +262,19 @@ export interface AdherenceRow {
   availableSeconds: number;
   /** Pausa dentro de la ventana. */
   breakSeconds: number;
+  /** Pausa programada dentro de la ventana (migración 121). */
+  scheduledBreakSeconds: number;
+  /** Pausa real que cayó dentro de la ventana programada. */
+  breakInsideSeconds: number;
+  /** Pausa real fuera de la ventana programada. */
+  breakOutsideSeconds: number;
   /** Pausas contadas (intervalos de `break`). */
   breakCount: number;
   talkSeconds: number;
   /** Trabajo dentro del turno / programado (0–1). */
   adherence: number | null;
+  /** Pausa dentro de la ventana programada / programada (0–1). */
+  breakAdherence: number | null;
   /** Hablado / trabajo (0–1). */
   occupancy: number | null;
 }
@@ -247,11 +293,9 @@ export function computeAdherence(
 ): AdherenceRow {
   const { windowStart, windowEnd } = input;
 
-  const shifts = shiftIntervals(
-    input.shifts.filter((shift) => shift.user_id === userId),
-    windowStart,
-    windowEnd
-  );
+  const agentShifts = input.shifts.filter((shift) => shift.user_id === userId);
+  const shifts = shiftIntervals(agentShifts, windowStart, windowEnd);
+  const scheduledBreaks = breakIntervals(agentShifts, windowStart, windowEnd);
   const statuses = statusIntervals(
     input.events.filter((event) => event.user_id === userId),
     windowStart,
@@ -282,6 +326,12 @@ export function computeAdherence(
     0
   );
   const breakMs = pauses.reduce((sum, row) => sum + (row.end - row.start), 0);
+  const scheduledBreakMs = scheduledBreaks.reduce(
+    (sum, row) => sum + (row.end - row.start),
+    0
+  );
+  const breakInsideMs = overlapMs(pauses, scheduledBreaks);
+  const breakOutsideMs = Math.max(0, breakMs - breakInsideMs);
   const talkMs = overlapMs(talk, [{ start: windowStart, end: windowEnd }]);
   const workInShiftMs = overlapMs(work, shifts);
 
@@ -294,9 +344,13 @@ export function computeAdherence(
     workSeconds: seconds(workMs),
     availableSeconds: seconds(availableMs),
     breakSeconds: seconds(breakMs),
+    scheduledBreakSeconds: seconds(scheduledBreakMs),
+    breakInsideSeconds: seconds(breakInsideMs),
+    breakOutsideSeconds: seconds(breakOutsideMs),
     breakCount: pauses.length,
     talkSeconds: seconds(talkMs),
     adherence: ratio(workInShiftMs, scheduledMs),
+    breakAdherence: ratio(breakInsideMs, scheduledBreakMs),
     occupancy: ratio(talkMs, workMs),
   };
 }

@@ -670,6 +670,10 @@ export interface AgentShift {
   /** `HH:MM:SS` en hora local. */
   start_time: string;
   end_time: string;
+  /** Ventana de pausa planificada (121), `null` si no tiene. */
+  break_start: string | null;
+  break_end: string | null;
+  break_label: string | null;
   label: string | null;
   created_at: string;
   updated_at: string;
@@ -685,9 +689,13 @@ export interface TelephonyAdherenceRow {
   workSeconds: number;
   availableSeconds: number;
   breakSeconds: number;
+  scheduledBreakSeconds: number;
+  breakInsideSeconds: number;
+  breakOutsideSeconds: number;
   breakCount: number;
   talkSeconds: number;
   adherence: number | null;
+  breakAdherence: number | null;
   occupancy: number | null;
   shifts: AgentShift[];
 }

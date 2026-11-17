@@ -89,6 +89,54 @@ export async function POST(request: Request) {
     }
     const label = typeof rawLabel === 'string' ? rawLabel.trim().slice(0, 60) : '';
 
+    // Pausa programada (migración 121). Es opcional; si viene, deben
+    // venir entrada y salida juntas.
+    const hasBreakStart =
+      typeof body.breakStart === 'string' && body.breakStart.trim() !== '';
+    const hasBreakEnd =
+      typeof body.breakEnd === 'string' && body.breakEnd.trim() !== '';
+    if (hasBreakStart !== hasBreakEnd) {
+      return NextResponse.json(
+        { error: 'La pausa necesita hora de entrada y de salida.' },
+        { status: 400 }
+      );
+    }
+
+    let breakStartMinutes: number | null = null;
+    let breakEndMinutes: number | null = null;
+    if (hasBreakStart && hasBreakEnd) {
+      breakStartMinutes = parseTimeToMinutes(String(body.breakStart));
+      breakEndMinutes = parseTimeToMinutes(String(body.breakEnd));
+      if (breakStartMinutes === null || breakEndMinutes === null) {
+        return NextResponse.json(
+          { error: 'La pausa debe tener formato HH:MM.' },
+          { status: 400 }
+        );
+      }
+      if (breakStartMinutes === breakEndMinutes) {
+        return NextResponse.json(
+          { error: 'La pausa no puede empezar y terminar a la misma hora.' },
+          { status: 400 }
+        );
+      }
+    }
+
+    const rawBreakLabel = body.breakLabel;
+    if (
+      rawBreakLabel !== undefined &&
+      rawBreakLabel !== null &&
+      typeof rawBreakLabel !== 'string'
+    ) {
+      return NextResponse.json(
+        { error: 'La etiqueta de la pausa debe ser texto.' },
+        { status: 400 }
+      );
+    }
+    const breakLabel =
+      typeof rawBreakLabel === 'string'
+        ? rawBreakLabel.trim().slice(0, 60)
+        : '';
+
     // El agente debe pertenecer al negocio.
     const { data: member, error: memberError } = await ctx.supabase
       .from('account_members')
@@ -124,17 +172,26 @@ export async function POST(request: Request) {
       );
     }
 
+    const payload: Record<string, unknown> = {
+      account_id: ctx.accountId,
+      user_id: userId,
+      weekday,
+      start_time: minutesToTime(startMinutes),
+      end_time: minutesToTime(endMinutes),
+      label: label || null,
+      created_by: ctx.userId,
+    };
+    // Solo se envían las columnas de pausa si hay pausa: si la 121
+    // aún no está aplicada, los turnos sin pausa se siguen creando.
+    if (breakStartMinutes !== null && breakEndMinutes !== null) {
+      payload.break_start = minutesToTime(breakStartMinutes);
+      payload.break_end = minutesToTime(breakEndMinutes);
+      payload.break_label = breakLabel || null;
+    }
+
     const { data, error } = await ctx.supabase
       .from('agent_shifts')
-      .insert({
-        account_id: ctx.accountId,
-        user_id: userId,
-        weekday,
-        start_time: minutesToTime(startMinutes),
-        end_time: minutesToTime(endMinutes),
-        label: label || null,
-        created_by: ctx.userId,
-      })
+      .insert(payload)
       .select('*')
       .single();
 
@@ -167,7 +224,10 @@ function isMissingRelation(error: { code?: string }): boolean {
 
 function migrationMissingResponse() {
   return NextResponse.json(
-    { error: 'Falta aplicar la migración 120_wem_adherence.sql.' },
+    {
+      error:
+        'Falta aplicar la migración 120_wem_adherence.sql (y 121_wem_scheduled_breaks.sql para pausas programadas).',
+    },
     { status: 400 }
   );
 }

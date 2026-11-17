@@ -89,6 +89,8 @@ export async function GET(request: Request) {
           weekday: shift.weekday,
           start_time: shift.start_time,
           end_time: shift.end_time,
+          break_start: shift.break_start ?? null,
+          break_end: shift.break_end ?? null,
         })),
         events: events.rows,
         calls: calls.rows,

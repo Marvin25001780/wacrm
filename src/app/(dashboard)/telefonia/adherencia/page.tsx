@@ -91,6 +91,10 @@ interface ShiftForm {
   startTime: string;
   endTime: string;
   label: string;
+  /** Pausa programada opcional (migración 121). */
+  breakStart: string;
+  breakEnd: string;
+  breakLabel: string;
 }
 
 const EMPTY_FORM: ShiftForm = {
@@ -98,6 +102,9 @@ const EMPTY_FORM: ShiftForm = {
   startTime: '08:00',
   endTime: '17:00',
   label: '',
+  breakStart: '',
+  breakEnd: '',
+  breakLabel: '',
 };
 
 /** Fecha local de Venezuela en formato `YYYY-MM-DD`. */
@@ -223,12 +230,24 @@ export default function AdherencePage() {
       0
     );
     const breaks = rows.reduce((sum, row) => sum + row.breakCount, 0);
+    const scheduledBreak = rows.reduce(
+      (sum, row) => sum + row.scheduledBreakSeconds,
+      0
+    );
+    const breakInside = rows.reduce(
+      (sum, row) => sum + row.breakInsideSeconds,
+      0
+    );
     return {
       scheduled,
       logged,
       talk,
       breaks,
+      scheduledBreak,
+      breakInside,
       adherence: scheduled > 0 ? Math.min(1, workInShift / scheduled) : null,
+      breakAdherence:
+        scheduledBreak > 0 ? Math.min(1, breakInside / scheduledBreak) : null,
       occupancy: work > 0 ? Math.min(1, talk / work) : null,
     };
   }, [report]);
@@ -247,6 +266,16 @@ export default function AdherencePage() {
 
   const addShift = async () => {
     if (!shiftAgent) return;
+    const hasBreakStart = form.breakStart !== '';
+    const hasBreakEnd = form.breakEnd !== '';
+    if (hasBreakStart !== hasBreakEnd) {
+      toast.error('La pausa necesita hora de entrada y de salida.');
+      return;
+    }
+    if (hasBreakStart && form.breakStart === form.breakEnd) {
+      toast.error('La pausa no puede empezar y terminar a la misma hora.');
+      return;
+    }
     setSavingShift(true);
     try {
       const res = await fetch('/api/telephony/shifts', {
@@ -258,6 +287,9 @@ export default function AdherencePage() {
           startTime: form.startTime,
           endTime: form.endTime,
           label: form.label.trim() || null,
+          breakStart: hasBreakStart ? form.breakStart : null,
+          breakEnd: hasBreakEnd ? form.breakEnd : null,
+          breakLabel: hasBreakStart ? form.breakLabel.trim() || null : null,
         }),
       });
       const body = (await res.json().catch(() => ({}))) as {
@@ -418,7 +450,7 @@ export default function AdherencePage() {
         </p>
       ) : null}
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <MetricCard
           title="Programado"
           value={loading ? '…' : duration(summary.scheduled)}
@@ -443,6 +475,12 @@ export default function AdherencePage() {
           icon={CalendarCheck}
           subtitle={`${duration(summary.talk)} hablados · ${summary.breaks} pausas`}
         />
+        <MetricCard
+          title="Pausas a tiempo"
+          value={loading ? '…' : formatRatio(summary.breakAdherence)}
+          icon={CalendarClock}
+          subtitle={`${duration(summary.scheduledBreak)} programadas · ${duration(summary.breakInside)} dentro`}
+        />
       </div>
 
       <Panel
@@ -460,6 +498,8 @@ export default function AdherencePage() {
                 <TableHead className="text-right">Conectado</TableHead>
                 <TableHead className="text-right">Disponible</TableHead>
                 <TableHead className="text-right">Pausa</TableHead>
+                <TableHead className="text-right">Pausa prog.</TableHead>
+                <TableHead className="text-right">Cumple pausa</TableHead>
                 <TableHead className="text-right">Hablado</TableHead>
                 <TableHead className="text-right">Adherencia</TableHead>
                 <TableHead className="text-right">Ocupación</TableHead>
@@ -470,7 +510,7 @@ export default function AdherencePage() {
               {loading && !report ? (
                 <TableRow>
                   <TableCell
-                    colSpan={10}
+                    colSpan={12}
                     className="text-muted-foreground py-8 text-center text-sm"
                   >
                     <Loader2 className="mr-2 inline h-4 w-4 animate-spin" />
@@ -480,7 +520,7 @@ export default function AdherencePage() {
               ) : (report?.rows.length ?? 0) === 0 ? (
                 <TableRow>
                   <TableCell
-                    colSpan={10}
+                    colSpan={12}
                     className="text-muted-foreground py-8 text-center text-sm"
                   >
                     No hay agentes en este negocio.
@@ -508,6 +548,17 @@ export default function AdherencePage() {
                       {row.breakCount > 0
                         ? `${duration(row.breakSeconds)} (${row.breakCount})`
                         : '—'}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {duration(row.scheduledBreakSeconds)}
+                    </TableCell>
+                    <TableCell
+                      className={cn(
+                        'text-right font-semibold tabular-nums',
+                        ratioTone(row.breakAdherence)
+                      )}
+                    >
+                      {formatRatio(row.breakAdherence)}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
                       {duration(row.talkSeconds)}
@@ -558,6 +609,8 @@ export default function AdherencePage() {
             <DialogDescription>
               Se repiten cada semana en hora de Venezuela. Un turno que termina
               antes de empezar cruza medianoche (por ejemplo, 22:00 a 06:00).
+              La pausa es opcional; si la programas, se compara con la pausa
+              real que registra el agente.
             </DialogDescription>
           </DialogHeader>
 
@@ -577,6 +630,13 @@ export default function AdherencePage() {
                       {shift.label ? (
                         <p className="text-muted-foreground truncate text-[11px]">
                           {shift.label}
+                        </p>
+                      ) : null}
+                      {shift.break_start && shift.break_end ? (
+                        <p className="text-muted-foreground truncate text-[11px]">
+                          Pausa {shiftTime(shift.break_start)}–
+                          {shiftTime(shift.break_end)}
+                          {shift.break_label ? ` · ${shift.break_label}` : ''}
                         </p>
                       ) : null}
                     </div>
@@ -683,6 +743,65 @@ export default function AdherencePage() {
                   />
                 </div>
               </div>
+              <div className="border-border/60 border-t pt-2">
+                <p className="text-muted-foreground mb-1.5 text-[11px] font-medium">
+                  Pausa programada (opcional)
+                </p>
+                <div className="grid gap-2 sm:grid-cols-3">
+                  <div className="space-y-1">
+                    <Label htmlFor="break-start" className="text-[11px]">
+                      Entrada
+                    </Label>
+                    <Input
+                      id="break-start"
+                      type="time"
+                      value={form.breakStart}
+                      onChange={(event) =>
+                        setForm((current) => ({
+                          ...current,
+                          breakStart: event.target.value,
+                        }))
+                      }
+                      className="h-9"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="break-end" className="text-[11px]">
+                      Salida
+                    </Label>
+                    <Input
+                      id="break-end"
+                      type="time"
+                      value={form.breakEnd}
+                      onChange={(event) =>
+                        setForm((current) => ({
+                          ...current,
+                          breakEnd: event.target.value,
+                        }))
+                      }
+                      className="h-9"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="break-label" className="text-[11px]">
+                      Etiqueta
+                    </Label>
+                    <Input
+                      id="break-label"
+                      value={form.breakLabel}
+                      maxLength={60}
+                      placeholder="Almuerzo"
+                      onChange={(event) =>
+                        setForm((current) => ({
+                          ...current,
+                          breakLabel: event.target.value,
+                        }))
+                      }
+                      className="h-9"
+                    />
+                  </div>
+                </div>
+              </div>
               <Button
                 size="sm"
                 onClick={() => void addShift()}
@@ -690,7 +809,9 @@ export default function AdherencePage() {
                   savingShift ||
                   !form.startTime ||
                   !form.endTime ||
-                  form.startTime === form.endTime
+                  form.startTime === form.endTime ||
+                  (form.breakStart !== '') !== (form.breakEnd !== '') ||
+                  (form.breakStart !== '' && form.breakStart === form.breakEnd)
                 }
               >
                 {savingShift ? (
