@@ -13,6 +13,10 @@ import {
   normalizeSkillList,
   normalizeSkillOverflowSeconds,
 } from '@/lib/telephony/skills';
+import {
+  normalizeMaxTransfers,
+  normalizeTransferRingTimeout,
+} from '@/lib/telephony/transfers';
 
 /**
  * GET   /api/telephony/config — configuración del negocio (admin+).
@@ -173,6 +177,36 @@ export async function PATCH(request: Request) {
         );
       }
       patch.skill_overflow_seconds = skillOverflowSeconds;
+    }
+
+    if ('transferRingTimeoutSeconds' in body) {
+      const timeout = normalizeTransferRingTimeout(
+        body.transferRingTimeoutSeconds
+      );
+      if (timeout === null) {
+        return NextResponse.json(
+          {
+            error:
+              'El timbre de transferencia debe ser un número entre 5 y 300 segundos.',
+          },
+          { status: 400 }
+        );
+      }
+      patch.transfer_ring_timeout_seconds = timeout;
+    }
+
+    if ('maxTransfersPerCall' in body) {
+      const maxTransfers = normalizeMaxTransfers(body.maxTransfersPerCall);
+      if (maxTransfers === null) {
+        return NextResponse.json(
+          {
+            error:
+              'El máximo de transferencias debe ser un número entre 0 y 10 (0 = sin límite).',
+          },
+          { status: 400 }
+        );
+      }
+      patch.max_transfers_per_call = maxTransfers;
     }
 
     if (Object.keys(patch).length === 0) {

@@ -7,6 +7,7 @@ import { loadTelephonyConfig, resolveTelephony } from '@/lib/telephony/config';
 import { loadTelephonyRoster } from '@/lib/telephony/roster';
 import { normalizeSkillList } from '@/lib/telephony/skills';
 import { sweepExpiredQueue, sweepSkillOverflow } from '@/lib/telephony/queue-sweep';
+import { releaseExpiredTransfers } from '@/lib/telephony/transfers';
 import type {
   AgentStatus,
   CallDirection,
@@ -34,6 +35,7 @@ interface LiveCallRow {
   agent_user_id: string | null;
   required_skills?: string[] | null;
   overflowed_at?: string | null;
+  queued_at?: string | null;
   contact: { name: string | null } | null;
 }
 
@@ -65,6 +67,10 @@ export async function GET() {
           db: ctx.supabase,
           accountId: ctx.accountId,
           overflowSeconds: resolvedConfig.skillOverflowSeconds,
+        });
+        await releaseExpiredTransfers({
+          db: ctx.supabase,
+          accountId: ctx.accountId,
         });
       } catch (sweepError) {
         console.warn('[telephony] barrido de cola falló:', sweepError);
@@ -102,6 +108,7 @@ export async function GET() {
             contact_name: call.contact?.name ?? null,
             required_skills: normalizeSkillList(call.required_skills).skills,
             overflowed_at: call.overflowed_at ?? null,
+            queued_at: call.queued_at ?? null,
           });
         }
         continue;
@@ -161,40 +168,17 @@ interface PresenceRowLite {
 }
 
 /**
- * Llamadas sonando o en curso. Si la 119 no está aplicada, las
- * columnas de habilidad no existen (42703) y se leen sin ellas: la
- * cola funciona como antes del desbordamiento.
+ * Llamadas sonando o en curso. Se leen todas las columnas para no
+ * romperse cuando una migración nueva (119, 123…) añade campos: el
+ * payload se construye explícitamente y no se filtra nada al cliente.
  */
 async function loadLiveCalls(
   db: SupabaseClient,
   accountId: string
 ): Promise<{ rows: LiveCallRow[]; missing: boolean }> {
-  const base =
-    'id, direction, status, from_number, to_number, started_at, answered_at, agent_user_id, contact:contacts(name)';
-
-  const withSkills = await db
+  const result = await db
     .from('call_sessions')
-    .select(`${base}, required_skills, overflowed_at`)
-    .eq('account_id', accountId)
-    .in('status', ['ringing', 'active'])
-    .order('priority', { ascending: false })
-    .order('started_at', { ascending: true })
-    .limit(100);
-
-  if (!withSkills.error) {
-    return {
-      rows: (withSkills.data ?? []) as unknown as LiveCallRow[],
-      missing: false,
-    };
-  }
-
-  if (withSkills.error.code !== '42703') {
-    return { rows: [], missing: isMissingRelation(withSkills.error) };
-  }
-
-  const legacy = await db
-    .from('call_sessions')
-    .select(base)
+    .select('*, contact:contacts(name)')
     .eq('account_id', accountId)
     .in('status', ['ringing', 'active'])
     .order('priority', { ascending: false })
@@ -202,8 +186,8 @@ async function loadLiveCalls(
     .limit(100);
 
   return {
-    rows: (legacy.data ?? []) as unknown as LiveCallRow[],
-    missing: isMissingRelation(legacy.error),
+    rows: (result.data ?? []) as unknown as LiveCallRow[],
+    missing: isMissingRelation(result.error),
   };
 }
 

@@ -12,6 +12,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import {
   ArrowRight,
+  ArrowRightLeft,
   CircleDot,
   Loader2,
   Mic,
@@ -27,6 +28,13 @@ import {
 import { useTelephony } from '@/components/telephony/telephony-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 import { PAUSE_REASONS, pauseReasonLabel } from '@/lib/telephony/adherence';
 import { formatPhoneDisplay } from '@/lib/telephony/phone';
@@ -42,6 +50,7 @@ import {
   CALL_DISPOSITIONS,
   type AgentStatus,
   type CallDisposition,
+  type TelephonyTransferTarget,
 } from '@/types';
 
 export function Softphone() {
@@ -62,6 +71,7 @@ export function Softphone() {
     startCall,
     answerIncoming,
     declineIncoming,
+    transferCall,
     hangup,
     toggleMute,
     setAgentStatus,
@@ -79,6 +89,12 @@ export function Softphone() {
   // pasar a `break` para que quede en la bitácora.
   const [pausePicker, setPausePicker] = useState(false);
   const [pauseReason, setPauseReason] = useState('');
+  // 123 — transferencia a otro agente.
+  const [transferOpen, setTransferOpen] = useState(false);
+  const [targets, setTargets] = useState<TelephonyTransferTarget[]>([]);
+  const [loadingTargets, setLoadingTargets] = useState(false);
+  const [targetsError, setTargetsError] = useState<string | null>(null);
+  const [transferring, setTransferring] = useState(false);
 
   // Reloj de la espera en cola mientras hay una entrante sonando.
   useEffect(() => {
@@ -98,6 +114,7 @@ export function Softphone() {
   const incomingQueueWaitSeconds = incomingCall
     ? queueWaitSeconds({
         startedAt: incomingCall.started_at,
+        queuedAt: incomingCall.queued_at,
         maxWaitSeconds: queueMaxWaitSeconds,
         now: queueNow,
       })
@@ -106,10 +123,46 @@ export function Softphone() {
     incomingCall &&
       isQueueExpired({
         startedAt: incomingCall.started_at,
+        queuedAt: incomingCall.queued_at,
         maxWaitSeconds: queueMaxWaitSeconds,
         now: queueNow,
       })
   );
+  const incomingIsTransfer = Boolean(incomingCall?.transfer_at);
+
+  const openTransfer = async () => {
+    clearError();
+    setTransferOpen(true);
+    setTargetsError(null);
+    setLoadingTargets(true);
+    try {
+      const res = await fetch('/api/telephony/transfer-targets', {
+        cache: 'no-store',
+      });
+      const body = (await res.json().catch(() => ({}))) as {
+        targets?: TelephonyTransferTarget[];
+        error?: string;
+      };
+      if (!res.ok) {
+        setTargetsError(body.error ?? 'No se pudo cargar el equipo.');
+        setTargets([]);
+        return;
+      }
+      setTargets(body.targets ?? []);
+    } catch {
+      setTargetsError('Sin conexión: no se pudo cargar el equipo.');
+      setTargets([]);
+    } finally {
+      setLoadingTargets(false);
+    }
+  };
+
+  const doTransfer = async (toUserId: string | null) => {
+    setTransferring(true);
+    const ok = await transferCall(toUserId);
+    setTransferring(false);
+    if (ok) setTransferOpen(false);
+  };
 
   const submit = async () => {
     if (!dial.trim()) return;
@@ -290,7 +343,7 @@ export function Softphone() {
               <div className="space-y-3">
                 <div className="rounded-xl border border-emerald-300/60 bg-emerald-50 p-4 text-center dark:bg-emerald-950/30">
                   <p className="text-[11px] font-medium tracking-wider text-emerald-700 uppercase dark:text-emerald-300">
-                    Llamada entrante
+                    {incomingIsTransfer ? 'Llamada transferida' : 'Llamada entrante'}
                   </p>
                   <p className="text-foreground mt-1 text-lg font-semibold">
                     {incomingCall.contact?.name ||
@@ -308,7 +361,13 @@ export function Softphone() {
                       Marcó a {formatPhoneDisplay(incomingCall.to_number)}
                     </p>
                   ) : null}
-                  {(incomingCall.required_skills ?? []).length > 0 ? (
+                  {incomingIsTransfer ? (
+                    <p className="mt-1 text-[11px] font-medium text-emerald-700 dark:text-emerald-300">
+                      Te la pasa{' '}
+                      {incomingCall.transfer_from_name || 'otro agente'} · el
+                      cliente ya está en la sala
+                    </p>
+                  ) : (incomingCall.required_skills ?? []).length > 0 ? (
                     <p className="mt-1 text-[11px] font-medium text-emerald-700 dark:text-emerald-300">
                       {incomingCall.overflowed_at
                         ? 'Desbordada: cualquier agente disponible puede tomarla'
@@ -316,11 +375,13 @@ export function Softphone() {
                     </p>
                   ) : null}
                   <p className="text-muted-foreground mt-1 text-[11px]">
-                    {queueMaxWaitSeconds > 0
-                      ? incomingQueueExpired
-                        ? 'Espera máxima agotada: la cola retira la llamada.'
-                        : `En cola · ${formatCallDuration(incomingQueueWaitSeconds)}`
-                      : 'En cola · sin límite de espera'}
+                    {incomingIsTransfer
+                      ? 'Timbrando para ti · contesta para hablar'
+                      : queueMaxWaitSeconds > 0
+                        ? incomingQueueExpired
+                          ? 'Espera máxima agotada: la cola retira la llamada.'
+                          : `En cola · ${formatCallDuration(incomingQueueWaitSeconds)}`
+                        : 'En cola · sin límite de espera'}
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
@@ -494,6 +555,16 @@ export function Softphone() {
                       <Mic className="h-5 w-5" />
                     )}
                   </button>
+                  {phase === 'active' ? (
+                    <button
+                      type="button"
+                      onClick={() => void openTransfer()}
+                      aria-label="Transferir llamada"
+                      className="border-border bg-card text-foreground flex h-11 w-11 items-center justify-center rounded-full border transition-colors hover:bg-muted"
+                    >
+                      <ArrowRightLeft className="h-5 w-5" />
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     onClick={() => void hangup()}
@@ -566,6 +637,81 @@ export function Softphone() {
           </>
         ) : null}
       </div>
+
+      {/* 123 — transferencia a otro agente o de vuelta a la cola. */}
+      <Dialog open={transferOpen} onOpenChange={setTransferOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Transferir llamada</DialogTitle>
+            <DialogDescription>
+              El cliente sigue en la sala: solo cambia quién lo atiende. Si
+              el agente no contesta a tiempo, la llamada vuelve a la cola.
+            </DialogDescription>
+          </DialogHeader>
+
+          {loadingTargets ? (            <p className="text-muted-foreground flex items-center gap-2 py-4 text-sm">
+              <Loader2 className="h-4 w-4 animate-spin" /> Cargando equipo…
+            </p>
+          ) : targetsError ? (
+            <p className="rounded-lg border border-red-300/60 bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/30 dark:text-red-300">
+              {targetsError}
+            </p>
+          ) : (
+            <ul className="divide-border max-h-72 divide-y overflow-y-auto">
+              {targets.length === 0 ? (
+                <li className="text-muted-foreground p-4 text-sm">
+                  No hay otros agentes en este negocio.
+                </li>
+              ) : (
+                targets.map((target) => (
+                  <li
+                    key={target.user_id}
+                    className="flex items-center justify-between gap-3 py-2.5"
+                  >
+                    <div className="min-w-0">
+                      <p className="text-foreground truncate text-sm font-medium">
+                        {target.name}
+                      </p>
+                      <p className="text-muted-foreground text-[11px]">
+                        {agentStatusLabel(target.agent_status)}
+                        {target.skills.length > 0
+                          ? ` · ${target.skills.join(', ')}`
+                          : ''}
+                        {target.blockReason ? ` · ${target.blockReason}` : ''}
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={target.blockReason ? 'ghost' : 'default'}
+                      disabled={Boolean(target.blockReason) || transferring}
+                      onClick={() => void doTransfer(target.user_id)}
+                    >
+                      <PhoneCall className="mr-1 h-3.5 w-3.5" />
+                      Transferir
+                    </Button>
+                  </li>
+                ))
+              )}
+            </ul>
+          )}
+
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full"
+            disabled={transferring}
+            onClick={() => void doTransfer(null)}
+          >
+            {transferring ? (
+              <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+            ) : (
+              <ArrowRightLeft className="mr-1.5 h-4 w-4" />
+            )}
+            Devolver a la cola
+          </Button>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

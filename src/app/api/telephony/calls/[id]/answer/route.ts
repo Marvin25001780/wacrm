@@ -46,12 +46,14 @@ export async function POST(
       return NextResponse.json({ call });
     }
 
-    const answeredAt = new Date().toISOString();
+    const answeredAt = call.answered_at ?? new Date().toISOString();
     const loaded = await loadTelephonyConfig(ctx.supabase, ctx.accountId);
     const resolved = resolveTelephony(loaded);
 
     let egressId: string | null = null;
-    if (resolved.recordingEnabled) {
+    // Una llamada que vuelve a la sala (transferencia) ya puede estar
+    // grabándose: no se arranca un segundo egress.
+    if (resolved.recordingEnabled && !call.recording_egress_id) {
       try {
         egressId = await startCallRecording({
           room: call.room_name,

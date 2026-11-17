@@ -58,6 +58,37 @@ describe('cola: espera y expiración', () => {
   it('usa un máximo por defecto de 60 segundos', () => {
     expect(QUEUE_MAX_WAIT_SECONDS).toBe(60);
   });
+
+  it('mide la espera desde el reencolado si la llamada volvió a la cola', () => {
+    // Llegó a las 10:00 y volvió a la cola a las 10:10 (123).
+    const queuedAt = '2026-01-01T10:10:00.000Z';
+    const queuedMs = Date.parse(queuedAt);
+    // A las 10:11 solo lleva 1 minuto esperando, aunque el alta sea de 10:00.
+    expect(
+      queueWaitSeconds({
+        startedAt,
+        queuedAt,
+        maxWaitSeconds: 120,
+        now: queuedMs + 60_000,
+      })
+    ).toBe(60);
+    expect(
+      isQueueExpired({
+        startedAt,
+        queuedAt,
+        maxWaitSeconds: 120,
+        now: queuedMs + 60_000,
+      })
+    ).toBe(false);
+    expect(
+      isQueueExpired({
+        startedAt,
+        queuedAt,
+        maxWaitSeconds: 120,
+        now: queuedMs + 121_000,
+      })
+    ).toBe(true);
+  });
 });
 
 describe('cola: prioridad y orden', () => {

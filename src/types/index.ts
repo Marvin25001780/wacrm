@@ -453,6 +453,10 @@ export interface TelephonyConfig {
   required_skills: string[];
   /** 119 — segundos antes de levantar el requisito (0 = sin desbordamiento). */
   skill_overflow_seconds: number;
+  /** 123 — segundos que timbra una transferencia antes de volver a la cola. */
+  transfer_ring_timeout_seconds?: number;
+  /** 123 — transferencias máximas por llamada (0 = sin límite). */
+  max_transfers_per_call?: number;
   created_by?: string | null;
   created_at: string;
   updated_at: string;
@@ -493,15 +497,30 @@ export interface CallSession {
   required_skills: string[];
   /** 119 — si el requisito de habilidad ya se levantó. */
   overflowed_at: string | null;
+  /** 123 — quién transfirió la llamada por última vez. */
+  transfer_from_user_id: string | null;
+  /** 123 — desde cuándo está sonando en el agente actual (transferencia). */
+  transfer_at: string | null;
+  /** 123 — segundos de timbre de esta transferencia. */
+  transfer_timeout_seconds: number | null;
+  /** 123 — cuántas transferencias lleva la llamada. */
+  transfer_count: number;
+  /** 123 — momento del último reencolado (devolución a la cola). */
+  queued_at: string | null;
   metadata: Record<string, unknown>;
   created_at: string;
   updated_at: string;
-  /** Hidratado por GET /api/telephony/calls. */
+  /** Hidratado por GET /api/telephony/calls y GET /api/telephony/status. */
   contact?: {
     id: string;
     name: string | null;
     phone: string | null;
   } | null;
+  /**
+   * Nombre de quien transfirió la llamada (hidratado por el status).
+   * Solo tiene sentido cuando `transfer_at` no es nulo.
+   */
+  transfer_from_name?: string | null;
 }
 
 // ------------------------------------------------------------
@@ -686,6 +705,12 @@ export interface TelephonyStatus {
   skillOverflowSeconds: number;
   /** 119 — entrantes cuyo requisito se levantó en el último barrido. */
   queueOverflowed: string[];
+  /** 123 — segundos de timbre de una transferencia. */
+  transferRingTimeoutSeconds: number;
+  /** 123 — transferencias máximas por llamada (0 = sin límite). */
+  maxTransfersPerCall: number;
+  /** 123 — llamadas devueltas a la cola por timbre vencido. */
+  transferReleased: string[];
 }
 
 /** Fila del panel de supervisión (GET /api/telephony/agents). */
@@ -718,6 +743,8 @@ export interface TelephonyQueueItem {
   /** 119 — requisito de habilidad y si ya se levantó. */
   required_skills: string[];
   overflowed_at: string | null;
+  /** 123 — si volvió a la cola, desde cuándo espera. */
+  queued_at?: string | null;
 }
 
 /** Respuesta de GET /api/telephony/agents (solo admin+). */
@@ -726,6 +753,26 @@ export interface TelephonySupervision {
   queue: TelephonyQueueItem[];
   updated_at: string;
   /** Falta aplicar la 112: no hay tablas de llamadas todavía. */
+  migrationMissing: boolean;
+}
+
+/** Agente al que se puede transferir una llamada (migración 123). */
+export interface TelephonyTransferTarget {
+  user_id: string;
+  name: string;
+  role: AccountRole;
+  agent_status: AgentStatus;
+  presence: 'online' | 'away' | 'offline';
+  skills: string[];
+  /** Ya tiene una llamada sonando o en curso. */
+  busy: boolean;
+  /** Motivo por el que no puede recibirla; `null` = disponible. */
+  blockReason: string | null;
+}
+
+/** Respuesta de GET /api/telephony/transfer-targets (agente+). */
+export interface TelephonyTransferTargets {
+  targets: TelephonyTransferTarget[];
   migrationMissing: boolean;
 }
 

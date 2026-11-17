@@ -12,6 +12,12 @@ import type { TelephonyConfig } from '@/types';
 import { normalizePhone } from './phone';
 import { normalizeSkillList, normalizeSkillOverflowSeconds } from './skills';
 import {
+  MAX_TRANSFERS_DEFAULT,
+  TRANSFER_RING_TIMEOUT_DEFAULT,
+  normalizeMaxTransfers,
+  normalizeTransferRingTimeout,
+} from './transfers';
+import {
   canDialPstn,
   isLivekitReady,
   telephonyEnv,
@@ -67,6 +73,10 @@ export interface ResolvedTelephony {
   requiredSkills: string[];
   /** 119 — segundos antes de levantar el requisito (0 = sin desbordamiento). */
   skillOverflowSeconds: number;
+  /** 123 — segundos de timbre de una transferencia. */
+  transferRingTimeoutSeconds: number;
+  /** 123 — transferencias máximas por llamada (0 = sin límite). */
+  maxTransfersPerCall: number;
   env: TelephonyEnv;
   livekitReady: boolean;
   dialReady: boolean;
@@ -94,6 +104,12 @@ export function resolveTelephony(
     requiredSkills: normalizeSkillList(row?.required_skills ?? []).skills,
     skillOverflowSeconds:
       normalizeSkillOverflowSeconds(row?.skill_overflow_seconds ?? 0) ?? 0,
+    transferRingTimeoutSeconds:
+      normalizeTransferRingTimeout(row?.transfer_ring_timeout_seconds) ??
+      TRANSFER_RING_TIMEOUT_DEFAULT,
+    maxTransfersPerCall:
+      normalizeMaxTransfers(row?.max_transfers_per_call) ??
+      MAX_TRANSFERS_DEFAULT,
     env,
     livekitReady: isLivekitReady(env),
     dialReady: canDialPstn(env, row?.sip_outbound_trunk_id ?? null),

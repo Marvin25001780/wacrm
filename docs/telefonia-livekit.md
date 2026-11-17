@@ -24,7 +24,7 @@ Navegador (agente)  ──WebRTC──▶  LiveKit (media)  ──SIP──▶  
   la pestaña), el webhook `room_finished` cierra la sesión y escribe la
   **actividad de CRM** que alimenta Métricas → Llamadas.
 
-### Tablas (migraciones 112–122)
+### Tablas (migraciones 112–123)
 
 | Tabla                          | Para qué                                                                                                        |
 | ------------------------------ | --------------------------------------------------------------------------------------------------------------- |
@@ -37,6 +37,7 @@ Navegador (agente)  ──WebRTC──▶  LiveKit (media)  ──SIP──▶  
 | `agent_shifts`                 | Turnos semanales recurrentes del agente (migración 120), en hora local de Venezuela.                            |
 | `agent_status_log`             | Bitácora de cambios de estado con motivo y origen (migración 120); base de la adherencia.                        |
 | `callback_requests`            | Devoluciones de llamadas perdidas (migración 122): cola compartida, asignación y vínculo con la saliente.        |
+| `call_sessions.transfer_*`     | Transferencias internas (migración 123): origen, timbre, tope y `queued_at` para medir la espera al reencolar.   |
 
 RLS: cualquier miembro lee; agente+ crea y cierra sus llamadas; admin+
 puede cerrar cualquiera. El estado de agente se cambia solo por RPC
@@ -94,6 +95,13 @@ La **migración 122** añade `callback_requests`: la cola de devoluciones
 de llamadas perdidas. Una entrante que no se contesta deja una fila
 `pending`; el agente la reclama y la cierra. Un índice único por
 `source_call_id` impide duplicados (las altas manuales llevan NULL).
+
+La **migración 123** añade las transferencias internas: `transfer_from_user_id`,
+`transfer_at`, `transfer_timeout_seconds`, `transfer_count` y `queued_at`
+en `call_sessions`; `transfer_ring_timeout_seconds` y
+`max_transfers_per_call` en `telephony_config`; y la RPC
+`release_expired_transfers`, que devuelve a la cola las transferencias
+que nadie contestó.
 
 ## 2. Variables de entorno
 
@@ -312,6 +320,50 @@ curso y se puede **Liberar**. También se puede **Completar** sin llamada
 > Reclamar y completar funcionan sin telefonía; marcar requiere LiveKit
 > y troncal, igual que el resto del softphone.
 
+### 3.9 Transferencias internas (migración 123)
+
+Un agente que está en llamada puede pasarla a otro agente del negocio
+o devolverla a la cola. **La sala de LiveKit no se cierra**: el cliente
+nunca pierde el audio y solo cambia quién lo atiende.
+
+**Transferir a un agente.** Desde el softphone, con la llamada activa,
+el botón de transferencia abre el equipo con el estado de cada persona.
+Solo se puede elegir a un agente `available` y sin otra llamada; el
+servidor lo revalida (no se confía en la UI). Al confirmar:
+
+1. la sesión pasa a `ringing` con `agent_user_id` del destino,
+   `transfer_at = now()` y `transfer_timeout_seconds` del negocio;
+2. el agente que transfiere sale de la sala (`removeParticipant`) y
+   queda **Disponible** (no entra en cierre: no terminó la
+   conversación);
+3. el destino ve “Llamada transferida por …” y **Contesta** o
+   **Rechaza**.
+
+Si rechaza, la llamada vuelve a la cola con `queued_at = now()` (el
+timeout de espera se mide desde ese momento, no desde el alta). Si no
+contesta en `transfer_ring_timeout_seconds` (5–300 s, por defecto 25),
+la RPC `release_expired_transfers` la devuelve a la cola igual que un
+rechazo. El cliente sigue en la sala todo el tiempo.
+
+**Devolver a la cola.** Mismo mecanismo sin destino: la llamada queda
+`ringing` sin agente y `queued_at = now()`. El barrido de cola la
+cierra si supera la espera máxima; como ya estaba contestada, se cierra
+como `ended` (no como perdida) y **no** genera devolución (122).
+
+**Tope de rebotes.** `max_transfers_per_call` (0–10, por defecto 3;
+`0` = sin límite) impide que una llamada rebote entre agentes. Al
+llegar al tope, la API responde 409 y solo queda devolverla a la cola o
+terminarla.
+
+**Webhook.** Al salir de la sala el agente que transfiere, LiveKit manda
+`participant_left`. El webhook ya no cierra la llamada en ese caso:
+solo termina si se va el cliente (SIP), si se va el agente dueño actual
+o si la sala se destruye. Una llamada sin agente (en cola) tampoco se
+cierra por la salida de un agente.
+
+> Todo esto se prueba de punta a punta con LiveKit y troncal. Sin ellos
+> la UI no ofrece transferir (no hay llamada real que mover).
+
 ## 4. Grabación y transcripción
 
 ### Grabación (opcional)
@@ -458,6 +510,10 @@ requiere el interruptor maestro de **Ajustes → Asistente de IA**.
 | PATCH     | `/api/telephony/calls/[id]`            | Disposición y notas del cierre.      |
 | POST      | `/api/telephony/calls/[id]/answer`     | Contestada (arranca grabación).      |
 | POST      | `/api/telephony/calls/[id]/claim`      | Reclamar una entrante que suena.     |
+| POST      | `/api/telephony/calls/[id]/transfer`   | Transferir a un agente o a la cola (123). |
+| POST      | `/api/telephony/calls/[id]/transfer/accept` | Aceptar una transferencia (123). |
+| POST      | `/api/telephony/calls/[id]/transfer/decline` | Rechazarla; vuelve a la cola (123). |
+| GET       | `/api/telephony/transfer-targets`      | Agentes disponibles para transferir (123). |
 | POST      | `/api/telephony/calls/[id]/end`        | Colgar / rechazar (crea actividad).  |
 | POST      | `/api/telephony/calls/[id]/transcribe` | Transcribir grabación.               |
 | POST      | `/api/telephony/calls/[id]/summary`    | Resumen IA de una llamada transcrita. |
@@ -484,4 +540,6 @@ requiere el interruptor maestro de **Ajustes → Asistente de IA**.
 `PATCH /api/telephony/config` acepta `requiredSkills` (array o texto
 separado por comas, máx. 8) y `skillOverflowSeconds` (0–3600; 0 =
 desactivado), además de los campos de troncal, números, grabación y
-espera en cola.
+espera en cola. Desde la 123 también acepta
+`transferRingTimeoutSeconds` (5–300) y `maxTransfersPerCall` (0–10;
+0 = sin límite).

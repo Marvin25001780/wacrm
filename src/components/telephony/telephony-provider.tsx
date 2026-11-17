@@ -74,6 +74,12 @@ interface TelephonyContextValue {
   answerIncoming: () => Promise<boolean>;
   /** Rechaza la entrante sin asignarla. */
   declineIncoming: () => Promise<void>;
+  /**
+   * 123 — pasa la llamada en curso a otro agente (`toUserId`) o la
+   * devuelve a la cola (`null`). Devuelve `false` si el servidor la
+   * rechaza; el softphone conserva la llamada en ese caso.
+   */
+  transferCall: (toUserId: string | null) => Promise<boolean>;
   hangup: () => Promise<void>;
   toggleMute: () => Promise<void>;
   /**
@@ -458,11 +464,17 @@ export function TelephonyProvider({ children }: { children: ReactNode }) {
     startedAtRef.current = null;
 
     try {
-      const res = await fetch(`/api/telephony/calls/${incomingCall.id}/claim`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tabId: TAB_ID }),
-      });
+      // 123 — una transferencia va por su propia ruta: revalida que
+      // siga siendo mía antes de limpiar el timbre.
+      const endpoint = incomingCall.transfer_at ? 'transfer/accept' : 'claim';
+      const res = await fetch(
+        `/api/telephony/calls/${incomingCall.id}/${endpoint}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tabId: TAB_ID }),
+        }
+      );
       const body = (await res.json().catch(() => ({}))) as {
         call?: CallSession;
         token?: string;
@@ -486,17 +498,83 @@ export function TelephonyProvider({ children }: { children: ReactNode }) {
   const declineIncoming = useCallback(async () => {
     if (!incomingCall) return;
     try {
-      await fetch(`/api/telephony/calls/${incomingCall.id}/end`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reason: 'declined' }),
-      });
+      // Una transferencia rechazada vuelve a la cola; una entrante de
+      // la cola se cierra como rechazada (comportamiento previo).
+      if (incomingCall.transfer_at) {
+        await fetch(
+          `/api/telephony/calls/${incomingCall.id}/transfer/decline`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({}),
+          }
+        );
+      } else {
+        await fetch(`/api/telephony/calls/${incomingCall.id}/end`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason: 'declined' }),
+        });
+      }
     } catch {
       // El refresco de abajo reconcilia el estado.
     } finally {
       await refresh();
     }
   }, [incomingCall, refresh]);
+
+  /**
+   * 123 — transferir la llamada en curso. `null` la devuelve a la
+   * cola. Solo se limpia el softphone si el servidor acepta; si no,
+   * la llamada sigue con este agente y se muestra el error.
+   */
+  const transferCall = useCallback(
+    async (toUserId: string | null): Promise<boolean> => {
+      const call = activeCallRef.current;
+      if (!call) return false;
+      setError(null);
+      setNotice(null);
+      try {
+        const res = await fetch(`/api/telephony/calls/${call.id}/transfer`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(
+            toUserId ? { toUserId } : { toQueue: true }
+          ),
+        });
+        const body = (await res.json().catch(() => ({}))) as {
+          call?: CallSession;
+          error?: string;
+        };
+        if (!res.ok || !body.call) {
+          setError(body.error ?? 'No se pudo transferir la llamada.');
+          return false;
+        }
+
+        endedRef.current = true;
+        cleanupRoom();
+        applyCall(null);
+        setPhase('idle');
+        setElapsed(0);
+        setMuted(false);
+        setRecording(false);
+        startedAtRef.current = null;
+        answeredRef.current = false;
+        endedRef.current = false;
+        setNotice(
+          toUserId
+            ? 'Llamada transferida. Quedas disponible.'
+            : 'Llamada devuelta a la cola. Quedas disponible.'
+        );
+        await refresh();
+        return true;
+      } catch {
+        setError('Sin conexión: no se pudo transferir la llamada.');
+        return false;
+      }
+    },
+    [applyCall, cleanupRoom, refresh]
+  );
 
   useEffect(() => {
     if (!user || accountRole === 'viewer' || phase !== 'idle') return;
@@ -613,6 +691,7 @@ export function TelephonyProvider({ children }: { children: ReactNode }) {
       startCall,
       answerIncoming,
       declineIncoming,
+      transferCall,
       hangup,
       toggleMute,
       setAgentStatus,
@@ -638,6 +717,7 @@ export function TelephonyProvider({ children }: { children: ReactNode }) {
       startCall,
       answerIncoming,
       declineIncoming,
+      transferCall,
       hangup,
       toggleMute,
       setAgentStatus,

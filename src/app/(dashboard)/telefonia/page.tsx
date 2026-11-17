@@ -93,6 +93,10 @@ interface ConfigForm {
   requiredSkills: string;
   /** 119 — segundos antes de levantar el requisito (0 = sin desbordamiento). */
   skillOverflowSeconds: number;
+  /** 123 — segundos de timbre de una transferencia. */
+  transferRingTimeoutSeconds: number;
+  /** 123 — transferencias máximas por llamada (0 = sin límite). */
+  maxTransfersPerCall: number;
 }
 
 const EMPTY_FORM: ConfigForm = {
@@ -105,6 +109,8 @@ const EMPTY_FORM: ConfigForm = {
   queueMaxWaitSeconds: 60,
   requiredSkills: '',
   skillOverflowSeconds: 0,
+  transferRingTimeoutSeconds: 25,
+  maxTransfersPerCall: 3,
 };
 
 function formFromConfig(config: TelephonyConfig | null): ConfigForm {
@@ -119,6 +125,8 @@ function formFromConfig(config: TelephonyConfig | null): ConfigForm {
     queueMaxWaitSeconds: config.queue_max_wait_seconds ?? 60,
     requiredSkills: (config.required_skills ?? []).join(', '),
     skillOverflowSeconds: config.skill_overflow_seconds ?? 0,
+    transferRingTimeoutSeconds: config.transfer_ring_timeout_seconds ?? 25,
+    maxTransfersPerCall: config.max_transfers_per_call ?? 3,
   };
 }
 
@@ -465,6 +473,8 @@ export default function TelefoniaPage() {
           queueMaxWaitSeconds: form.queueMaxWaitSeconds,
           requiredSkills: form.requiredSkills,
           skillOverflowSeconds: form.skillOverflowSeconds,
+          transferRingTimeoutSeconds: form.transferRingTimeoutSeconds,
+          maxTransfersPerCall: form.maxTransfersPerCall,
         }),
       });
       const body = (await res.json().catch(() => ({}))) as {
@@ -750,7 +760,10 @@ export default function TelefoniaPage() {
                             Math.max(
                               0,
                               Math.floor(
-                                (nowTick - new Date(item.started_at).getTime()) /
+                                (nowTick -
+                                  new Date(
+                                    item.queued_at ?? item.started_at
+                                  ).getTime()) /
                                   1000
                               )
                             )
@@ -1346,6 +1359,54 @@ export default function TelefoniaPage() {
                 0 = sin desbordamiento. Si nadie con las habilidades la toma en
                 este tiempo, la llamada pasa a cualquier agente disponible.
               </p>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="transfer-timeout">
+                  Timbre de transferencia (segundos)
+                </Label>
+                <Input
+                  id="transfer-timeout"
+                  type="number"
+                  min={5}
+                  max={300}
+                  step={5}
+                  value={form.transferRingTimeoutSeconds}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      transferRingTimeoutSeconds: Number(event.target.value) || 0,
+                    }))
+                  }
+                />
+                <p className="text-muted-foreground text-[11px]">
+                  Cuánto timbra en el agente destino antes de volver a la cola.
+                </p>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="max-transfers">
+                  Máximo de transferencias por llamada
+                </Label>
+                <Input
+                  id="max-transfers"
+                  type="number"
+                  min={0}
+                  max={10}
+                  step={1}
+                  value={form.maxTransfersPerCall}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      maxTransfersPerCall: Number(event.target.value) || 0,
+                    }))
+                  }
+                />
+                <p className="text-muted-foreground text-[11px]">
+                  0 = sin límite. Evita que una llamada rebote entre agentes.
+                </p>
+              </div>
             </div>
           </div>
 

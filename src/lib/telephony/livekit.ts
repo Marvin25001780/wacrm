@@ -162,6 +162,31 @@ export async function stopCallRecording(egressId: string): Promise<void> {
 }
 
 /**
+ * Saca a un agente de la sala sin cerrarla (transferencia interna,
+ * migración 123). El cliente y el nuevo agente siguen dentro. Nunca
+ * lanza: si LiveKit no responde, la sesión ya cambió de dueño en la
+ * base y el agente sale igual al desconectar su navegador.
+ */
+export async function removeAgentFromRoom(args: {
+  room: string;
+  userId: string;
+}): Promise<boolean> {
+  const env = requireLivekit();
+  const client = new RoomServiceClient(host(env), env.apiKey!, env.apiSecret!);
+  try {
+    await client.removeParticipant(args.room, `user-${args.userId}`);
+    return true;
+  } catch (err) {
+    console.warn(
+      '[telephony] no se pudo sacar al agente de la sala:',
+      args.room,
+      err
+    );
+    return false;
+  }
+}
+
+/**
  * Cierra la sala de LiveKit de una llamada (timeout de cola,
  * colgado, etc.). LiveKit la elimina y el webhook recibe
  * `room_finished`; la sesión ya está terminal en ese momento, así que

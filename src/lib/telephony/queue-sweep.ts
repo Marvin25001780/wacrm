@@ -13,6 +13,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { closeCallRoom } from './livekit';
 import { finalizeCall } from './finalize';
+import { isQueueExpired } from './queue';
 import { isSkillOverflowDue } from './skills';
 import type { CallSession } from '@/types';
 
@@ -29,9 +30,14 @@ export interface SkillOverflowResult {
 const SWEEP_LIMIT = 50;
 
 /**
- * Cierra las entrantes que llevan más tiempo sonando que el máximo
- * del negocio. Solo toca llamadas sin agente asignado en `ringing`
- * (si un agente reclamó, es suya) y nunca toca las ya terminales.
+ * Cierra las entrantes que llevan más tiempo esperando que el máximo
+ * del negocio. Solo toca llamadas sin agente asignado (si un agente
+ * reclamó, es suya) y nunca toca las ya terminales.
+ *
+ * Incluye las llamadas devueltas a la cola por una transferencia
+ * (migración 123): siguen en `active` porque el cliente ya fue
+ * atendido una vez, y su espera se mide desde `queued_at`. Si vencen,
+ * se cierran como `ended` (no como perdidas: sí hubo conversación).
  */
 export async function sweepExpiredQueue(args: {
   db: SupabaseClient;
@@ -47,16 +53,15 @@ export async function sweepExpiredQueue(args: {
   }
 
   const nowMs = args.now ?? Date.now();
-  const cutoff = new Date(nowMs - maxWaitSeconds * 1000).toISOString();
 
   const { data, error } = await args.db
     .from('call_sessions')
     .select('*')
     .eq('account_id', args.accountId)
     .eq('direction', 'inbound')
-    .eq('status', 'ringing')
+    .in('status', ['ringing', 'active'])
     .is('agent_user_id', null)
-    .lt('started_at', cutoff)
+    .order('started_at', { ascending: true })
     .limit(SWEEP_LIMIT);
 
   if (error) {
@@ -65,7 +70,16 @@ export async function sweepExpiredQueue(args: {
     return { closed: [] };
   }
 
-  const expired = ((data ?? []) as CallSession[]).slice(0, SWEEP_LIMIT);
+  const expired = ((data ?? []) as CallSession[])
+    .filter((call) =>
+      isQueueExpired({
+        startedAt: call.started_at,
+        queuedAt: call.queued_at,
+        maxWaitSeconds,
+        now: nowMs,
+      })
+    )
+    .slice(0, SWEEP_LIMIT);
   const closed: CallSession[] = [];
 
   for (const call of expired) {
@@ -75,10 +89,12 @@ export async function sweepExpiredQueue(args: {
         call,
         reason: 'timeout',
         createActivity: false,
-        guard: { status: 'ringing', agent_user_id: null },
+        guard: { status: call.status, agent_user_id: null },
       });
 
-      if (result.status !== 'missed') continue;
+      // `missed` = nunca se contestó; `ended` = se contestó y volvió a
+      // la cola por una transferencia.
+      if (result.status !== 'missed' && result.status !== 'ended') continue;
 
       await args.db.from('call_events').insert({
         account_id: args.accountId,
@@ -88,6 +104,7 @@ export async function sweepExpiredQueue(args: {
           reason: 'timeout',
           status: result.status,
           max_wait_seconds: maxWaitSeconds,
+          queued_at: call.queued_at,
         },
       });
 
@@ -123,17 +140,16 @@ export async function sweepSkillOverflow(args: {
   if (overflowSeconds <= 0) return { overflowed: [] };
 
   const nowMs = args.now ?? Date.now();
-  const cutoff = new Date(nowMs - overflowSeconds * 1000).toISOString();
 
   const { data, error } = await args.db
     .from('call_sessions')
     .select('*')
     .eq('account_id', args.accountId)
     .eq('direction', 'inbound')
-    .eq('status', 'ringing')
+    .in('status', ['ringing', 'active'])
     .is('agent_user_id', null)
     .is('overflowed_at', null)
-    .lt('started_at', cutoff)
+    .order('started_at', { ascending: true })
     .limit(SWEEP_LIMIT);
 
   if (error) {
@@ -150,7 +166,9 @@ export async function sweepSkillOverflow(args: {
     (call) =>
       (call.required_skills ?? []).length > 0 &&
       isSkillOverflowDue({
-        startedAt: call.started_at,
+        // 123 — si la llamada volvió a la cola, el desbordamiento se
+        // cuenta desde el reencolado, no desde el alta original.
+        startedAt: call.queued_at ?? call.started_at,
         overflowSeconds,
         now: nowMs,
       })

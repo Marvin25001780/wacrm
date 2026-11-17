@@ -107,6 +107,7 @@ export async function POST(
         .update({
           agent_profile_id: ctx.profileId,
           agent_user_id: ctx.userId,
+          queued_at: null,
           metadata: tabId
             ? { ...(call.metadata ?? {}), tab_id: tabId }
             : call.metadata,

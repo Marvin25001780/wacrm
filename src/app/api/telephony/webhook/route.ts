@@ -64,6 +64,7 @@ export async function POST(request: Request) {
         await handleParticipantLeft(db, {
           roomName,
           isSip: Boolean(event.participant?.attributes?.['sip.phoneNumber']),
+          identity: event.participant?.identity ?? null,
         });
         break;
       case 'room_finished':
@@ -225,16 +226,32 @@ function roomMetadataPriority(roomMetadata: string | undefined): number {
 
 async function handleParticipantLeft(
   db: SupabaseClient,
-  args: { roomName: string; isSip: boolean }
+  args: { roomName: string; isSip: boolean; identity: string | null }
 ) {
   const call = await findCall(db, args.roomName);
   if (!call || isTerminalCallStatus(call.status)) return;
+
+  // El cliente colgó: la llamada termina.
+  if (args.isSip) {
+    await finalizeCall({ db, call, reason: 'hangup' });
+    return;
+  }
+
+  // 123 — un agente que sale por una transferencia no cierra la
+  // llamada: la sala sigue viva con el cliente y el nuevo agente.
+  if (call.transfer_at) return;
+  // Llamada devuelta a la cola: no tiene dueño, nadie la está
+  // atendiendo; su salida no la termina.
+  if (!call.agent_user_id) return;
+  const leavingUserId =
+    args.identity && args.identity.startsWith('user-')
+      ? args.identity.slice('user-'.length)
+      : null;
+  // Otro agente del negocio (supervisor, compañero) salió de la sala.
+  if (leavingUserId && leavingUserId !== call.agent_user_id) return;
+
   // Cualquiera de los dos lados que cuelgue termina la llamada 1:1.
-  await finalizeCall({
-    db,
-    call,
-    reason: args.isSip ? 'hangup' : 'agent_left',
-  });
+  await finalizeCall({ db, call, reason: 'agent_left' });
 }
 
 async function closeByRoom(

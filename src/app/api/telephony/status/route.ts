@@ -11,7 +11,9 @@ import {
 import { telephonyEnv } from '@/lib/telephony/env';
 import { telephonyErrorResponse } from '@/lib/telephony/http';
 import { sweepExpiredQueue, sweepSkillOverflow } from '@/lib/telephony/queue-sweep';
+import { loadTelephonyRoster } from '@/lib/telephony/roster';
 import { agentCanTakeCall } from '@/lib/telephony/skills';
+import { releaseExpiredTransfers } from '@/lib/telephony/transfers';
 import type { AgentStatus, CallSession, TelephonyStatus } from '@/types';
 
 /** Cuántas entrantes se miran para elegir una que el agente pueda tomar. */
@@ -41,6 +43,7 @@ export async function GET() {
     // para ofrecer una foto ya al día.
     let queueClosed: string[] = [];
     let queueOverflowed: string[] = [];
+    let transferReleased: string[] = [];
     try {
       const sweep = await sweepExpiredQueue({
         db: supabase,
@@ -55,41 +58,49 @@ export async function GET() {
         overflowSeconds: resolved.skillOverflowSeconds,
       });
       queueOverflowed = overflow.overflowed.map((call) => call.id);
+
+      // 123 — transferencias que nadie contestó vuelven a la cola.
+      const released = await releaseExpiredTransfers({
+        db: supabase,
+        accountId,
+      });
+      transferReleased = released.released.map((call) => call.id);
     } catch (sweepError) {
       // El estado debe responder aunque el barrido falle.
       console.warn('[telephony] barrido de cola falló:', sweepError);
     }
 
-    const [
-      { data: presenceRow },
-      { data: activeCall },
-      { data: incomingCandidates },
-    ] = await Promise.all([
-      supabase
-        .from('member_presence')
-        .select('status, last_seen_at, agent_status')
-        .eq('user_id', userId)
-        .maybeSingle(),
-      supabase
-        .from('call_sessions')
-        .select('*, contact:contacts(id, name, phone)')
-        .eq('account_id', accountId)
-        .eq('agent_user_id', userId)
-        .in('status', ['ringing', 'active'])
-        .order('started_at', { ascending: false })
-        .limit(1)
-        .maybeSingle(),
-      supabase
-        .from('call_sessions')
-        .select('*, contact:contacts(id, name, phone)')
-        .eq('account_id', accountId)
-        .eq('direction', 'inbound')
-        .eq('status', 'ringing')
-        .is('agent_user_id', null)
-        .order('priority', { ascending: false })
-        .order('started_at', { ascending: true })
-        .limit(INCOMING_CANDIDATES),
-    ]);
+    const [{ data: presenceRow }, { data: myCalls }, { data: incomingCandidates }] =
+      await Promise.all([
+        supabase
+          .from('member_presence')
+          .select('status, last_seen_at, agent_status')
+          .eq('user_id', userId)
+          .maybeSingle(),
+        // 123 — puede haber dos: una llamada propia y una transferencia
+        // pendiente para mí. Se clasifican abajo.
+        supabase
+          .from('call_sessions')
+          .select('*, contact:contacts(id, name, phone)')
+          .eq('account_id', accountId)
+          .eq('agent_user_id', userId)
+          .in('status', ['ringing', 'active'])
+          .order('started_at', { ascending: false })
+          .limit(2),
+        // Cola: entrantes sin agente. Incluye las devueltas a la cola
+        // por una transferencia, que siguen en `active` porque ya se
+        // contestaron una vez (123).
+        supabase
+          .from('call_sessions')
+          .select('*, contact:contacts(id, name, phone)')
+          .eq('account_id', accountId)
+          .eq('direction', 'inbound')
+          .in('status', ['ringing', 'active'])
+          .is('agent_user_id', null)
+          .order('priority', { ascending: false })
+          .order('started_at', { ascending: true })
+          .limit(INCOMING_CANDIDATES),
+      ]);
 
     const stored =
       (presenceRow?.status as 'online' | 'away' | undefined) ?? undefined;
@@ -101,12 +112,38 @@ export async function GET() {
     const agentStatus =
       (presenceRow?.agent_status as AgentStatus | undefined) ?? 'available';
 
+    const liveRows = (myCalls ?? []) as CallSession[];
+    const incomingTransfer =
+      liveRows.find(
+        (call) => call.status === 'ringing' && Boolean(call.transfer_at)
+      ) ?? null;
+    const activeCall =
+      liveRows.find(
+        (call) => !(call.status === 'ringing' && call.transfer_at)
+      ) ?? null;
+
     // La primera entrante de la cola que este agente puede tomar: sin
     // requisito, con las habilidades completas o ya desbordada.
-    const incomingCall =
+    const queueCall =
       ((incomingCandidates ?? []) as CallSession[]).find((call) =>
         agentCanTakeCall(call, agentSkills)
       ) ?? null;
+
+    // Una transferencia asignada a mí manda sobre la cola: ya está en
+    // mi sala de LiveKit y el cliente me está esperando. Igual que la
+    // cola, solo se ofrece si estoy Disponible.
+    const incomingCall =
+      agentStatus === 'available'
+        ? (incomingTransfer ?? queueCall)
+        : null;
+
+    if (incomingTransfer?.transfer_from_user_id) {
+      const roster = await loadTelephonyRoster(supabase, accountId);
+      incomingTransfer.transfer_from_name =
+        roster?.find(
+          (member) => member.user_id === incomingTransfer.transfer_from_user_id
+        )?.name ?? null;
+    }
 
     const payload: TelephonyStatus = {
       ready: resolved.livekitReady,
@@ -130,15 +167,19 @@ export async function GET() {
         stored: presence,
         last_seen_at: presenceRow?.last_seen_at ?? null,
       },
-      activeCall: (activeCall as CallSession | null) ?? null,
+      activeCall,
       // La cola solo suena para agentes disponibles: en pausa, cierre
-      // u ocupado no se ofrece la entrante.
-      incomingCall: agentStatus === 'available' ? incomingCall : null,
+      // u ocupado no se ofrece la entrante. Una transferencia asignada
+      // a mí sí se ofrece aunque esté en pausa (ya está en mi sala).
+      incomingCall,
       queueMaxWaitSeconds: resolved.queueMaxWaitSeconds,
       queueClosed,
       agentSkills,
       skillOverflowSeconds: resolved.skillOverflowSeconds,
       queueOverflowed,
+      transferRingTimeoutSeconds: resolved.transferRingTimeoutSeconds,
+      maxTransfersPerCall: resolved.maxTransfersPerCall,
+      transferReleased,
     };
 
     return NextResponse.json(payload);

@@ -11,10 +11,20 @@ export const QUEUE_MAX_WAIT_SECONDS = 60;
 
 export interface QueueTimeoutContext {
   startedAt: string;
+  /**
+   * 123 — momento del último reencolado (devolución a la cola o
+   * transferencia vencida). Si existe, la espera se mide desde aquí.
+   */
+  queuedAt?: string | null;
   /** Segundos máximos de espera. `0` = sin expirar. */
   maxWaitSeconds: number;
   /** Reloj inyectable para tests. */
   now?: number;
+}
+
+/** Inicio real de la espera: el reencolado manda sobre el alta. */
+function queueStart(context: QueueTimeoutContext): string {
+  return context.queuedAt || context.startedAt;
 }
 
 /**
@@ -26,7 +36,7 @@ export function queueWaitSeconds(
 ): number {
   const maxWaitSeconds = context.maxWaitSeconds ?? 0;
   if (maxWaitSeconds <= 0) return 0;
-  const started = new Date(context.startedAt).getTime();
+  const started = new Date(queueStart(context)).getTime();
   const now = context.now ?? Date.now();
   if (Number.isNaN(started) || Number.isNaN(now)) return 0;
   return Math.max(0, Math.floor((now - started) / 1000));
@@ -39,7 +49,7 @@ export function queueWaitSeconds(
 export function isQueueExpired(context: QueueTimeoutContext): boolean {
   const maxWaitSeconds = context.maxWaitSeconds ?? 0;
   if (maxWaitSeconds <= 0) return false;
-  const started = new Date(context.startedAt).getTime();
+  const started = new Date(queueStart(context)).getTime();
   const now = context.now ?? Date.now();
   if (Number.isNaN(started) || Number.isNaN(now)) return false;
   return Math.floor((now - started) / 1000) >= maxWaitSeconds;
