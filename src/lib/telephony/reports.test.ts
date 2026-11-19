@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  aggregateCallbacks,
   aggregateCalls,
+  CALLBACK_SLA_SECONDS,
   businessDayKey,
   businessHour,
   mergeQaScores,
   type ReportCallRow,
+  type ReportCallbackRow,
 } from './reports';
 
 const NOW = new Date('2026-11-14T15:00:00Z').getTime();
@@ -244,5 +247,161 @@ describe('aggregateCalls', () => {
       aiQaCount: 1,
       aiQaScore: 55,
     });
+  });
+});
+
+const CALLBACK_NOW = new Date('2026-11-14T15:00:00Z').getTime();
+
+const CALLBACK_ROWS: ReportCallbackRow[] = [
+  {
+    status: 'done',
+    reason: 'missed',
+    created_at: '2026-11-14T13:00:00Z',
+    claimed_at: '2026-11-14T13:10:00Z',
+    completed_at: '2026-11-14T13:40:00Z',
+    completed_by: 'agent-a',
+    assigned_user_id: 'agent-a',
+    source_call_id: 'call-1',
+  },
+  {
+    status: 'done',
+    reason: 'timeout',
+    created_at: '2026-11-14T14:00:00Z',
+    claimed_at: '2026-11-14T14:40:00Z',
+    completed_at: '2026-11-14T14:50:00Z',
+    completed_by: 'agent-b',
+    assigned_user_id: 'agent-b',
+    source_call_id: 'call-2',
+  },
+  // Cerrada sin haberse reclamado (flujo antiguo): cuenta para la
+  // resolución, pero no para la respuesta ni para el SLA.
+  {
+    status: 'done',
+    reason: 'missed',
+    created_at: '2026-11-14T12:00:00Z',
+    claimed_at: null,
+    completed_at: '2026-11-14T12:30:00Z',
+    completed_by: 'agent-a',
+    assigned_user_id: null,
+    source_call_id: 'call-3',
+  },
+  {
+    status: 'pending',
+    reason: 'manual',
+    created_at: '2026-11-14T12:00:00Z',
+    claimed_at: null,
+    completed_at: null,
+    completed_by: null,
+    assigned_user_id: null,
+    source_call_id: null,
+  },
+  {
+    status: 'in_progress',
+    reason: 'declined',
+    created_at: '2026-11-14T11:00:00Z',
+    claimed_at: '2026-11-14T11:05:00Z',
+    completed_at: null,
+    completed_by: null,
+    assigned_user_id: 'agent-a',
+    source_call_id: 'call-4',
+  },
+  {
+    status: 'cancelled',
+    reason: 'missed',
+    created_at: '2026-11-14T10:00:00Z',
+    claimed_at: null,
+    completed_at: null,
+    completed_by: null,
+    assigned_user_id: null,
+    source_call_id: 'call-5',
+  },
+];
+
+describe('aggregateCallbacks', () => {
+  const report = aggregateCallbacks(CALLBACK_ROWS, {
+    now: CALLBACK_NOW,
+    roster: [
+      ...ROSTER,
+      { user_id: 'agent-c', name: 'Carla', role: 'agent' },
+    ],
+  });
+
+  it('cuenta los estados y el origen de cada solicitud', () => {
+    expect(report.total).toBe(6);
+    expect(report.pending).toBe(1);
+    expect(report.inProgress).toBe(1);
+    expect(report.done).toBe(3);
+    expect(report.cancelled).toBe(1);
+    expect(report.manual).toBe(1);
+    expect(report.fromMissed).toBe(5);
+    expect(report.recoveryRate).toBe(0.5);
+  });
+
+  it('mide respuesta, resolución y la pendiente más vieja', () => {
+    // Respuesta: 10, 40 y 5 minutos.
+    expect(report.avgResponseSeconds).toBe(1100);
+    // Resolución: 40, 50 y 30 minutos (la que nunca se reclamó incluida).
+    expect(report.avgResolutionSeconds).toBe(2400);
+    // La más antigua abierta se creó a las 11:00 con reloj a las 15:00.
+    expect(report.oldestPendingSeconds).toBe(4 * 60 * 60);
+  });
+
+  it('evalúa el SLA de primera respuesta solo donde hubo reclamo', () => {
+    expect(CALLBACK_SLA_SECONDS).toBe(1800);
+    expect(report.slaTargetSeconds).toBe(1800);
+    expect(report.slaEligible).toBe(3);
+    // 10 min y 5 min cumplen; 40 min no.
+    expect(report.slaMet).toBe(2);
+    expect(report.slaCompliance).toBeCloseTo(2 / 3, 3);
+  });
+
+  it('reparte el trabajo por agente y deja al resto en cero', () => {
+    expect(report.agents.map((agent) => agent.name)).toEqual([
+      'Ana',
+      'Beto',
+      'Carla',
+    ]);
+    expect(report.agents[0]).toMatchObject({
+      user_id: 'agent-a',
+      claimed: 2,
+      done: 2,
+      avgResponseSeconds: 450,
+      avgResolutionSeconds: 2100,
+    });
+    expect(report.agents[1]).toMatchObject({
+      user_id: 'agent-b',
+      claimed: 1,
+      done: 1,
+      avgResponseSeconds: 2400,
+      avgResolutionSeconds: 3000,
+    });
+    expect(report.agents[2]).toMatchObject({
+      user_id: 'agent-c',
+      claimed: 0,
+      done: 0,
+      avgResponseSeconds: null,
+    });
+  });
+
+  it('sin devoluciones no inventa cifras', () => {
+    const empty = aggregateCallbacks([], { now: CALLBACK_NOW });
+    expect(empty.total).toBe(0);
+    expect(empty.recoveryRate).toBeNull();
+    expect(empty.slaCompliance).toBeNull();
+    expect(empty.avgResponseSeconds).toBeNull();
+    expect(empty.avgResolutionSeconds).toBeNull();
+    expect(empty.oldestPendingSeconds).toBeNull();
+    expect(empty.agents).toEqual([]);
+  });
+
+  it('acepta un objetivo de SLA distinto sin tocar los datos', () => {
+    const strict = aggregateCallbacks(CALLBACK_ROWS, {
+      now: CALLBACK_NOW,
+      slaTargetSeconds: 300,
+    });
+    // Solo la de 5 minutos entra en un objetivo de 5 minutos.
+    expect(strict.slaTargetSeconds).toBe(300);
+    expect(strict.slaEligible).toBe(3);
+    expect(strict.slaCompliance).toBeCloseTo(1 / 3, 3);
   });
 });

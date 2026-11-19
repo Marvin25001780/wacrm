@@ -11,6 +11,8 @@
 // ============================================================
 
 import type {
+  CallbackReason,
+  CallbackStatus,
   CallDirection,
   CallDisposition,
   CallSessionStatus,
@@ -116,6 +118,8 @@ export interface TelephonyReport {
   daysSeries: TelephonyReportDay[];
   hours: TelephonyReportHour[];
   dispositions: TelephonyReportDisposition[];
+  /** 125 — devoluciones de llamadas perdidas (122) del mismo periodo. */
+  callbacks?: TelephonyReportCallbacks;
   /** La migración 112 no está aplicada: no hay llamadas que leer. */
   migrationMissing?: boolean;
 }
@@ -451,5 +455,268 @@ export function mergeQaScores(
       aiQaCount: aiAll.length,
       aiAvgQaScore: aiAverage == null ? null : Math.round(aiAverage),
     },
+  };
+}
+
+// ------------------------------------------------------------
+// Devoluciones de llamadas perdidas (122) — bloque 125
+//
+// El reporte de voz dice cuántas entrantes se perdieron; este dice
+// qué pasó después: cuántas se devolvieron, en cuánto tiempo y quién
+// las atendió.
+//
+// Tiempos:
+//   - respuesta: created_at → claimed_at (cuánto tardó alguien en
+//     tomar la devolución);
+//   - resolución: created_at → completed_at (hasta cerrarla).
+//
+// SLA: la primera respuesta. El objetivo es fijo en el código
+// (CALLBACK_SLA_SECONDS) porque la 122 no tiene una columna de
+// configuración y no se inventa un interruptor que no exista. Se
+// muestra en la UI para que el equipo sepa contra qué se mide.
+// ------------------------------------------------------------
+
+/** Objetivo de primera respuesta de una devolución (30 minutos). */
+export const CALLBACK_SLA_SECONDS = 30 * 60;
+
+export interface ReportCallbackRow {
+  status: CallbackStatus;
+  reason: CallbackReason;
+  created_at: string;
+  claimed_at: string | null;
+  completed_at: string | null;
+  completed_by: string | null;
+  assigned_user_id: string | null;
+  source_call_id: string | null;
+}
+
+export interface TelephonyReportCallbackAgent {
+  user_id: string;
+  name: string;
+  role: string;
+  /** Devoluciones que tomó (tienen `assigned_user_id` suyo). */
+  claimed: number;
+  /** Devoluciones que cerró como atendidas. */
+  done: number;
+  avgResponseSeconds: number | null;
+  avgResolutionSeconds: number | null;
+}
+
+export interface TelephonyReportCallbacks {
+  total: number;
+  pending: number;
+  inProgress: number;
+  done: number;
+  cancelled: number;
+  /** Altas manuales (sin llamada perdida detrás). */
+  manual: number;
+  /** Con origen en una entrante no contestada. */
+  fromMissed: number;
+  avgResponseSeconds: number | null;
+  avgResolutionSeconds: number | null;
+  /** Antigüedad de la devolución abierta más vieja, al momento del reporte. */
+  oldestPendingSeconds: number | null;
+  /** Atendidas / total solicitado (0–1). */
+  recoveryRate: number | null;
+  /** Atendidas dentro del objetivo / atendidas evaluables (0–1). */
+  slaCompliance: number | null;
+  slaTargetSeconds: number;
+  /** Cuántas devoluciones se pudieron evaluar contra el SLA. */
+  slaEligible: number;
+  /** Cuántas de esas llegaron dentro del objetivo. */
+  slaMet: number;
+  agents: TelephonyReportCallbackAgent[];
+}
+
+interface CallbackAgentAccumulator {
+  claimed: number;
+  done: number;
+  responseSum: number;
+  responseCount: number;
+  resolutionSum: number;
+  resolutionCount: number;
+}
+
+/** Segundos entre dos instantes ISO; `null` si alguno no es válido o el orden no tiene sentido. */
+function secondsBetween(
+  from: string | null | undefined,
+  to: string | null | undefined
+): number | null {
+  if (!from || !to) return null;
+  const start = Date.parse(from);
+  const end = Date.parse(to);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return null;
+  return (end - start) / 1000;
+}
+
+export function aggregateCallbacks(
+  rows: ReportCallbackRow[],
+  options: {
+    now: number;
+    roster?: ReportRosterMember[];
+    slaTargetSeconds?: number;
+  }
+): TelephonyReportCallbacks {
+  const slaTargetSeconds = Math.max(
+    1,
+    Math.floor(options.slaTargetSeconds ?? CALLBACK_SLA_SECONDS)
+  );
+  const now = options.now;
+
+  const agentMap = new Map<string, TelephonyReportCallbackAgent>();
+  const accumulators = new Map<string, CallbackAgentAccumulator>();
+
+  for (const member of options.roster ?? []) {
+    agentMap.set(member.user_id, {
+      user_id: member.user_id,
+      name: member.name,
+      role: member.role,
+      claimed: 0,
+      done: 0,
+      avgResponseSeconds: null,
+      avgResolutionSeconds: null,
+    });
+    accumulators.set(member.user_id, {
+      claimed: 0,
+      done: 0,
+      responseSum: 0,
+      responseCount: 0,
+      resolutionSum: 0,
+      resolutionCount: 0,
+    });
+  }
+
+  const accumulatorFor = (userId: string): CallbackAgentAccumulator => {
+    let accumulator = accumulators.get(userId);
+    if (!accumulator) {
+      accumulator = {
+        claimed: 0,
+        done: 0,
+        responseSum: 0,
+        responseCount: 0,
+        resolutionSum: 0,
+        resolutionCount: 0,
+      };
+      accumulators.set(userId, accumulator);
+      agentMap.set(userId, {
+        user_id: userId,
+        name: 'Agente',
+        role: 'agent',
+        claimed: 0,
+        done: 0,
+        avgResponseSeconds: null,
+        avgResolutionSeconds: null,
+      });
+    }
+    return accumulator;
+  };
+
+  let pending = 0;
+  let inProgress = 0;
+  let done = 0;
+  let cancelled = 0;
+  let manual = 0;
+  let fromMissed = 0;
+  let responseSum = 0;
+  let responseCount = 0;
+  let resolutionSum = 0;
+  let resolutionCount = 0;
+  let slaEligible = 0;
+  let slaMet = 0;
+  let oldestPendingSeconds: number | null = null;
+
+  for (const row of rows) {
+    if (row.status === 'pending') pending += 1;
+    else if (row.status === 'in_progress') inProgress += 1;
+    else if (row.status === 'done') done += 1;
+    else if (row.status === 'cancelled') cancelled += 1;
+
+    if (row.reason === 'manual') manual += 1;
+    if (row.source_call_id) fromMissed += 1;
+
+    const responseSeconds = secondsBetween(row.created_at, row.claimed_at);
+    if (responseSeconds != null) {
+      responseSum += responseSeconds;
+      responseCount += 1;
+      slaEligible += 1;
+      if (responseSeconds <= slaTargetSeconds) slaMet += 1;
+      if (row.assigned_user_id) {
+        const accumulator = accumulatorFor(row.assigned_user_id);
+        accumulator.claimed += 1;
+        accumulator.responseSum += responseSeconds;
+        accumulator.responseCount += 1;
+      }
+    }
+
+    if (row.status === 'done') {
+      const resolutionSeconds = secondsBetween(row.created_at, row.completed_at);
+      if (resolutionSeconds != null) {
+        resolutionSum += resolutionSeconds;
+        resolutionCount += 1;
+      }
+      const owner = row.completed_by ?? row.assigned_user_id;
+      if (owner) {
+        const accumulator = accumulatorFor(owner);
+        accumulator.done += 1;
+        if (resolutionSeconds != null) {
+          accumulator.resolutionSum += resolutionSeconds;
+          accumulator.resolutionCount += 1;
+        }
+      }
+    }
+
+    if (row.status === 'pending' || row.status === 'in_progress') {
+      const age = secondsBetween(row.created_at, new Date(now).toISOString());
+      if (age != null) {
+        oldestPendingSeconds =
+          oldestPendingSeconds == null ? age : Math.max(oldestPendingSeconds, age);
+      }
+    }
+  }
+
+  const agents = [...accumulators.entries()]
+    .map(([userId, accumulator]) => {
+      const base = agentMap.get(userId)!;
+      return {
+        ...base,
+        claimed: accumulator.claimed,
+        done: accumulator.done,
+        avgResponseSeconds: accumulator.responseCount
+          ? Math.round(accumulator.responseSum / accumulator.responseCount)
+          : null,
+        avgResolutionSeconds: accumulator.resolutionCount
+          ? Math.round(accumulator.resolutionSum / accumulator.resolutionCount)
+          : null,
+      };
+    })
+    .sort(
+      (a, b) =>
+        b.done - a.done ||
+        b.claimed - a.claimed ||
+        a.name.localeCompare(b.name)
+    );
+
+  const total = rows.length;
+
+  return {
+    total,
+    pending,
+    inProgress,
+    done,
+    cancelled,
+    manual,
+    fromMissed,
+    avgResponseSeconds: responseCount ? Math.round(responseSum / responseCount) : null,
+    avgResolutionSeconds: resolutionCount
+      ? Math.round(resolutionSum / resolutionCount)
+      : null,
+    oldestPendingSeconds:
+      oldestPendingSeconds == null ? null : Math.round(oldestPendingSeconds),
+    recoveryRate: total ? round(done / total, 3) : null,
+    slaCompliance: slaEligible ? round(slaMet / slaEligible, 3) : null,
+    slaTargetSeconds,
+    slaEligible,
+    slaMet,
+    agents,
   };
 }

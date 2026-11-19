@@ -17,12 +17,15 @@ import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import {
   AlertTriangle,
+  CheckCircle2,
   ClipboardCheck,
   Clock,
   Loader2,
   Phone,
   PhoneCall,
   PhoneMissed,
+  RotateCcw,
+  Target,
   Timer,
   TrendingUp,
 } from 'lucide-react';
@@ -45,6 +48,7 @@ import { callDispositionLabel } from '@/types';
 import type {
   TelephonyReport,
   TelephonyReportAgent,
+  TelephonyReportCallbackAgent,
   TelephonyReportDay,
   TelephonyReportHour,
 } from '@/lib/telephony/reports';
@@ -52,6 +56,10 @@ import type {
 interface ReportResponse extends TelephonyReport {
   truncated?: boolean;
   rowLimit?: number;
+  /** Falta aplicar la 122: no hay devoluciones que leer. */
+  callbacksMissing?: boolean;
+  /** Se superó el tope de filas: el reporte de devoluciones está acotado. */
+  callbacksTruncated?: boolean;
 }
 
 const RANGES = [7, 30, 90] as const;
@@ -144,6 +152,12 @@ export default function TelephonyReportsPage() {
   }
 
   const totals = report?.totals;
+  const callbacks = report?.callbacks;
+  const openCallbacks =
+    (callbacks?.pending ?? 0) + (callbacks?.inProgress ?? 0);
+  const callbackAgents = (callbacks?.agents ?? []).filter(
+    (agent) => agent.claimed > 0 || agent.done > 0
+  );
   const maxDay = Math.max(
     1,
     ...(report?.daysSeries.map((day) => day.total) ?? [])
@@ -267,6 +281,38 @@ export default function TelephonyReportsPage() {
           icon={ClipboardCheck}
           subtitle={`${totals?.qaCount ?? 0} humanas · IA ${totals?.aiQaCount ?? 0} · cobertura ${percent(totals?.qaCoverage ?? null)}`}
         />
+        <MetricCard
+          title="Devoluciones"
+          value={loading ? '…' : String(callbacks?.total ?? 0)}
+          icon={RotateCcw}
+          subtitle={`${openCallbacks} abiertas · ${callbacks?.done ?? 0} atendidas`}
+        />
+        <MetricCard
+          title="Respuesta media"
+          value={
+            loading
+              ? '…'
+              : formatCallDuration(callbacks?.avgResponseSeconds ?? null)
+          }
+          icon={Timer}
+          subtitle={
+            callbacks
+              ? `Devolución · objetivo ${formatCallDuration(callbacks.slaTargetSeconds)}`
+              : 'Tiempo hasta reclamar'
+          }
+        />
+        <MetricCard
+          title="Recuperación"
+          value={loading ? '…' : percent(callbacks?.recoveryRate ?? null)}
+          icon={Target}
+          subtitle={`${callbacks?.done ?? 0} de ${callbacks?.total ?? 0} devueltas`}
+        />
+        <MetricCard
+          title="SLA devoluciones"
+          value={loading ? '…' : percent(callbacks?.slaCompliance ?? null)}
+          icon={CheckCircle2}
+          subtitle={`${callbacks?.slaMet ?? 0} de ${callbacks?.slaEligible ?? 0} a tiempo`}
+        />
       </div>
 
       <div className="grid gap-5 lg:grid-cols-2">
@@ -375,7 +421,159 @@ export default function TelephonyReportsPage() {
           </ul>
         )}
       </Panel>
+
+      <Panel
+        title="Devoluciones de llamadas perdidas"
+        subtitle={
+          callbacks
+            ? `Solicitudes creadas en la ventana · SLA de primera respuesta ${formatCallDuration(callbacks.slaTargetSeconds)}`
+            : 'Solicitudes creadas en la ventana.'
+        }
+      >
+        {report?.callbacksMissing ? (
+          <p className="text-muted-foreground text-sm">
+            Falta aplicar la migración{' '}
+            <code className="text-foreground">122_callback_requests.sql</code>{' '}
+            para registrar devoluciones de llamadas perdidas.
+          </p>
+        ) : (callbacks?.total ?? 0) === 0 ? (
+          <p className="text-muted-foreground text-sm">
+            No se registraron devoluciones en la ventana. Cuando una
+            entrante quede sin contestar, aparecerá aquí para que alguien
+            la devuelva.
+          </p>
+        ) : (
+          <div className="space-y-4">
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <MiniStat
+                label="Abiertas"
+                value={String(openCallbacks)}
+                hint={`${callbacks?.pending ?? 0} pendientes · ${callbacks?.inProgress ?? 0} en curso`}
+              />
+              <MiniStat
+                label="Atendidas"
+                value={String(callbacks?.done ?? 0)}
+                hint={`Recuperación ${percent(callbacks?.recoveryRate ?? null)}`}
+              />
+              <MiniStat
+                label="Canceladas"
+                value={String(callbacks?.cancelled ?? 0)}
+                hint="Cerradas sin devolver la llamada"
+              />
+              <MiniStat
+                label="Manuales"
+                value={String(callbacks?.manual ?? 0)}
+                hint={`${callbacks?.fromMissed ?? 0} desde una llamada perdida`}
+              />
+              <MiniStat
+                label="Respuesta media"
+                value={formatCallDuration(callbacks?.avgResponseSeconds ?? null)}
+                hint="Hasta que alguien la reclama"
+              />
+              <MiniStat
+                label="Resolución media"
+                value={formatCallDuration(
+                  callbacks?.avgResolutionSeconds ?? null
+                )}
+                hint="Hasta cerrarla como atendida"
+              />
+              <MiniStat
+                label="Abierta más antigua"
+                value={formatCallDuration(callbacks?.oldestPendingSeconds ?? null)}
+                hint="Antigüedad de la más vieja"
+              />
+              <MiniStat
+                label="SLA de respuesta"
+                value={percent(callbacks?.slaCompliance ?? null)}
+                hint={`${callbacks?.slaMet ?? 0} de ${callbacks?.slaEligible ?? 0} reclamadas a tiempo`}
+              />
+            </div>
+            <p className="text-muted-foreground text-xs">
+              La respuesta se mide desde el alta hasta el reclamo; el SLA
+              solo evalúa las devoluciones que llegaron a reclamarse. Las
+              que nunca se reclamaron cuentan para la recuperación, no
+              para el SLA.
+            </p>
+            {report?.callbacksTruncated ? (
+              <p className="text-xs text-amber-700 dark:text-amber-300">
+                Se muestran las {report.rowLimit ?? 5000} devoluciones más
+                recientes de la ventana. Acorta el rango para verlas todas.
+              </p>
+            ) : null}
+          </div>
+        )}
+      </Panel>
+
+      {callbackAgents.length > 0 ? (
+        <Panel
+          title="Devoluciones por agente"
+          subtitle="Quién reclamó y quién cerró las devoluciones del periodo."
+          bodyClassName="p-0"
+        >
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Agente</TableHead>
+                <TableHead className="text-right">Reclamadas</TableHead>
+                <TableHead className="text-right">Atendidas</TableHead>
+                <TableHead className="text-right">Respuesta media</TableHead>
+                <TableHead className="text-right">Resolución media</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {callbackAgents.map((agent) => (
+                <CallbackAgentRow key={agent.user_id} agent={agent} />
+              ))}
+            </TableBody>
+          </Table>
+        </Panel>
+      ) : null}
     </div>
+  );
+}
+
+function MiniStat({
+  label,
+  value,
+  hint,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+}) {
+  return (
+    <div className="border-border rounded-lg border p-3">
+      <p className="text-muted-foreground text-[11px] tracking-wide uppercase">
+        {label}
+      </p>
+      <p className="text-foreground mt-0.5 text-lg font-semibold tabular-nums">
+        {value}
+      </p>
+      {hint ? (
+        <p className="text-muted-foreground text-[11px]">{hint}</p>
+      ) : null}
+    </div>
+  );
+}
+
+function CallbackAgentRow({ agent }: { agent: TelephonyReportCallbackAgent }) {
+  return (
+    <TableRow>
+      <TableCell>
+        <p className="text-foreground text-sm">{agent.name}</p>
+        <p className="text-muted-foreground text-[11px]">
+          {roleText[agent.role] ?? agent.role}
+        </p>
+      </TableCell>
+      <TableCell className="text-right tabular-nums">{agent.claimed}</TableCell>
+      <TableCell className="text-right tabular-nums">{agent.done}</TableCell>
+      <TableCell className="text-right tabular-nums">
+        {formatCallDuration(agent.avgResponseSeconds)}
+      </TableCell>
+      <TableCell className="text-right tabular-nums">
+        {formatCallDuration(agent.avgResolutionSeconds)}
+      </TableCell>
+    </TableRow>
   );
 }
 

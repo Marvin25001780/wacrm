@@ -476,6 +476,19 @@ requiere el interruptor maestro de **Ajustes → Asistente de IA**.
   Caracas), tabla por agente y resultados por disposición. La API
   (`GET /api/telephony/reports?days=N`) devuelve como máximo 5 000
   llamadas y avisa cuando la ventana se truncó.
+- **Devoluciones y su SLA** (bloque 125): el mismo reporte añade las
+  solicitudes de la 122 creadas en la ventana: abiertas, atendidas,
+  canceladas, manuales y las que vienen de una llamada perdida. Mide el
+  **tiempo de respuesta** (alta → reclamo), el de **resolución**
+  (alta → cierre), la antigüedad de la devolución abierta más vieja, la
+  **tasa de recuperación** (atendidas / solicitadas) y el **SLA de
+  primera respuesta**. El objetivo es fijo en el código
+  (`CALLBACK_SLA_SECONDS`, 30 minutos) porque la 122 no tiene una
+  columna de configuración; se muestra en la pantalla para que el
+  equipo sepa contra qué se mide. Solo entran al SLA las devoluciones
+  que llegaron a reclamarse; las que nunca se reclamaron cuentan para
+  la recuperación. Hay una tabla por agente con reclamadas, atendidas y
+  ambos tiempos medios.
 - **Calidad (QA)** (admin+): en el detalle de una llamada contestada y
   cerrada, el supervisor puntúa cinco criterios de 0 a 5 y deja
   comentarios. El puntaje 0–100 aparece en el detalle, en la bitácora

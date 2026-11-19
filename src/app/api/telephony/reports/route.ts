@@ -3,11 +3,13 @@ import { NextResponse } from 'next/server';
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
 import { loadTelephonyRoster } from '@/lib/telephony/roster';
 import {
+  aggregateCallbacks,
   aggregateCalls,
   businessDayKey,
   BUSINESS_TIME_ZONE,
   mergeQaScores,
   type QaScoreRow,
+  type ReportCallbackRow,
   type ReportCallRow,
 } from '@/lib/telephony/reports';
 
@@ -64,6 +66,7 @@ export async function GET(request: Request) {
           daysSeries: [],
           hours: [],
           dispositions: [],
+          callbacks: aggregateCallbacks([], { now }),
           migrationMissing: true,
         });
       }
@@ -119,8 +122,43 @@ export async function GET(request: Request) {
 
     const reportWithQa = mergeQaScores(report, [...humanRows, ...aiRows]);
 
+    // Devoluciones (122): mismo periodo, por fecha de creación. Si la
+    // migración no está aplicada el reporte sigue funcionando y la UI
+    // avisa que falta; un error real no se silencia.
+    const callbacksResult = await ctx.supabase
+      .from('callback_requests')
+      .select(
+        'status, reason, created_at, claimed_at, completed_at, completed_by, assigned_user_id, source_call_id'
+      )
+      .eq('account_id', ctx.accountId)
+      .gte('created_at', from)
+      .order('created_at', { ascending: false })
+      .limit(MAX_ROWS + 1);
+
+    let callbacksMissing = false;
+    let callbacksTruncated = false;
+    let callbackRows: ReportCallbackRow[] = [];
+    if (callbacksResult.error) {
+      if (!isMissingRelation(callbacksResult.error)) throw callbacksResult.error;
+      callbacksMissing = true;
+    } else {
+      const all = (callbacksResult.data ?? []) as ReportCallbackRow[];
+      callbacksTruncated = all.length > MAX_ROWS;
+      callbackRows = callbacksTruncated ? all.slice(0, MAX_ROWS) : all;
+    }
+
     return NextResponse.json({
       ...reportWithQa,
+      callbacks: aggregateCallbacks(callbackRows, {
+        now,
+        roster: roster.map((member) => ({
+          user_id: member.user_id,
+          name: member.name,
+          role: member.role,
+        })),
+      }),
+      callbacksMissing,
+      callbacksTruncated,
       migrationMissing: false,
       truncated,
       rowLimit: MAX_ROWS,

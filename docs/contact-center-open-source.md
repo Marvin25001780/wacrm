@@ -82,6 +82,10 @@
     tiempo en su estado, transferencias sin aceptar y alertas (fuera de
     SLA, por vencer, pausas y cierres largos). Sin migración: lee lo que
     ya existe.
+17. **Reportes de devoluciones y SLA**: tiempo de respuesta y de
+    resolución, tasa de recuperación, cumplimiento del objetivo de
+    primera respuesta y desglose por agente. Tampoco necesita migración:
+    agrega la 122 en el reporte que ya existía.
 
 Nada de eso copia código de terceros: se usan SDKs Apache-2.0 y APIs.
 
@@ -92,7 +96,7 @@ Nada de eso copia código de terceros: se usan SDKs Apache-2.0 y APIs.
 | WEM 1 | **QA de llamadas**: rúbrica fija, puntaje por agente y reporte. | Nada (datos propios). ✅ Hecho (migración 114). |
 | CCaaS 1 | **ACD**: prioridad, habilidades, tiempo de timbrado y overflow. | LiveKit + troncal para probar de verdad. ✅ Parcial: espera máxima, timeout, prioridad/FIFO (116 y 118) y habilidades con desbordamiento por habilidad (119) listos; faltan prioridad por despacho avanzada y overflow a número externo (requiere transferencia SIP). |
 | CCaaS 2 | **Campañas salientes** (preview/progresivo) con lista y ritmo. | Troncal SIP. ✅ Parcial: CRUD de campañas + vínculo con llamadas (migración 117) listos; falta fan-out automático. |
-| CCaaS 3 | **Devoluciones de llamadas perdidas**: cola compartida, reclamo atómico, altas manuales y vínculo con la saliente. | Nada (datos propios). ✅ Hecho (migración 122). |
+| CCaaS 3 | **Devoluciones de llamadas perdidas**: cola compartida, reclamo atómico, altas manuales y vínculo con la saliente. | Nada (datos propios). ✅ Hecho (migración 122); reportes de respuesta, recuperación y SLA en el bloque 125. |
 | CCaaS 4 | **Transferencias internas**: agente→agente, devolución a la cola, timbre y tope de rebotes. | LiveKit + troncal para probar la voz; la lógica y la UI ya existen. ✅ Hecho (migración 123). |
 | CCaaS 5 | **Operación en vivo con SLA**: cola, espera máxima, agentes por estado, transferencias y alertas. | Nada (datos propios). ✅ Hecho (bloque 124, sin migración). |
 | IA 1 | **Agente de voz** (IVR/contestador) con LiveKit Agents. | Servidor LiveKit + API keys de STT/LLM/TTS. |
