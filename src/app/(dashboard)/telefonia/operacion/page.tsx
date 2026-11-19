@@ -69,6 +69,13 @@ import {
 /** Cada cuánto se pide el estado al servidor. */
 const REFRESH_MS = 5_000;
 
+/**
+ * Ventana para avisar de alguien marcado Disponible que se acaba de
+ * desconectar. Fuera de ella se asume que terminó su jornada: evita
+ * llenar el panel con miembros que no usan la telefonía.
+ */
+const RECENT_OFFLINE_MS = 15 * 60_000;
+
 const ROLE_LABEL: Record<string, string> = {
   owner: 'Dueño',
   admin: 'Admin',
@@ -291,17 +298,26 @@ export default function OperacionEnVivoPage() {
         });
       }
       if (agent.agent_status === 'available' && agent.presence === 'offline') {
-        list.push({
-          id: `ghost-${agent.user_id}`,
-          tone: 'warning',
-          title: `${agent.name} está Disponible pero desconectado`,
-          detail: 'No verá la cola hasta que vuelva a abrir el softphone.',
-        });
+        const lastSeenMs = agent.last_seen_at
+          ? Date.parse(agent.last_seen_at)
+          : NaN;
+        const recentlyOnline =
+          Number.isFinite(lastSeenMs) &&
+          nowTick - lastSeenMs <= RECENT_OFFLINE_MS;
+        if (recentlyOnline) {
+          list.push({
+            id: `ghost-${agent.user_id}`,
+            tone: 'warning',
+            title: `${agent.name} está Disponible pero desconectado`,
+            detail:
+              'Se desconectó hace menos de 15 minutos. No verá la cola hasta que vuelva a abrir el softphone.',
+          });
+        }
       }
     }
 
     return list;
-  }, [agents, data, queue, transfers]);
+  }, [agents, data, nowTick, queue, transfers]);
 
   if (authLoading) {
     return (
