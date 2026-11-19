@@ -121,6 +121,11 @@ export async function POST(request: Request) {
       metadata: { account_id: ctx.accountId, user_id: ctx.userId },
     });
 
+    const campaignContactId =
+      typeof body.campaignContactId === 'string'
+        ? body.campaignContactId.slice(0, 100)
+        : null;
+
     const { data: inserted, error: insertError } = await ctx.supabase
       .from('call_sessions')
       .insert({
@@ -143,10 +148,7 @@ export async function POST(request: Request) {
             typeof body.tabId === 'string'
               ? body.tabId.slice(0, 100)
               : undefined,
-          campaign_contact_id:
-            typeof body.campaignContactId === 'string'
-              ? body.campaignContactId.slice(0, 100)
-              : undefined,
+          campaign_contact_id: campaignContactId ?? undefined,
         },
       })
       .select('*')
@@ -174,6 +176,22 @@ export async function POST(request: Request) {
       actor_user_id: ctx.userId,
       payload: { to, room, contact_id: contactId },
     });
+
+    // Campaña (124): la llamada queda ligada al contacto que el agente
+    // reclamó. Si la 124 no está aplicada la llamada sigue, sin
+    // vínculo; cualquier otro fallo se registra y tampoco la corta.
+    if (campaignContactId) {
+      const { error: attachError } = await ctx.supabase.rpc(
+        'attach_campaign_call',
+        { p_contact_id: campaignContactId, p_call_id: call.id }
+      );
+      if (attachError && attachError.code !== '42883') {
+        console.warn(
+          '[telephony] no se pudo vincular el contacto de campaña:',
+          attachError
+        );
+      }
+    }
 
     // El agente queda ocupado en cuanto marca.
     await setAgentStatusRpc(ctx.supabase, 'busy', { source: 'system' });

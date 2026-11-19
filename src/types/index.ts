@@ -883,7 +883,9 @@ export interface TelephonyAdherenceRow {
   shifts: AgentShift[];
 }
 
-/** Campaña saliente (migración 117): lista de contactos a marcar. */
+/** Campaña saliente (migraciones 117 y 124). */
+export type OutboundCampaignStatus = 'active' | 'paused' | 'completed';
+
 export interface OutboundCampaign {
   id: string;
   account_id: string;
@@ -891,16 +893,47 @@ export interface OutboundCampaign {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+  /** 124 — active = en trabajo; paused = detenida por admin. */
+  status: OutboundCampaignStatus;
+  /** 124 — intentos permitidos por contacto (1–10). */
+  max_attempts: number;
+  completed_at: string | null;
 }
+
+/** Estado de un contacto dentro de la cola de la campaña. */
+export type OutboundCampaignContactStatus =
+  | 'pending'
+  | 'dialing'
+  | 'called'
+  | 'exhausted';
+
+/** Resultado del último intento (124). */
+export type CampaignAttemptOutcome =
+  | 'answered'
+  | 'missed'
+  | 'failed'
+  | 'cancelled'
+  | 'unknown';
 
 /** Contacto dentro de una campaña saliente. */
 export interface OutboundCampaignContact {
   id: string;
   campaign_id: string;
   contact_id: string;
-  status: 'pending' | 'called';
+  status: OutboundCampaignContactStatus;
   called_at: string | null;
   call_session_id: string | null;
+  /** 124 — intentos realizados. */
+  attempts: number;
+  last_attempt_at: string | null;
+  last_outcome: CampaignAttemptOutcome | null;
+  last_call_id: string | null;
+  /** 124 — agente que tiene la reserva (while `dialing`). */
+  assigned_user_id: string | null;
+  reserved_until: string | null;
+  /** Hidratado por GET /api/telephony/campaigns. */
+  contact_name?: string | null;
+  contact_phone?: string | null;
 }
 
 /** Campaña con sus contactos (GET /api/telephony/campaigns). */

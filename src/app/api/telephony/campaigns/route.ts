@@ -14,14 +14,15 @@ const MAX_CONTACTS_PER_CAMPAIGN = 1000;
 
 /**
  * GET /api/telephony/campaigns — campañas salientes del negocio
- * (solo admin+): cada una con sus contactos y su estado.
+ * (agente+): cada una con sus contactos, el nombre/teléfono y el
+ * estado de la cola (124).
  *
  * GET /api/telephony/campaigns/[id] — detalle de una campaña.
  */
 
 export async function GET() {
   try {
-    const ctx = await requireRole('admin');
+    const ctx = await requireRole('agent');
     const { supabase, accountId } = ctx;
 
     const { data: campaigns, error } = await supabase
@@ -38,24 +39,32 @@ export async function GET() {
 
     const contactRows = await supabase
       .from('outbound_campaign_contacts')
-      .select('*')
-      .in('campaign_id', list.map((c) => c.id));
+      .select('*, contact:contacts(id, name, phone)')
+      .in('campaign_id', list.map((c) => c.id))
+      .order('created_at', { ascending: true });
     if (contactRows.error) throw contactRows.error;
+
     const contactsByCampaign = new Map<string, OutboundCampaignContact[]>();
-    for (const row of (contactRows.data ?? []) as OutboundCampaignContact[]) {
-      const bucket = contactsByCampaign.get(row.campaign_id) ?? [];
-      bucket.push(row);
-      contactsByCampaign.set(row.campaign_id, bucket);
+    for (const raw of (contactRows.data ?? []) as Array<
+      OutboundCampaignContact & {
+        contact?: { id: string; name: string | null; phone: string | null } | null;
+      }
+    >) {
+      const { contact, ...rest } = raw;
+      const bucket = contactsByCampaign.get(rest.campaign_id) ?? [];
+      bucket.push({
+        ...rest,
+        contact_name: contact?.name ?? null,
+        contact_phone: contact?.phone ?? null,
+      });
+      contactsByCampaign.set(rest.campaign_id, bucket);
     }
 
-    const enriched = await Promise.all(
-      list.map(async (campaign) => ({
-        ...campaign,
-        contacts: contactsByCampaign.get(campaign.id) ?? [],
-      }))
-    );
+    const enriched = list.map((campaign) => ({
+      ...campaign,
+      contacts: contactsByCampaign.get(campaign.id) ?? [],
+    }));
 
-    // El detalle puede traer la campaña sin contactos (recién creada).
     return NextResponse.json({ campaigns: enriched });
   } catch (err) {
     return toErrorResponse(err);
@@ -108,6 +117,24 @@ export async function POST(request: Request) {
       );
     }
 
+    // 124 — intentos por contacto. Sin valor se usan 3.
+    const rawMaxAttempts = body.maxAttempts;
+    const maxAttempts =
+      rawMaxAttempts === undefined || rawMaxAttempts === null
+        ? 3
+        : Number(rawMaxAttempts);
+    if (
+      !Number.isFinite(maxAttempts) ||
+      Math.floor(maxAttempts) !== maxAttempts ||
+      maxAttempts < 1 ||
+      maxAttempts > 10
+    ) {
+      return NextResponse.json(
+        { error: 'Los intentos por contacto deben ser un entero entre 1 y 10.' },
+        { status: 400 }
+      );
+    }
+
     const db: SupabaseClient = ctx.supabase;
     const { data: owned, error: lookupError } = await db
       .from('contacts')
@@ -128,7 +155,13 @@ export async function POST(request: Request) {
 
     const { data: campaign, error: insertError } = await db
       .from('outbound_campaigns')
-      .insert({ account_id: ctx.accountId, name, created_by: ctx.userId })
+      .insert({
+        account_id: ctx.accountId,
+        name,
+        created_by: ctx.userId,
+        status: 'active',
+        max_attempts: maxAttempts,
+      })
       .select('*')
       .single();
     if (insertError) throw insertError;

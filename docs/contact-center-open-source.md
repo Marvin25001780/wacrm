@@ -67,8 +67,9 @@
    con la misma rúbrica y validación del JSON en el servidor.
 10. **ACD v1**: espera máxima en cola por negocio, barrido perezoso,
     timeout de la entrante y liberación de sala.
-11. **Campañas salientes** (preview): lista de contactos por campaña y
-    vínculo con las llamadas salientes (estado pending/called).
+11. **Campañas salientes**: lista por campaña, cola con reclamo
+    atómico del siguiente contacto, reservas con vencimiento, intentos
+    por contacto y cierre automático de la campaña (117 y 124).
 12. **ACD v2**: habilidades por agente, requisito por cola y
     desbordamiento local por habilidad.
 13. **WEM**: turnos semanales, bitácora de estados con motivo de pausa,
@@ -95,7 +96,7 @@ Nada de eso copia código de terceros: se usan SDKs Apache-2.0 y APIs.
 | --- | --- | --- |
 | WEM 1 | **QA de llamadas**: rúbrica fija, puntaje por agente y reporte. | Nada (datos propios). ✅ Hecho (migración 114). |
 | CCaaS 1 | **ACD**: prioridad, habilidades, tiempo de timbrado y overflow. | LiveKit + troncal para probar de verdad. ✅ Parcial: espera máxima, timeout, prioridad/FIFO (116 y 118) y habilidades con desbordamiento por habilidad (119) listos; faltan prioridad por despacho avanzada y overflow a número externo (requiere transferencia SIP). |
-| CCaaS 2 | **Campañas salientes** (preview/progresivo) con lista y ritmo. | Troncal SIP. ✅ Parcial: CRUD de campañas + vínculo con llamadas (migración 117) listos; falta fan-out automático. |
+| CCaaS 2 | **Campañas salientes** (preview/progresivo) con lista y ritmo. | Troncal SIP. ✅ Casi hecho: cola con siguiente contacto, reservas, intentos por contacto y cierre automático (migración 124). Falta el fan-out automático y la voz real. |
 | CCaaS 3 | **Devoluciones de llamadas perdidas**: cola compartida, reclamo atómico, altas manuales y vínculo con la saliente. | Nada (datos propios). ✅ Hecho (migración 122); reportes de respuesta, recuperación y SLA en el bloque 125. |
 | CCaaS 4 | **Transferencias internas**: agente→agente, devolución a la cola, timbre y tope de rebotes. | LiveKit + troncal para probar la voz; la lógica y la UI ya existen. ✅ Hecho (migración 123). |
 | CCaaS 5 | **Operación en vivo con SLA**: cola, espera máxima, agentes por estado, transferencias y alertas. | Nada (datos propios). ✅ Hecho (bloque 124, sin migración). |

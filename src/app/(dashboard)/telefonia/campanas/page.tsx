@@ -1,36 +1,65 @@
 'use client';
 
 // ============================================================
-// Campañas salientes — v1 preview (migración 117).
+// Campañas salientes (migraciones 117 y 124).
 //
-// Una campaña agrupa contactos a los que el equipo va a marcar por
-// el softphone. V1 no hace fan-out automático: el admin arma la
-// lista y cada contacto se marca con el flujo normal de llamadas
-// (startCall → claim → answer → disposition). Al colgar, el contacto
-// pasa a `called` y la campaña registra el estado.
+// La campaña es una cola de trabajo. El agente pulsa "Siguiente
+// contacto": el CRM reclama el próximo pendiente de forma atómica y
+// abre el softphone en un solo paso. Al terminar la llamada, el
+// intento se cuenta; si no contestaron vuelve a la cola mientras le
+// queden intentos (`max_attempts`).
+//
+// Sin troncal SIP la llamada real no se puede probar, pero la cola,
+// las reservas y los intentos sí funcionan.
 // ============================================================
 
 import { useCallback, useEffect, useState } from 'react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { toast } from 'sonner';
-import { Loader2, Phone, Plus, Trash2 } from 'lucide-react';
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Loader2,
+  Pause,
+  Phone,
+  Play,
+  Plus,
+  RefreshCw,
+  SkipForward,
+  Trash2,
+} from 'lucide-react';
 
 import { Panel } from '@/components/metrics/panel';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 import { useAuth } from '@/hooks/use-auth';
 import { useTelephony } from '@/components/telephony/telephony-provider';
+import {
+  attemptsLabel,
+  campaignContactStatusLabel,
+  campaignOutcomeLabel,
+  campaignProgress,
+  campaignStatusLabel,
+  isCampaignOpen,
+} from '@/lib/telephony/campaigns';
+import { cn } from '@/lib/utils';
 import type {
   OutboundCampaign,
   OutboundCampaignContact,
 } from '@/types';
 
 interface CampaignContactRow extends OutboundCampaignContact {
-  contact_id: string;
   contact_name: string | null;
   contact_phone: string | null;
 }
@@ -46,24 +75,39 @@ interface ContactOption {
   phone_normalized: string | null;
 }
 
-const STATUS_LABEL: Record<string, string> = {
-  pending: 'Pendiente',
-  called: 'Llamada registrada',
+const CONTACT_BADGE: Record<string, string> = {
+  pending: 'border-border text-muted-foreground',
+  dialing:
+    'border-primary/40 bg-primary/10 text-primary dark:bg-primary/15',
+  called:
+    'border-emerald-300/60 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300',
+  exhausted:
+    'border-amber-300/60 bg-amber-50 text-amber-800 dark:bg-amber-950/30 dark:text-amber-200',
 };
 
+function formatMoment(iso: string | null): string {
+  if (!iso) return '—';
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '—';
+  return format(date, 'dd/MM/yyyy HH:mm', { locale: es });
+}
+
 export default function CampanasPage() {
-  const { isAdmin, accountRole } = useAuth();
+  const { accountRole } = useAuth();
   const { startCall, callable } = useTelephony();
+  const canManage = accountRole === 'admin' || accountRole === 'owner';
+  const canWork = canManage || accountRole === 'agent';
 
   const [campaigns, setCampaigns] = useState<CampaignWithContacts[]>([]);
   const [loading, setLoading] = useState(true);
   const [contacts, setContacts] = useState<ContactOption[]>([]);
   const [contactsLoading, setContactsLoading] = useState(true);
   const [campaignName, setCampaignName] = useState('');
+  const [maxAttempts, setMaxAttempts] = useState('3');
   const [selectedContactIds, setSelectedContactIds] = useState<string[]>([]);
   const [creating, setCreating] = useState(false);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [callingId, setCallingId] = useState<string | null>(null);
+  const [actionId, setActionId] = useState<string | null>(null);
+  const [workingId, setWorkingId] = useState<string | null>(null);
 
   const loadCampaigns = useCallback(async () => {
     try {
@@ -72,22 +116,26 @@ export default function CampanasPage() {
         campaigns?: CampaignWithContacts[];
         error?: string;
       };
-      if (res.ok && body.campaigns) {
-        setCampaigns(body.campaigns);
+      if (!res.ok) {
+        toast.error(body.error ?? 'No se pudieron cargar las campañas.');
+        return;
       }
+      setCampaigns(body.campaigns ?? []);
     } catch {
-      // Sin red: se conserva la lista anterior.
+      toast.error('Sin conexión: no se pudieron cargar las campañas.');
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
+    if (!canWork) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadCampaigns();
-  }, [loadCampaigns]);
+  }, [canWork, loadCampaigns]);
 
   useEffect(() => {
+    if (!canManage) return;
     const loadContacts = async () => {
       try {
         const res = await fetch('/api/telephony/campaigns/contacts', {
@@ -98,14 +146,13 @@ export default function CampanasPage() {
         };
         if (res.ok && body.contacts) setContacts(body.contacts);
       } catch {
-        // El alta de campañas puede quedar con la lista anterior.
+        // La creación queda con la lista anterior.
       } finally {
         setContactsLoading(false);
       }
     };
-    if (accountRole !== 'admin' && accountRole !== 'owner') return;
     void loadContacts();
-  }, [accountRole]);
+  }, [canManage]);
 
   const toggleContact = (id: string) => {
     setSelectedContactIds((current) =>
@@ -114,6 +161,11 @@ export default function CampanasPage() {
   };
 
   const createCampaign = async () => {
+    const attempts = Number(maxAttempts);
+    if (!Number.isInteger(attempts) || attempts < 1 || attempts > 10) {
+      toast.error('Los intentos por contacto deben ser un número entre 1 y 10.');
+      return;
+    }
     if (!campaignName.trim() || selectedContactIds.length === 0) {
       toast.error('Pon un nombre y elige al menos un contacto.');
       return;
@@ -126,11 +178,11 @@ export default function CampanasPage() {
         body: JSON.stringify({
           name: campaignName.trim(),
           contactIds: selectedContactIds,
+          maxAttempts: attempts,
         }),
       });
       const body = (await res.json().catch(() => ({}))) as {
         error?: string;
-        campaign?: CampaignWithContacts;
       };
       if (!res.ok) {
         toast.error(body.error ?? 'No se pudo crear la campaña.');
@@ -140,15 +192,52 @@ export default function CampanasPage() {
       setSelectedContactIds([]);
       await loadCampaigns();
       toast.success('Campaña creada.');
+    } catch {
+      toast.error('Sin conexión: no se pudo crear la campaña.');
     } finally {
       setCreating(false);
     }
   };
 
-  const deleteCampaign = async (id: string) => {
-    setDeletingId(id);
+  const updateCampaign = async (
+    campaignId: string,
+    patch: Record<string, unknown>,
+    successMessage: string
+  ) => {
+    setActionId(campaignId);
     try {
-      const res = await fetch(`/api/telephony/campaigns/${id}`, {
+      const res = await fetch(`/api/telephony/campaigns/${campaignId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+      });
+      const body = (await res.json().catch(() => ({}))) as {
+        error?: string;
+      };
+      if (!res.ok) {
+        toast.error(body.error ?? 'No se pudo actualizar la campaña.');
+        return;
+      }
+      await loadCampaigns();
+      toast.success(successMessage);
+    } catch {
+      toast.error('Sin conexión: no se pudo actualizar la campaña.');
+    } finally {
+      setActionId(null);
+    }
+  };
+
+  const deleteCampaign = async (campaign: CampaignWithContacts) => {
+    if (
+      !window.confirm(
+        `¿Eliminar la campaña "${campaign.name}"? Las llamadas ya hechas se conservan en el historial.`
+      )
+    ) {
+      return;
+    }
+    setActionId(campaign.id);
+    try {
+      const res = await fetch(`/api/telephony/campaigns/${campaign.id}`, {
         method: 'DELETE',
       });
       if (!res.ok) {
@@ -157,243 +246,526 @@ export default function CampanasPage() {
       }
       await loadCampaigns();
       toast.success('Campaña eliminada.');
+    } catch {
+      toast.error('Sin conexión: no se pudo eliminar la campaña.');
     } finally {
-      setDeletingId(null);
+      setActionId(null);
     }
   };
 
-  const callContact = async (contact: CampaignContactRow) => {
-    const to = contact.contact_phone;
-    if (!to) {
-      toast.error('El contacto no tiene teléfono.');
-      return;
-    }
-    setCallingId(contact.id);
+  const releaseContact = async (campaignId: string, contactId: string) => {
     try {
-      const ok = await startCall(to, {
+      await fetch(`/api/telephony/campaigns/${campaignId}/release`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contactId }),
+      });
+    } catch {
+      // La reserva vence sola a los 2 minutos.
+    }
+  };
+
+  const callNext = async (campaign: CampaignWithContacts) => {
+    setWorkingId(campaign.id);
+    try {
+      const res = await fetch(
+        `/api/telephony/campaigns/${campaign.id}/next`,
+        { method: 'POST' }
+      );
+      const body = (await res.json().catch(() => ({}))) as {
+        contact?: CampaignContactRow | null;
+        error?: string;
+      };
+      if (!res.ok) {
+        toast.error(body.error ?? 'No se pudo tomar el siguiente contacto.');
+        await loadCampaigns();
+        return;
+      }
+
+      const contact = body.contact ?? null;
+      if (!contact) {
+        toast.info('No quedan contactos pendientes en esta campaña.');
+        await loadCampaigns();
+        return;
+      }
+      if (!contact.contact_phone) {
+        await releaseContact(campaign.id, contact.id);
+        toast.error('El contacto no tiene teléfono; volvió a la cola.');
+        await loadCampaigns();
+        return;
+      }
+
+      const started = await startCall(contact.contact_phone, {
         contactId: contact.contact_id,
         campaignContactId: contact.id,
       });
-      if (ok) toast.success('Llamada saliente iniciada desde la campaña.');
+      if (!started) {
+        await releaseContact(campaign.id, contact.id);
+        toast.error('No se pudo iniciar la llamada; el contacto vuelve a la cola.');
+      } else {
+        toast.success(
+          `Marcando a ${contact.contact_name ?? contact.contact_phone}…`
+        );
+      }
+      await loadCampaigns();
+    } catch {
+      toast.error('Sin conexión: no se pudo tomar el siguiente contacto.');
     } finally {
-      setCallingId(null);
+      setWorkingId(null);
     }
   };
 
-  if (!isAdmin) {
+  if (!canWork) {
     return (
       <Panel title="Campañas salientes">
         <p className="text-muted-foreground text-sm">
-          Solo admin+ gestiona campañas. Tu rol es {accountRole}.
+          Solo agentes y administradores trabajan campañas. Tu rol es{' '}
+          {accountRole}.
         </p>
       </Panel>
     );
   }
 
+  const activeCampaigns = campaigns.filter((campaign) =>
+    isCampaignOpen(campaign.status)
+  );
+  const migrationMissing =
+    campaigns.length > 0 && campaigns.some((campaign) => !campaign.status);
+
   return (
     <div className="space-y-6">
-      <Panel
-        title="Campañas salientes"
-        subtitle="V1 preview: arma la lista y marca desde el softphone. Las llamadas van por LiveKit → SIP con la troncal."
-      >
-        <div className="space-y-4">
-          <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
-            <div className="space-y-1.5">
-              <Label htmlFor="campaign-name">Nombre</Label>
-              <Input
-                id="campaign-name"
-                placeholder="Campaña de renovación"
-                value={campaignName}
-                onChange={(event) => setCampaignName(event.target.value)}
-              />
-            </div>
-            <Button
-              onClick={() => void createCampaign()}
-              disabled={creating || campaignName.trim().length === 0 || selectedContactIds.length === 0}
-              className="bg-primary text-primary-foreground hover:bg-primary/90"
-            >
-              {creating ? (
-                <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-              ) : (
-                <Plus className="mr-1.5 h-4 w-4" />
-              )}
-              Crear campaña
-            </Button>
-          </div>
-
-          <div className="space-y-1.5">
-            <Label>
-              Contactos ({selectedContactIds.length} seleccionados)
-            </Label>
-            <div className="border-border max-h-56 overflow-auto rounded-lg border">
-              {contactsLoading ? (
-                <p className="text-muted-foreground p-3 text-sm">
-                  Cargando contactos…
-                </p>
-              ) : contacts.length === 0 ? (
-                <p className="text-muted-foreground p-3 text-sm">
-                  Sin contactos para este negocio todavía.
-                </p>
-              ) : (
-                <ul className="divide-y">
-                  {contacts.map((contact) => (
-                    <li
-                      key={contact.id}
-                      className="hover:bg-muted/50 flex cursor-pointer items-center gap-2 p-2"
-                      onClick={() =>
-                        setSelectedContactIds((current) =>
-                          current.includes(contact.id)
-                            ? current.filter((id) => id !== contact.id)
-                            : [...current, contact.id]
-                        )
-                      }
-                    >
-                      <input
-                        id={`contact-${contact.id}`}
-                        type="checkbox"
-                        checked={selectedContactIds.includes(contact.id)}
-                        onChange={() => toggleContact(contact.id)}
-                        className="h-4 w-4"
-                      />
-                      <label htmlFor={`contact-${contact.id}`} className="flex-1 text-sm">
-                        {contact.name ?? 'Sin nombre'}
-                        <span className="text-muted-foreground ml-2 font-mono text-xs">
-                          {contact.phone_normalized ?? contact.phone ?? ''}
-                        </span>
-                      </label>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          </div>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="text-foreground text-lg font-semibold">
+            Campañas salientes
+          </h2>
+          <p className="text-muted-foreground mt-1 max-w-2xl text-sm">
+            El siguiente contacto se reclama y se marca en un solo paso. Al
+            colgar, el intento se cuenta: si no contestaron, vuelve a la cola
+            mientras le queden intentos.
+          </p>
         </div>
-      </Panel>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => void loadCampaigns()}
+          disabled={loading}
+        >
+          {loading ? (
+            <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+          )}
+          Actualizar
+        </Button>
+      </div>
+
+      {migrationMissing ? (
+        <div className="flex items-start gap-3 rounded-xl border border-amber-300/60 bg-amber-50 p-4 text-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+          <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
+          <p className="text-sm">
+            Falta aplicar la migración{' '}
+            <code className="text-foreground">124_campaign_progressive.sql</code>
+            . Las campañas existentes se ven, pero no se pueden trabajar hasta
+            aplicarla.
+          </p>
+        </div>
+      ) : null}
+
+      {canManage ? (
+        <Panel
+          title="Nueva campaña"
+          subtitle="El admin arma la lista; los agentes la trabajan con Siguiente contacto."
+        >
+          <div className="space-y-4">
+            <div className="grid gap-3 md:grid-cols-[1fr_140px_auto] md:items-end">
+              <div className="space-y-1.5">
+                <Label htmlFor="campaign-name">Nombre</Label>
+                <Input
+                  id="campaign-name"
+                  placeholder="Campaña de renovación"
+                  value={campaignName}
+                  onChange={(event) => setCampaignName(event.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="campaign-attempts">Intentos</Label>
+                <Input
+                  id="campaign-attempts"
+                  type="number"
+                  min={1}
+                  max={10}
+                  value={maxAttempts}
+                  onChange={(event) => setMaxAttempts(event.target.value)}
+                />
+              </div>
+              <Button
+                onClick={() => void createCampaign()}
+                disabled={
+                  creating ||
+                  campaignName.trim().length === 0 ||
+                  selectedContactIds.length === 0
+                }
+                className="bg-primary text-primary-foreground hover:bg-primary/90"
+              >
+                {creating ? (
+                  <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                ) : (
+                  <Plus className="mr-1.5 h-4 w-4" />
+                )}
+                Crear campaña
+              </Button>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>
+                Contactos ({selectedContactIds.length} seleccionados)
+              </Label>
+              <div className="border-border max-h-56 overflow-auto rounded-lg border">
+                {contactsLoading ? (
+                  <p className="text-muted-foreground p-3 text-sm">
+                    Cargando contactos…
+                  </p>
+                ) : contacts.length === 0 ? (
+                  <p className="text-muted-foreground p-3 text-sm">
+                    Sin contactos para este negocio todavía.
+                  </p>
+                ) : (
+                  <ul className="divide-border divide-y">
+                    {contacts.map((contact) => (
+                      <li
+                        key={contact.id}
+                        className="hover:bg-muted/50 flex cursor-pointer items-center gap-2 p-2"
+                        onClick={() => toggleContact(contact.id)}
+                      >
+                        <input
+                          id={`contact-${contact.id}`}
+                          type="checkbox"
+                          checked={selectedContactIds.includes(contact.id)}
+                          onChange={() => toggleContact(contact.id)}
+                          className="h-4 w-4"
+                        />
+                        <label
+                          htmlFor={`contact-${contact.id}`}
+                          className="flex-1 text-sm"
+                        >
+                          {contact.name ?? 'Sin nombre'}
+                          <span className="text-muted-foreground ml-2 font-mono text-xs">
+                            {contact.phone_normalized ?? contact.phone ?? ''}
+                          </span>
+                        </label>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+          </div>
+        </Panel>
+      ) : null}
 
       <Panel
-        title="Campañas"
-        subtitle="Cada campaña lista los contactos que el equipo va a marcar."
+        title="Campañas activas"
+        subtitle="Cada campaña activa tiene una cola propia; el trabajo se reparte solo entre los agentes que piden el siguiente contacto."
       >
         {loading ? (
           <p className="text-muted-foreground flex items-center gap-2 text-sm">
             <Loader2 className="h-4 w-4 animate-spin" /> Cargando campañas…
           </p>
-        ) : campaigns.length === 0 ? (
+        ) : activeCampaigns.length === 0 ? (
           <p className="text-muted-foreground text-sm">
-            Todavía no hay campañas salientes para este negocio.
+            No hay campañas activas. Cuando el admin cree una o reanude una
+            pausada, aparecerá aquí.
           </p>
         ) : (
-          <div className="space-y-6">
-            {campaigns.map((campaign) => {
-              const pending = campaign.contacts.filter(
-                (contact) => contact.status === 'pending'
-              ).length;
-              const called = campaign.contacts.filter(
-                (contact) => contact.status === 'called'
-              ).length;
+          <div className="grid gap-3 lg:grid-cols-2">
+            {activeCampaigns.map((campaign) => {
+              const progress = campaignProgress(campaign.contacts);
+              const working = workingId === campaign.id;
               return (
                 <div
                   key={campaign.id}
                   className="border-border rounded-xl border p-4"
                 >
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div>
-                      <p className="text-foreground text-sm font-semibold">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-foreground truncate text-sm font-semibold">
                         {campaign.name}
                       </p>
-                      <p className="text-muted-foreground text-xs">
-                        {format(new Date(campaign.created_at), 'dd/MM/yyyy HH:mm', {
-                          locale: es,
-                        })}
+                      <p className="text-muted-foreground text-[11px]">
+                        {progress.called} contactados · {progress.exhausted} sin
+                        intentos · {progress.pending} pendientes
+                        {progress.dialing > 0
+                          ? ` · ${progress.dialing} marcando`
+                          : ''}
                       </p>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <Badge variant="outline">{pending} pendientes</Badge>
-                      <Badge variant="outline">{called} llamadas</Badge>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={deletingId === campaign.id}
-                        onClick={() => void deleteCampaign(campaign.id)}
-                        className="border-border"
-                      >
-                        {deletingId === campaign.id ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Trash2 className="h-4 w-4" />
-                        )}
-                      </Button>
-                    </div>
+                    <Badge variant="outline">
+                      {progress.percent}% cerrada
+                    </Badge>
                   </div>
 
-                  {campaign.contacts.length > 0 ? (
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Contacto</TableHead>
-                          <TableHead>Teléfono</TableHead>
-                          <TableHead>Estado</TableHead>
-                          <TableHead className="text-right">Acción</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {campaign.contacts.map((contact) => (
-                          <TableRow key={contact.id}>
-                            <TableCell className="text-foreground">
-                              {contact.contact_name ?? 'Sin nombre'}
-                            </TableCell>
-                            <TableCell className="font-mono text-xs">
-                              {contact.contact_phone ?? '—'}
-                            </TableCell>
-                            <TableCell>
-                              <Badge
-                                variant={
-                                  contact.status === 'called' ? 'default' : 'secondary'
-                                }
-                              >
-                                {STATUS_LABEL[contact.status] ?? contact.status}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="text-right">
-                              {contact.status === 'pending' ? (
-                                <Button
-                                  size="sm"
-                                  disabled={!callable || callingId === contact.id}
-                                  onClick={() => void callContact(contact)}
-                                  className="bg-primary text-primary-foreground hover:bg-primary/90"
-                                >
-                                  {callingId === contact.id ? (
-                                    <Loader2 className="h-4 w-4 animate-spin" />
-                                  ) : (
-                                    <Phone className="h-4 w-4" />
-                                  )}
-                                  <span className="ml-1.5">Marcar</span>
-                                </Button>
-                              ) : (
-                                <span className="text-muted-foreground text-xs">
-                                  {contact.called_at
-                                    ? format(new Date(contact.called_at), 'dd/MM/yyyy HH:mm', {
-                                        locale: es,
-                                      })
-                                    : '—'}
-                                </span>
-                              )}
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  ) : (
-                    <p className="text-muted-foreground mt-3 text-sm">
-                      Esta campaña todavía no tiene contactos asignados.
+                  <div className="bg-muted mt-3 h-2 overflow-hidden rounded-full">
+                    <div
+                      className="bg-primary h-full rounded-full"
+                      style={{ width: `${progress.percent}%` }}
+                    />
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-muted-foreground text-[11px]">
+                      Hasta {campaign.max_attempts} intentos por contacto
                     </p>
-                  )}
+                    <Button
+                      size="sm"
+                      onClick={() => void callNext(campaign)}
+                      disabled={!callable || working || progress.pending === 0}
+                      title={
+                        callable
+                          ? undefined
+                          : 'La telefonía (LiveKit + troncal) no está configurada.'
+                      }
+                      className="bg-primary text-primary-foreground hover:bg-primary/90"
+                    >
+                      {working ? (
+                        <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                      ) : (
+                        <SkipForward className="mr-1.5 h-4 w-4" />
+                      )}
+                      Siguiente contacto
+                    </Button>
+                  </div>
+
+                  {!callable ? (
+                    <p className="mt-2 flex items-start gap-1.5 text-[11px] text-amber-700 dark:text-amber-300">
+                      <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+                      Sin LiveKit ni troncal SIP no se puede marcar. La cola y
+                      los intentos quedan listos.
+                    </p>
+                  ) : null}
                 </div>
               );
             })}
           </div>
         )}
       </Panel>
+
+      {canManage ? (
+        <Panel
+          title="Administrar campañas"
+          subtitle="Pausa, reanuda o cierra la campaña y revisa el detalle de cada contacto."
+          bodyClassName="p-0"
+        >
+          {loading ? (
+            <p className="text-muted-foreground p-5 text-sm">Cargando…</p>
+          ) : campaigns.length === 0 ? (
+            <p className="text-muted-foreground p-5 text-sm">
+              Todavía no hay campañas salientes para este negocio.
+            </p>
+          ) : (
+            <div className="divide-border divide-y">
+              {campaigns.map((campaign) => {
+                const progress = campaignProgress(campaign.contacts);
+                const busy = actionId === campaign.id;
+                return (
+                  <details key={campaign.id} className="group">
+                    <summary className="flex cursor-pointer flex-wrap items-center justify-between gap-2 px-5 py-3">
+                      <div className="min-w-0">
+                        <p className="text-foreground flex items-center gap-2 text-sm font-medium">
+                          {campaign.name}
+                          <Badge
+                            variant={
+                              campaign.status === 'active'
+                                ? 'default'
+                                : 'secondary'
+                            }
+                          >
+                            {campaignStatusLabel(campaign.status)}
+                          </Badge>
+                        </p>
+                        <p className="text-muted-foreground text-[11px]">
+                          {formatMoment(campaign.created_at)} ·{' '}
+                          {progress.closed}/{progress.total} cerrados ·{' '}
+                          {campaign.max_attempts} intentos
+                        </p>
+                      </div>
+                      <span className="text-muted-foreground text-[11px]">
+                        {progress.percent}%
+                      </span>
+                    </summary>
+
+                    <div className="flex flex-wrap items-center gap-2 px-5 pb-3">
+                      {campaign.status === 'active' ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={busy}
+                          onClick={() =>
+                            void updateCampaign(
+                              campaign.id,
+                              { status: 'paused' },
+                              'Campaña pausada.'
+                            )
+                          }
+                        >
+                          <Pause className="mr-1.5 h-3.5 w-3.5" /> Pausar
+                        </Button>
+                      ) : null}
+                      {campaign.status === 'paused' ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={busy}
+                          onClick={() =>
+                            void updateCampaign(
+                              campaign.id,
+                              { status: 'active' },
+                              'Campaña reanudada.'
+                            )
+                          }
+                        >
+                          <Play className="mr-1.5 h-3.5 w-3.5" /> Reanudar
+                        </Button>
+                      ) : null}
+                      {campaign.status !== 'completed' ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={busy}
+                          onClick={() => {
+                            if (
+                              !window.confirm(
+                                `¿Cerrar "${campaign.name}"? Los pendientes dejarán de trabajarse.`
+                              )
+                            ) {
+                              return;
+                            }
+                            void updateCampaign(
+                              campaign.id,
+                              { status: 'completed' },
+                              'Campaña completada.'
+                            );
+                          }}
+                        >
+                          <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />{' '}
+                          Completar
+                        </Button>
+                      ) : null}
+
+                      <label className="text-muted-foreground flex items-center gap-1.5 text-[11px]">
+                        Intentos
+                        <select
+                          className="border-input bg-background h-8 rounded-md border px-2 text-xs"
+                          value={campaign.max_attempts}
+                          disabled={busy}
+                          onChange={(event) =>
+                            void updateCampaign(
+                              campaign.id,
+                              { maxAttempts: Number(event.target.value) },
+                              'Intentos actualizados.'
+                            )
+                          }
+                        >
+                          {Array.from({ length: 10 }, (_, index) => index + 1).map(
+                            (value) => (
+                              <option key={value} value={value}>
+                                {value}
+                              </option>
+                            )
+                          )}
+                        </select>
+                      </label>
+
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={busy}
+                        onClick={() => void deleteCampaign(campaign)}
+                        className="ml-auto"
+                      >
+                        {busy ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Trash2 className="h-3.5 w-3.5" />
+                        )}
+                      </Button>
+                    </div>
+
+                    {campaign.contacts.length === 0 ? (
+                      <p className="text-muted-foreground px-5 pb-4 text-sm">
+                        Esta campaña todavía no tiene contactos.
+                      </p>
+                    ) : (
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Contacto</TableHead>
+                            <TableHead>Teléfono</TableHead>
+                            <TableHead>Estado</TableHead>
+                            <TableHead>Intentos</TableHead>
+                            <TableHead>Último resultado</TableHead>
+                            <TableHead>Último intento</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {campaign.contacts.map((contact) => {
+                            const attempts = attemptsLabel({
+                              attempts: contact.attempts,
+                              maxAttempts: campaign.max_attempts,
+                            });
+                            return (
+                              <TableRow key={contact.id}>
+                                <TableCell className="text-foreground">
+                                  {contact.contact_name ?? 'Sin nombre'}
+                                </TableCell>
+                                <TableCell className="font-mono text-xs">
+                                  {contact.contact_phone ?? '—'}
+                                </TableCell>
+                                <TableCell>
+                                  <Badge
+                                    variant="outline"
+                                    className={cn(
+                                      CONTACT_BADGE[contact.status]
+                                    )}
+                                  >
+                                    {campaignContactStatusLabel(contact.status)}
+                                  </Badge>
+                                </TableCell>
+                                <TableCell className="tabular-nums">
+                                  {attempts ?? (
+                                    <span className="text-muted-foreground">
+                                      —
+                                    </span>
+                                  )}
+                                </TableCell>
+                                <TableCell className="text-xs">
+                                  {contact.last_outcome
+                                    ? campaignOutcomeLabel(contact.last_outcome)
+                                    : '—'}
+                                </TableCell>
+                                <TableCell className="text-muted-foreground text-xs">
+                                  {formatMoment(contact.last_attempt_at)}
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })}
+                        </TableBody>
+                      </Table>
+                    )}
+                  </details>
+                );
+              })}
+            </div>
+          )}
+        </Panel>
+      ) : null}
+
+      {!canManage ? (
+        <p className="text-muted-foreground flex items-center gap-1.5 text-xs">
+          <Phone className="h-3 w-3" />
+          El teléfono aparece al reclamar el siguiente contacto.
+        </p>
+      ) : null}
     </div>
   );
 }

@@ -221,24 +221,25 @@ export async function finalizeCall(args: {
     );
   }
 
-  // Si la llamada salió de una campaña saliente, el vínculo queda
-  // registrado en el contacto de campaña (status → called).
+  // Si la llamada salió de una campaña saliente (124), se cierra el
+  // intento en la función atómica: cuenta el intento, deja el
+  // contacto como contactado o lo devuelve a la cola mientras le
+  // queden intentos. Repetir el cierre no infla el contador porque la
+  // función solo actúa sobre contactos en `dialing`.
   const campaignContactId =
     typeof call.metadata?.campaign_contact_id === 'string'
       ? (call.metadata.campaign_contact_id as string)
       : null;
   if (campaignContactId) {
-    const { error: campaignError } = await db
-      .from('outbound_campaign_contacts')
-      .update({
-        status: 'called',
-        called_at: endedAt,
-        call_session_id: call.id,
-      })
-      .eq('id', campaignContactId);
-    if (campaignError) {
+    const outcome = call.answered_at ? 'answered' : status;
+    const { error: campaignError } = await db.rpc('record_campaign_attempt', {
+      p_contact_id: campaignContactId,
+      p_call_id: call.id,
+      p_outcome: outcome,
+    });
+    if (campaignError && campaignError.code !== '42883') {
       console.warn(
-        '[telephony] no se pudo marcar el contacto de campaña:',
+        '[telephony] no se pudo cerrar el intento de campaña:',
         campaignError
       );
     }

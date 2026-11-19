@@ -364,7 +364,7 @@ cierra por la salida de un agente.
 > Todo esto se prueba de punta a punta con LiveKit y troncal. Sin ellos
 > la UI no ofrece transferir (no hay llamada real que mover).
 
-### 3.10 Operación en vivo con SLA (bloque 124)
+### 3.10 Operación en vivo con SLA (sin migración)
 
 `/telefonia/operacion` (admin+) es un panel de solo lectura que se
 refresca cada 5 segundos. **No requiere migración**: lee la cola, la
@@ -401,6 +401,49 @@ cifra.
 
 > El panel no contesta ni despacha llamadas: eso sigue siendo el
 > softphone y su claim atómico.
+
+### 3.11 Campañas con siguiente contacto (migración 124)
+
+La 117 dejó las campañas en modo *preview*: el admin armaba la lista y
+marcaba contacto por contacto. La 124 las convierte en una cola de
+trabajo:
+
+```
+pending --reclamar--> dialing --(llamada)--> called
+                        |                     exhausted
+                        +--soltar--> pending
+```
+
+1. El agente (o admin) abre `/telefonia/campanas` y pulsa **Siguiente
+   contacto**. La función `claim_campaign_contact` reserva el pendiente
+   más antiguo con `FOR UPDATE SKIP LOCKED`: dos agentes nunca reciben
+   el mismo contacto.
+2. Si la telefonía está lista, el CRM crea la llamada y abre el
+   softphone en el mismo paso (`attach_campaign_call` liga la sesión al
+   contacto).
+3. Al colgar, `record_campaign_attempt` cuenta el intento. Si
+   contestaron, el contacto queda **Contactado**. Si no, vuelve a
+   **Pendiente** mientras le queden intentos; al llegar a
+   `max_attempts` (1–10 por campaña, 3 por defecto) queda **Sin
+   intentos**.
+4. Cuando ya no quedan pendientes, la campaña se cierra sola como
+   **Completada**. El admin también puede pausarla, reanudarla o
+   completarla a mano.
+
+**Reservas.** El pendiente queda reservado 2 minutos. Si el navegador
+se cayó antes de marcar, el siguiente agente que pide el siguiente
+contacto lo devuelve a la cola (barrido perezoso, sin cron). Si la
+llamada llegó a crearse y nunca se cerró, ese barrido también cuenta el
+intento y decide si se reintenta.
+
+**Sin marcación automática.** No hay un dialer que llame solo: el
+agente pulsa Siguiente contacto y el CRM reclama + marca. Sin LiveKit y
+troncal SIP la llamada real no se puede probar, pero la cola, las
+reservas y los intentos sí se verifican con tests.
+
+> Un contacto no se puede marcar dos veces a la vez aunque el agente
+> pulse dos veces: la segunda llamada no arranca y la reserva vuelve a
+> la cola.
 
 ## 4. Grabación y transcripción
 
@@ -502,12 +545,16 @@ requiere el interruptor maestro de **Ajustes → Asistente de IA**.
   incluyen **ambas**: promedio humano, promedio de IA por agente y
   evaluaciones IA del periodo (`call_ai_evaluations`).
 
-- **Campañas salientes** (admin+): `/telefonia/campanas` arma campañas
-  (migración 117) con una lista de contactos. V1 es *preview*: el CRM no
-  hace fan-out automático; cada contacto se marca con el flujo normal de
-  llamadas desde el botón **Marcar** (softphone → claim → answer →
-  disposition). Al colgar, el contacto pasa a `called` y la campaña
-  registra el estado. Las campañas sin llamada no consumen contactos.
+- **Campañas salientes** (agente+): `/telefonia/campanas` trabaja una
+  campaña como cola (migraciones 117 y 124). El agente pulsa **Siguiente
+  contacto**: el CRM reclama el pendiente más antiguo de forma atómica,
+  lo reserva 2 minutos y marca en el mismo paso. Al colgar se cuenta el
+  intento; si no contestaron vuelve a la cola hasta `max_attempts`
+  (1–10, 3 por defecto) y luego queda **Sin intentos**. Cuando no quedan
+  pendientes la campaña se cierra sola. El admin crea, pausa, reanuda,
+  completa o borra campañas y ajusta los intentos; todo el equipo ve el
+  avance. Sin troncal SIP la llamada real no se puede probar, pero la
+  cola sí se verifica con tests.
 
 ### Permisos
 
@@ -569,12 +616,16 @@ requiere el interruptor maestro de **Ajustes → Asistente de IA**.
 | POST      | `/api/telephony/calls/[id]/transcribe` | Transcribir grabación.               |
 | POST      | `/api/telephony/calls/[id]/summary`    | Resumen IA de una llamada transcrita. |
 | GET       | `/api/telephony/agents`                | Supervisión del equipo (admin+).     |
-| GET       | `/api/telephony/operations`            | Operación en vivo: cola, SLA, agentes y transferencias (admin+, 124). |
+| GET       | `/api/telephony/operations`            | Operación en vivo: cola, SLA, agentes y transferencias (admin+, sin migración). |
 | GET       | `/api/telephony/reports`               | Reportes de operación (admin+).      |
 | GET/POST  | `/api/telephony/evaluations`           | QA de llamadas (POST admin+).        |
 | GET/POST  | `/api/telephony/calls/[id]/ai-evaluate` | QA automática con IA (POST admin+). |
-| GET       | `/api/telephony/campaigns`              | Campañas salientes con contactos (admin+). |
+| GET       | `/api/telephony/campaigns`              | Campañas salientes con contactos (agente+, 117/124). |
+| POST      | `/api/telephony/campaigns`              | Crear campaña con contactos (admin+). |
+| PATCH     | `/api/telephony/campaigns/[id]`        | Pausar, reanudar, completar o cambiar intentos (admin+, 124). |
 | DELETE    | `/api/telephony/campaigns/[id]`        | Eliminar una campaña (admin+).      |
+| POST      | `/api/telephony/campaigns/[id]/next`   | Reclamar el siguiente contacto (agente+, 124). |
+| POST      | `/api/telephony/campaigns/[id]/release` | Soltar una reserva que no marcó (agente+, 124). |
 | GET       | `/api/telephony/campaigns/contacts`    | Contactos para armar campañas (admin+). |
 | GET/POST  | `/api/telephony/callbacks`             | Devoluciones de llamadas perdidas (agente+, 122). |
 | POST      | `/api/telephony/callbacks/[id]/claim`  | Reclamar una devolución (atómico).   |
