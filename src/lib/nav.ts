@@ -85,6 +85,7 @@ const principalNav: NavItem[] = [
   { href: "/dashboard", label: "Panel", icon: LayoutDashboard, minRole: "admin" },
   { href: "/inbox", label: "Bandeja de entrada", icon: MessageSquare },
   { href: "/telefonia", label: "Telefonía", icon: Phone, minRole: "agent" },
+  { href: "/telefonia/operacion", label: "Operación en vivo", icon: Gauge, minRole: "admin" },
   { href: "/telefonia/devoluciones", label: "Devoluciones", icon: PhoneMissed, minRole: "agent" },
   { href: "/telefonia/campanas", label: "Campañas salientes", icon: Radio, minRole: "admin" },
   { href: "/telefonia/adherencia", label: "Adherencia (WEM)", icon: CalendarCheck, minRole: "admin" },

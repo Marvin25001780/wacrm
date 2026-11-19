@@ -364,6 +364,44 @@ cierra por la salida de un agente.
 > Todo esto se prueba de punta a punta con LiveKit y troncal. Sin ellos
 > la UI no ofrece transferir (no hay llamada real que mover).
 
+### 3.10 Operación en vivo con SLA (bloque 124)
+
+`/telefonia/operacion` (admin+) es un panel de solo lectura que se
+refresca cada 5 segundos. **No requiere migración**: lee la cola, la
+presencia, la bitácora de estados (120) y las transferencias (123).
+
+Antes de responder hace el mismo barrido perezoso que el softphone
+(timeout de cola, desbordamiento por habilidad y transferencias
+vencidas), así los números coinciden con lo que ve el agente.
+
+**Muestra:**
+
+- **Cola en vivo** con la espera real de cada llamada (desde
+  `queued_at` si volvió a la cola, si no desde el alta), su prioridad y
+  sus habilidades.
+- **SLA**: la espera máxima del negocio (`queue_max_wait_seconds`) es
+  el objetivo. `0` = sin límite, así que no hay alertas. Se marca
+  **por vencer** al 80 % del máximo y **vencida** al llegar al máximo
+  (la cola la retira en el siguiente barrido).
+- **Transferencias sin aceptar**: de quién a quién, cuántos segundos
+  le quedan al timbre y el número de intento.
+- **Agentes**: estado operativo, tiempo en ese estado (desde el último
+  cambio en `agent_status_log`), presencia, habilidades, llamada en
+  curso y si están recibiendo una transferencia.
+- **Alertas**: llamadas fuera de SLA o por vencer, transferencias a
+  punto de vencer, pausas de más de 20 minutos, cierres de más de 5
+  minutos y agentes marcados Disponible pero desconectados.
+
+Los umbrales de pausa y cierre son fijos en el código
+(`src/lib/telephony/operations.ts`); no son configurables porque
+todavía no hay una razón operativa distinta por negocio. Si el último
+cambio de estado es anterior a la ventana de 7 días que lee la API, el
+tiempo en estado se muestra como desconocido en vez de inventar una
+cifra.
+
+> El panel no contesta ni despacha llamadas: eso sigue siendo el
+> softphone y su claim atómico.
+
 ## 4. Grabación y transcripción
 
 ### Grabación (opcional)
@@ -518,6 +556,7 @@ requiere el interruptor maestro de **Ajustes → Asistente de IA**.
 | POST      | `/api/telephony/calls/[id]/transcribe` | Transcribir grabación.               |
 | POST      | `/api/telephony/calls/[id]/summary`    | Resumen IA de una llamada transcrita. |
 | GET       | `/api/telephony/agents`                | Supervisión del equipo (admin+).     |
+| GET       | `/api/telephony/operations`            | Operación en vivo: cola, SLA, agentes y transferencias (admin+, 124). |
 | GET       | `/api/telephony/reports`               | Reportes de operación (admin+).      |
 | GET/POST  | `/api/telephony/evaluations`           | QA de llamadas (POST admin+).        |
 | GET/POST  | `/api/telephony/calls/[id]/ai-evaluate` | QA automática con IA (POST admin+). |

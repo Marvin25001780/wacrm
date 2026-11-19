@@ -756,6 +756,73 @@ export interface TelephonySupervision {
   migrationMissing: boolean;
 }
 
+/** 124 — estado de una llamada en cola frente al SLA de espera. */
+export type TelephonyQueueSla = 'none' | 'ok' | 'at_risk' | 'expired';
+
+/** Llamada en cola con su espera medida (GET /api/telephony/operations). */
+export interface TelephonyOperationsQueueItem {
+  id: string;
+  from_number: string | null;
+  to_number: string | null;
+  started_at: string;
+  /** 123 — último reencolado; si existe, la espera se mide desde aquí. */
+  queued_at: string | null;
+  contact_name: string | null;
+  required_skills: string[];
+  overflowed_at: string | null;
+  priority: number;
+  /** Espera al responder; el panel la recalcula con su propio reloj. */
+  wait_seconds: number;
+  sla: TelephonyQueueSla;
+}
+
+/** Agente con tiempos en vivo (GET /api/telephony/operations). */
+export interface TelephonyOperationsAgent {
+  user_id: string;
+  name: string;
+  role: AccountRole;
+  presence: 'online' | 'away' | 'offline';
+  agent_status: AgentStatus;
+  last_seen_at: string | null;
+  skills: string[];
+  active_call: TelephonyAgentSupervision['active_call'];
+  /** 120 — desde cuándo está en el estado actual (null sin bitácora). */
+  status_changed_at: string | null;
+  /** 120 — motivo de la pausa actual. */
+  status_reason: string | null;
+  /** 123 — tiene una transferencia esperando respuesta. */
+  transfer_pending: boolean;
+}
+
+/** Transferencia sin aceptar (GET /api/telephony/operations). */
+export interface TelephonyPendingTransfer {
+  call_id: string;
+  from_user_id: string | null;
+  from_name: string | null;
+  to_user_id: string;
+  to_name: string;
+  number: string | null;
+  contact_name: string | null;
+  transfer_at: string;
+  timeout_seconds: number;
+  transfer_count: number;
+}
+
+/** Respuesta de GET /api/telephony/operations (solo admin+). */
+export interface TelephonyOperations {
+  agents: TelephonyOperationsAgent[];
+  queue: TelephonyOperationsQueueItem[];
+  transfers: TelephonyPendingTransfer[];
+  queueMaxWaitSeconds: number;
+  slaAtRiskRatio: number;
+  longBreakSeconds: number;
+  longWrapUpSeconds: number;
+  /** 120 — sin bitácora no se puede medir el tiempo en estado. */
+  statusLogMissing: boolean;
+  updated_at: string;
+  migrationMissing: boolean;
+}
+
 /** Agente al que se puede transferir una llamada (migración 123). */
 export interface TelephonyTransferTarget {
   user_id: string;

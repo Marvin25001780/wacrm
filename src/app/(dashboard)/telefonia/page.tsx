@@ -21,6 +21,7 @@ import {
   ClipboardCheck,
   Clock,
   FileText,
+  Gauge,
   Info,
   Loader2,
   Phone,
@@ -653,6 +654,15 @@ export default function TelefoniaPage() {
             <PhoneMissed className="mr-1.5 h-4 w-4" />
             Devoluciones
           </Button>
+          {canSupervise ? (
+            <Button
+              variant="outline"
+              render={<Link href="/telefonia/operacion" />}
+            >
+              <Gauge className="mr-1.5 h-4 w-4" />
+              Operación en vivo
+            </Button>
+          ) : null}
           {canSupervise ? (
             <Button
               variant="outline"

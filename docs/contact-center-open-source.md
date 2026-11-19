@@ -78,6 +78,10 @@
 15. **Transferencias internas**: pasar la llamada a otro agente o
     devolverla a la cola, con timbre, tope de rebotes y retorno
     automático si nadie contesta. La sala de LiveKit no se cierra.
+16. **Operación en vivo con SLA**: cola con espera real, agentes con
+    tiempo en su estado, transferencias sin aceptar y alertas (fuera de
+    SLA, por vencer, pausas y cierres largos). Sin migración: lee lo que
+    ya existe.
 
 Nada de eso copia código de terceros: se usan SDKs Apache-2.0 y APIs.
 
@@ -90,6 +94,7 @@ Nada de eso copia código de terceros: se usan SDKs Apache-2.0 y APIs.
 | CCaaS 2 | **Campañas salientes** (preview/progresivo) con lista y ritmo. | Troncal SIP. ✅ Parcial: CRUD de campañas + vínculo con llamadas (migración 117) listos; falta fan-out automático. |
 | CCaaS 3 | **Devoluciones de llamadas perdidas**: cola compartida, reclamo atómico, altas manuales y vínculo con la saliente. | Nada (datos propios). ✅ Hecho (migración 122). |
 | CCaaS 4 | **Transferencias internas**: agente→agente, devolución a la cola, timbre y tope de rebotes. | LiveKit + troncal para probar la voz; la lógica y la UI ya existen. ✅ Hecho (migración 123). |
+| CCaaS 5 | **Operación en vivo con SLA**: cola, espera máxima, agentes por estado, transferencias y alertas. | Nada (datos propios). ✅ Hecho (bloque 124, sin migración). |
 | IA 1 | **Agente de voz** (IVR/contestador) con LiveKit Agents. | Servidor LiveKit + API keys de STT/LLM/TTS. |
 | WEM 2 | **Adherencia**: horarios, pausas y cumplimiento. | Datos de presencia (ya existen). ✅ Hecho (migraciones 120 y 121): turnos, motivos de pausa, adherencia, ocupación y cumplimiento de pausas programadas. |
 | IA 2 | **QA automática**: puntuar la transcripción con el LLM y comparar con el humano. | Transcripciones + proveedor de IA. ✅ Hecho (migración 115); comparativa humano vs IA en reportes. |

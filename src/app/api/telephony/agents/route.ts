@@ -4,7 +4,10 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
 import { derivePresence } from '@/lib/presence';
 import { loadTelephonyConfig, resolveTelephony } from '@/lib/telephony/config';
-import { loadTelephonyRoster } from '@/lib/telephony/roster';
+import {
+  loadMemberPresence,
+  loadTelephonyRoster,
+} from '@/lib/telephony/roster';
 import { normalizeSkillList } from '@/lib/telephony/skills';
 import { sweepExpiredQueue, sweepSkillOverflow } from '@/lib/telephony/queue-sweep';
 import { releaseExpiredTransfers } from '@/lib/telephony/transfers';
@@ -77,7 +80,7 @@ export async function GET() {
       }
     }
 
-    const presenceResult = await loadPresence(ctx.supabase, ctx.accountId);
+    const presenceResult = await loadMemberPresence(ctx.supabase, ctx.accountId);
     const live = await loadLiveCalls(ctx.supabase, ctx.accountId);
 
     const callsMissing = live.missing;
@@ -92,7 +95,7 @@ export async function GET() {
     }
 
     const presenceByUser = new Map(
-      (presenceResult ?? []).map((row) => [row.user_id, row])
+      presenceResult.map((row) => [row.user_id, row])
     );
     const callByUser = new Map<string, LiveCallRow>();
     const queue: TelephonyQueueItem[] = [];
@@ -160,13 +163,6 @@ export async function GET() {
   }
 }
 
-interface PresenceRowLite {
-  user_id: string;
-  status: 'online' | 'away';
-  last_seen_at: string;
-  agent_status: AgentStatus;
-}
-
 /**
  * Llamadas sonando o en curso. Se leen todas las columnas para no
  * romperse cuando una migración nueva (119, 123…) añade campos: el
@@ -189,37 +185,6 @@ async function loadLiveCalls(
     rows: (result.data ?? []) as unknown as LiveCallRow[],
     missing: isMissingRelation(result.error),
   };
-}
-
-/**
- * Lee la presencia del negocio. Si la 112 no está aplicada la columna
- * `agent_status` no existe (42703); en ese caso se lee sin ella y el
- * panel muestra "disponible" para todos.
- */
-async function loadPresence(
-  db: SupabaseClient,
-  accountId: string
-): Promise<PresenceRowLite[]> {
-  const withStatus = await db
-    .from('member_presence')
-    .select('user_id, status, last_seen_at, agent_status')
-    .eq('account_id', accountId);
-
-  if (!withStatus.error) {
-    return (withStatus.data ?? []) as PresenceRowLite[];
-  }
-  if (withStatus.error.code !== '42703') {
-    throw withStatus.error;
-  }
-
-  const legacy = await db
-    .from('member_presence')
-    .select('user_id, status, last_seen_at')
-    .eq('account_id', accountId);
-  if (legacy.error) throw legacy.error;
-  return ((legacy.data ?? []) as Omit<PresenceRowLite, 'agent_status'>[]).map(
-    (row) => ({ ...row, agent_status: 'available' as AgentStatus })
-  );
 }
 
 /** Tabla de llamadas ausente = migración 112 sin aplicar. */

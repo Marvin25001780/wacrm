@@ -10,6 +10,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { isAccountRole } from '@/lib/auth/roles';
 import type { AccountRole } from '@/lib/auth/roles';
+import type { AgentStatus } from '@/types';
 import { normalizeSkillList } from './skills';
 
 export interface TelephonyRosterMember {
@@ -18,6 +19,13 @@ export interface TelephonyRosterMember {
   role: AccountRole;
   /** 119 — habilidades en este negocio (vacío si la 119 no está aplicada). */
   skills: string[];
+}
+
+export interface TelephonyPresenceRow {
+  user_id: string;
+  status: 'online' | 'away';
+  last_seen_at: string;
+  agent_status: AgentStatus;
 }
 
 /**
@@ -85,4 +93,34 @@ export async function loadTelephonyRoster(
       },
     ];
   });
+}
+
+/**
+ * Presencia del negocio. Si la 112 no está aplicada, `agent_status`
+ * no existe (42703) y se asume `available` para todos, igual que
+ * antes del contact center.
+ */
+export async function loadMemberPresence(
+  db: SupabaseClient,
+  accountId: string
+): Promise<TelephonyPresenceRow[]> {
+  const withStatus = await db
+    .from('member_presence')
+    .select('user_id, status, last_seen_at, agent_status')
+    .eq('account_id', accountId);
+
+  if (!withStatus.error) {
+    return (withStatus.data ?? []) as TelephonyPresenceRow[];
+  }
+  if (withStatus.error.code !== '42703') throw withStatus.error;
+
+  const legacy = await db
+    .from('member_presence')
+    .select('user_id, status, last_seen_at')
+    .eq('account_id', accountId);
+  if (legacy.error) throw legacy.error;
+
+  return ((legacy.data ?? []) as Omit<TelephonyPresenceRow, 'agent_status'>[]).map(
+    (row) => ({ ...row, agent_status: 'available' as AgentStatus })
+  );
 }
