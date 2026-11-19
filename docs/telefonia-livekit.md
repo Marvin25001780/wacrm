@@ -445,6 +445,29 @@ reservas y los intentos sí se verifican con tests.
 > pulse dos veces: la segunda llamada no arranca y la reserva vuelve a
 > la cola.
 
+### 3.12 Exportar reportes a CSV (sin migración)
+
+En `/telefonia/reportes` (admin+) el botón **CSV** descarga el periodo
+que está en pantalla (7, 30 o 90 días) en cuatro archivos:
+
+| Archivo | Contenido |
+| ------- | --------- |
+| **Llamadas** | Una fila por sesión: inicio y fin en hora de Venezuela, dirección, estado, números, contacto, agente, espera, duración, disposición, si está grabada y si está transcrita. |
+| **Devoluciones** | Una fila por solicitud (122): estado, motivo, teléfono, contacto, agente, reclamada y cerrada, respuesta, resolución y si cumplió el SLA de 30 minutos. Las que nunca se reclamaron dicen **Sin reclamar**, no cuentan como incumplidas. |
+| **Agentes** | Agregado del periodo por agente: llamadas, contestadas, perdidas, tiempo hablado, duración media y QA humana/IA. |
+| **Resumen** | Una fila por indicador: totales, nivel de servicio, abandono, tiempos, grabaciones, QA y devoluciones. |
+
+El archivo sale con separador `;` y BOM UTF-8 para que Excel en
+español lo abra en columnas y sin romper acentos. Las fechas van como
+`YYYY-MM-DD HH:mm` y los segundos como número entero, para poder sumar
+y graficar. Las celdas que empiezan por `=` o `@` se neutralizan para
+que Excel no las ejecute como fórmula.
+
+> El export admite hasta 20 000 filas por archivo (más que el reporte
+> visual, que corta en 5 000). Si se supera, el archivo trae lo más
+> reciente y la interfaz avisa: acorta el rango para descargarlo
+> completo.
+
 ## 4. Grabación y transcripción
 
 ### Grabación (opcional)
@@ -532,6 +555,11 @@ requiere el interruptor maestro de **Ajustes → Asistente de IA**.
   que llegaron a reclamarse; las que nunca se reclamaron cuentan para
   la recuperación. Hay una tabla por agente con reclamadas, atendidas y
   ambos tiempos medios.
+- **Exportar a CSV** (admin+): desde el mismo reporte, el botón **CSV**
+  descarga **Llamadas**, **Devoluciones**, **Agentes** o **Resumen** con
+  el periodo visible (sección 3.12). El servidor arma el archivo, así
+  que incluye filas que la vista recorta, y avisa si se superan las
+  20 000.
 - **Calidad (QA)** (admin+): en el detalle de una llamada contestada y
   cerrada, el supervisor puntúa cinco criterios de 0 a 5 y deja
   comentarios. El puntaje 0–100 aparece en el detalle, en la bitácora
@@ -618,6 +646,7 @@ requiere el interruptor maestro de **Ajustes → Asistente de IA**.
 | GET       | `/api/telephony/agents`                | Supervisión del equipo (admin+).     |
 | GET       | `/api/telephony/operations`            | Operación en vivo: cola, SLA, agentes y transferencias (admin+, sin migración). |
 | GET       | `/api/telephony/reports`               | Reportes de operación (admin+).      |
+| GET       | `/api/telephony/reports/export`        | CSV del periodo: `?days=7&dataset=calls\|callbacks\|agents\|summary` (admin+, sin migración). |
 | GET/POST  | `/api/telephony/evaluations`           | QA de llamadas (POST admin+).        |
 | GET/POST  | `/api/telephony/calls/[id]/ai-evaluate` | QA automática con IA (POST admin+). |
 | GET       | `/api/telephony/campaigns`              | Campañas salientes con contactos (agente+, 117/124). |

@@ -87,6 +87,10 @@
     resolución, tasa de recuperación, cumplimiento del objetivo de
     primera respuesta y desglose por agente. Tampoco necesita migración:
     agrega la 122 en el reporte que ya existía.
+18. **Exportación a CSV**: llamadas, devoluciones, agentes y resumen del
+    periodo en archivos para Excel (separador `;`, BOM UTF-8, hora de
+    Venezuela). Sin migración: el servidor arma el archivo con un tope
+    de 20 000 filas y avisa si se cortó.
 
 Nada de eso copia código de terceros: se usan SDKs Apache-2.0 y APIs.
 

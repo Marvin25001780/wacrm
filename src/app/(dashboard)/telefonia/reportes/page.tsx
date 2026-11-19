@@ -20,6 +20,7 @@ import {
   CheckCircle2,
   ClipboardCheck,
   Clock,
+  Download,
   Loader2,
   Phone,
   PhoneCall,
@@ -29,6 +30,7 @@ import {
   Timer,
   TrendingUp,
 } from 'lucide-react';
+import { toast } from 'sonner';
 
 import { MetricCard } from '@/components/dashboard/metric-card';
 import { Panel } from '@/components/metrics/panel';
@@ -44,6 +46,7 @@ import {
 import { useAuth } from '@/hooks/use-auth';
 import { cn } from '@/lib/utils';
 import { formatCallDuration } from '@/lib/telephony/calls';
+import { EXPORT_DATASETS, type ExportDataset } from '@/lib/telephony/export';
 import { callDispositionLabel } from '@/types';
 import type {
   TelephonyReport,
@@ -95,6 +98,7 @@ export default function TelephonyReportsPage() {
   const [report, setReport] = useState<ReportResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [exporting, setExporting] = useState<ExportDataset | null>(null);
 
   const load = useCallback(async (range: number) => {
     setLoading(true);
@@ -128,6 +132,53 @@ export default function TelephonyReportsPage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void load(days);
   }, [canView, days, load]);
+
+  /**
+   * Descarga el reporte en CSV. Se pide al servidor (no se rearma en el
+   * navegador) para que el archivo incluya filas que la vista recorta y
+   * para que el permiso se valide de nuevo en la API.
+   */
+  const exportCsv = async (dataset: ExportDataset) => {
+    if (exporting) return;
+    setExporting(dataset);
+    try {
+      const res = await fetch(
+        `/api/telephony/reports/export?days=${days}&dataset=${dataset}`,
+        { cache: 'no-store' }
+      );
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as {
+          error?: string;
+        };
+        toast.error(body.error ?? 'No se pudo exportar el reporte.');
+        return;
+      }
+
+      const blob = await res.blob();
+      const disposition = res.headers.get('Content-Disposition') ?? '';
+      const fileName =
+        /filename="([^"]+)"/.exec(disposition)?.[1] ??
+        `reporte-${dataset}.csv`;
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = objectUrl;
+      link.download = fileName;
+      link.click();
+      URL.revokeObjectURL(objectUrl);
+
+      if (res.headers.get('X-Export-Truncated') === 'true') {
+        toast.warning(
+          'El archivo incluye solo las 20 000 filas más recientes. Acorta el rango para exportarlo completo.'
+        );
+      } else {
+        toast.success('Reporte exportado.');
+      }
+    } catch {
+      toast.error('Sin conexión: no se pudo exportar el reporte.');
+    } finally {
+      setExporting(null);
+    }
+  };
 
   if (authLoading) {
     return (
@@ -177,20 +228,44 @@ export default function TelephonyReportsPage() {
             (America/Caracas).
           </p>
         </div>
-        <div className="flex items-center gap-1 rounded-lg border border-border p-1">
-          {RANGES.map((range) => (
-            <Button
-              key={range}
-              variant={days === range ? 'default' : 'ghost'}
-              size="sm"
-              className={cn(
-                days === range && 'bg-primary text-primary-foreground'
-              )}
-              onClick={() => setDays(range)}
-            >
-              {range} días
-            </Button>
-          ))}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-1 rounded-lg border border-border p-1">
+            {RANGES.map((range) => (
+              <Button
+                key={range}
+                variant={days === range ? 'default' : 'ghost'}
+                size="sm"
+                className={cn(
+                  days === range && 'bg-primary text-primary-foreground'
+                )}
+                onClick={() => setDays(range)}
+              >
+                {range} días
+              </Button>
+            ))}
+          </div>
+          <div className="flex flex-wrap items-center gap-1 rounded-lg border border-border p-1">
+            <span className="text-muted-foreground px-1.5 text-[11px] font-medium">
+              CSV
+            </span>
+            {EXPORT_DATASETS.map((dataset) => (
+              <Button
+                key={dataset.value}
+                variant="ghost"
+                size="sm"
+                disabled={exporting !== null || loading}
+                title="Descargar para Excel (separador ;)"
+                onClick={() => void exportCsv(dataset.value)}
+              >
+                {exporting === dataset.value ? (
+                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Download className="mr-1.5 h-3.5 w-3.5" />
+                )}
+                {dataset.label}
+              </Button>
+            ))}
+          </div>
         </div>
       </div>
 
