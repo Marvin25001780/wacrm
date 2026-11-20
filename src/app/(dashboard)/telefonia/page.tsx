@@ -40,7 +40,7 @@ import { MetricCard } from '@/components/dashboard/metric-card';
 import { Panel } from '@/components/metrics/panel';
 import { useTelephony } from '@/components/telephony/telephony-provider';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
@@ -946,17 +946,25 @@ export default function TelefoniaPage() {
           title="Historial de llamadas"
           subtitle="Últimas 50. El resultado se guarda también en Actividades y Métricas → Llamadas."
           actions={
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => void loadCalls()}
-              disabled={callsLoading}
-            >
-              {callsLoading ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : null}
-              Actualizar
-            </Button>
+            <div className="flex items-center gap-2">
+              <Link
+                href="/telefonia/llamadas"
+                className={buttonVariants({ variant: 'outline', size: 'sm' })}
+              >
+                Buscar en el historial
+              </Link>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void loadCalls()}
+                disabled={callsLoading}
+              >
+                {callsLoading ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : null}
+                Actualizar
+              </Button>
+            </div>
           }
           bodyClassName="p-0"
         >

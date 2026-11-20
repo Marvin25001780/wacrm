@@ -468,6 +468,34 @@ que Excel no las ejecute como fórmula.
 > reciente y la interfaz avisa: acorta el rango para descargarlo
 > completo.
 
+### 3.13 Historial de llamadas con filtros (sin migración)
+
+`/telefonia/llamadas` (agente+) es la pantalla para encontrar una
+llamada concreta; `/telefonia` sigue mostrando las últimas 50 del día a
+día.
+
+- **Búsqueda**: un solo campo acepta número o nombre del contacto. Los
+  números se comparan por los **últimos 7 dígitos** (`0412…`, `+58…` y
+  `412…` encuentran la misma llamada); los nombres se resuelven contra
+  `contacts` y luego filtran `contact_id`.
+- **Filtros**: dirección, estado, resultado (disposición), agente
+  (roster del negocio) y periodo (`7`, `30`, `90` días o todo el
+  historial).
+- **Paginación**: 25, 50 o 100 por página con **Anterior/Siguiente**. La
+  API pide una fila de más en vez de un `count`, así que paginar no
+  cuesta una consulta extra.
+- **Detalle**: número, contacto, agente, tiempos, resultado, grabación
+  reproducible, notas, resumen con IA y transcripción. Si la llamada
+  tiene grabación y aún no está transcrita, se puede pedir desde ahí.
+
+Los filtros inválidos caen al valor por defecto (no rompen la
+pantalla), y el texto se recorta a 60 caracteres. Todo el cálculo de la
+ventana y la validación vive en `src/lib/telephony/history.ts`, con
+tests.
+
+> La pantalla es de solo lectura salvo la transcripción: no cambia
+> disposiciones ni reasigna llamadas.
+
 ## 4. Grabación y transcripción
 
 ### Grabación (opcional)
