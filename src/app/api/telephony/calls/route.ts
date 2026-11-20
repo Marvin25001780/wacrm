@@ -152,6 +152,7 @@ export async function POST(request: Request) {
       leadId?: unknown;
       tabId?: unknown;
       campaignContactId?: unknown;
+      collectionDebtorId?: unknown;
     };
 
     const to = normalizePhone(body.to);
@@ -215,33 +216,77 @@ export async function POST(request: Request) {
         ? body.campaignContactId.slice(0, 100)
         : null;
 
-    const { data: inserted, error: insertError } = await ctx.supabase
+    // Cobranza (125): una saliente desde la consola queda ligada al
+    // deudor. Se comprueba que sea del negocio antes de escribir; si la
+    // columna todavía no existe (125 sin aplicar) se guarda sin vínculo
+    // en vez de tumbar la llamada.
+    const collectionDebtorId =
+      typeof body.collectionDebtorId === 'string'
+        ? body.collectionDebtorId
+        : null;
+    let linkedDebtorId: string | null = null;
+    if (collectionDebtorId) {
+      const { data: debtor } = await ctx.supabase
+        .from('collection_debtors')
+        .select('id, account_id')
+        .eq('id', collectionDebtorId)
+        .maybeSingle();
+      if (!debtor || debtor.account_id !== ctx.accountId) {
+        return NextResponse.json(
+          { error: 'El deudor no pertenece a este negocio.' },
+          { status: 400 }
+        );
+      }
+      linkedDebtorId = debtor.id as string;
+    }
+
+    const baseInsert = {
+      account_id: ctx.accountId,
+      direction: 'outbound',
+      provider: 'livekit',
+      room_name: room,
+      status: 'ringing',
+      from_number: resolved.callerId,
+      to_number: to,
+      contact_id: contactId,
+      conversation_id:
+        typeof body.conversationId === 'string' ? body.conversationId : null,
+      lead_id: typeof body.leadId === 'string' ? body.leadId : null,
+      agent_profile_id: ctx.profileId,
+      agent_user_id: ctx.userId,
+      metadata: {
+        source: 'softphone',
+        tab_id:
+          typeof body.tabId === 'string'
+            ? body.tabId.slice(0, 100)
+            : undefined,
+        campaign_contact_id: campaignContactId ?? undefined,
+        collection_debtor_id: linkedDebtorId ?? undefined,
+      },
+    };
+
+    const insertPayload = linkedDebtorId
+      ? { ...baseInsert, collection_debtor_id: linkedDebtorId }
+      : baseInsert;
+
+    let { data: inserted, error: insertError } = await ctx.supabase
       .from('call_sessions')
-      .insert({
-        account_id: ctx.accountId,
-        direction: 'outbound',
-        provider: 'livekit',
-        room_name: room,
-        status: 'ringing',
-        from_number: resolved.callerId,
-        to_number: to,
-        contact_id: contactId,
-        conversation_id:
-          typeof body.conversationId === 'string' ? body.conversationId : null,
-        lead_id: typeof body.leadId === 'string' ? body.leadId : null,
-        agent_profile_id: ctx.profileId,
-        agent_user_id: ctx.userId,
-        metadata: {
-          source: 'softphone',
-          tab_id:
-            typeof body.tabId === 'string'
-              ? body.tabId.slice(0, 100)
-              : undefined,
-          campaign_contact_id: campaignContactId ?? undefined,
-        },
-      })
+      .insert(insertPayload)
       .select('*')
       .single();
+
+    // `collection_debtor_id` llega con la migración 125: si aún no está,
+    // se reintenta sin el vínculo (la llamada es más importante).
+    if (insertError?.code === '42703' && linkedDebtorId) {
+      linkedDebtorId = null;
+      const retry = await ctx.supabase
+        .from('call_sessions')
+        .insert(baseInsert)
+        .select('*')
+        .single();
+      inserted = retry.data;
+      insertError = retry.error;
+    }
 
     if (insertError) {
       if (insertError.code === '42P01' || insertError.code === 'PGRST205') {

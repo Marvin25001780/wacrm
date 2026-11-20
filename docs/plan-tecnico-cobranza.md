@@ -830,7 +830,7 @@ Reutilizar:
 | `/cobranza/cartera` | Tabla de deudores con filtros por tramo/gestor/estado, búsqueda local, selección múltiple, asignación. |
 | `/cobranza/cartera/[id]` | Ficha 360: datos, créditos, cuotas, pagos, gestiones, PTP, timeline. |
 | `/cobranza/pipeline` | Kanban por estado, con contadores y montos; columnas no arrastrables fuera de transición válida. |
-| `/cobranza/consola` | Cola a la izquierda, ficha + cuotas + guion al centro, tipificación + PTP a la derecha. Sin cronómetro ni grabación. |
+| `/cobranza/consola` | Cola a la izquierda, ficha + cuotas + guion al centro, tipificación + PTP a la derecha. Implementada en la migración 125; ver `docs/consola-cobranza.md`. |
 | `/cobranza/acuerdos` | Lista y calendario de PTP, filtros por estado y gestor, acciones de resolver. |
 | `/cobranza/importar` | Stepper: archivo → mapeo → validación → commit → resumen. |
 | `/cobranza/reportes` | Aging, recuperación, PTP, canales, ranking, comisiones; export CSV. |
@@ -880,6 +880,11 @@ LEFT JOIN collection_installments i ON i.debtor_id = d.id
 LEFT JOIN collection_actions a ON a.debtor_id = d.id
 GROUP BY d.id;
 ```
+
+> La migración 125 corrige esta vista: unir cuotas y gestiones en el
+> mismo `FROM` multiplica el saldo por el número de gestiones. La
+> versión vigente agrega cada cosa en un `LATERAL` independiente. Las
+> columnas y el orden no cambian.
 
 Otras vistas:
 

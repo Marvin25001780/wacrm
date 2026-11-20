@@ -474,6 +474,8 @@ export interface CallSession {
   contact_id: string | null;
   lead_id: string | null;
   conversation_id: string | null;
+  /** 125 — deudor de cobranza al que se marcó desde la consola. */
+  collection_debtor_id: string | null;
   agent_profile_id: string | null;
   agent_user_id: string | null;
   started_at: string;

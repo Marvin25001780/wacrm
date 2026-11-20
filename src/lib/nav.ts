@@ -174,6 +174,7 @@ const cobranzaNav: NavItem = {
   icon: HandCoins,
   minRole: "agent",
   children: [
+    { href: "/cobranza/consola", label: "Consola", icon: PhoneCall, minRole: "agent" },
     { href: "/cobranza", label: "Panel", icon: LayoutDashboard, minRole: "agent" },
     { href: "/cobranza/cartera", label: "Cartera", icon: Users, minRole: "agent" },
     { href: "/cobranza/pagos", label: "Carga de pagos", icon: Wallet, minRole: "admin" },

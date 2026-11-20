@@ -9,6 +9,7 @@ import {
   BarChart3,
   FileSpreadsheet,
   Handshake,
+  PhoneCall,
   RefreshCw,
   TrendingUp,
   Upload,
@@ -352,6 +353,12 @@ export default function CobranzaPage() {
       )}
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <QuickLink
+          href="/cobranza/consola"
+          icon={PhoneCall}
+          title="Consola"
+          description="Cola, ficha y gestión en una pantalla."
+        />
         <QuickLink
           href="/cobranza/cartera"
           icon={Users}

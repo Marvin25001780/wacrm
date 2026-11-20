@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Loader2, Save, ShieldCheck } from "lucide-react";
+import { BookOpen, Loader2, Save, ShieldCheck } from "lucide-react";
 
 import { SkeletonCard } from "@/components/dashboard/skeleton";
 import { Panel } from "@/components/metrics/panel";
@@ -98,6 +98,7 @@ export default function ConfiguracionPage() {
             currency: "USD" as const,
             business_hours_start: settings.business_hours_start,
             business_hours_end: settings.business_hours_end,
+            knowledge_base_url: settings.knowledge_base_url?.trim() || null,
           }
         : {
             account_id: accountId,
@@ -106,11 +107,35 @@ export default function ConfiguracionPage() {
             currency: "USD" as const,
             business_hours_start: "09:00",
             business_hours_end: "18:00",
+            knowledge_base_url: null,
           };
 
-      const settingsQuery = supabase
+      // El enlace a la wiki llega con la 125. Si la base aún no la
+      // tiene, se guarda el resto de la operación y se avisa: no se
+      // pierde el trabajo del admin por una columna nueva.
+      const firstSettings = await supabase
         .from("collection_settings")
         .upsert(settingsPayload, { onConflict: "account_id" });
+      let settingsError = firstSettings.error;
+      let wikiSkipped = false;
+
+      if (settingsError?.code === "42703") {
+        const fallback = {
+          account_id: settingsPayload.account_id,
+          country_code: settingsPayload.country_code,
+          timezone: settingsPayload.timezone,
+          currency: settingsPayload.currency,
+          business_hours_start: settingsPayload.business_hours_start,
+          business_hours_end: settingsPayload.business_hours_end,
+        };
+        const retry = await supabase
+          .from("collection_settings")
+          .upsert(fallback, { onConflict: "account_id" });
+        settingsError = retry.error;
+        wikiSkipped = !retry.error;
+      }
+
+      if (settingsError) throw settingsError;
 
       const policyQueries = policies.map((policy) =>
         supabase
@@ -142,11 +167,15 @@ export default function ConfiguracionPage() {
           .eq("account_id", accountId),
       );
 
-      const results = await Promise.all([settingsQuery, ...policyQueries, ...commissionQueries]);
+      const results = await Promise.all([...policyQueries, ...commissionQueries]);
       const failed = results.find((result) => result.error);
       if (failed?.error) throw failed.error;
 
-      toast.success("Políticas guardadas");
+      toast.success(
+        wikiSkipped
+          ? "Políticas guardadas. El enlace de la wiki se guardará al aplicar la migración 125."
+          : "Políticas guardadas"
+      );
       await load();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "No se pudieron guardar las políticas");
@@ -271,6 +300,45 @@ export default function ConfiguracionPage() {
           Moneda fija del módulo: <span className="font-medium text-foreground">USD</span>. Los
           teléfonos se normalizan con el país seleccionado.
         </p>
+      </Panel>
+
+      <Panel
+        title="Base de conocimiento"
+        subtitle="Guiones, procedimientos y respuestas frecuentes para el agente"
+      >
+        <div className="space-y-2">
+          <Label className="text-muted-foreground">Enlace de la wiki</Label>
+          <div className="flex items-center gap-2">
+            <BookOpen className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <Input
+              value={settings?.knowledge_base_url ?? ""}
+              onChange={(event) =>
+                setSettings((current) =>
+                  current
+                    ? { ...current, knowledge_base_url: event.target.value }
+                    : {
+                        account_id: accountId ?? "",
+                        country_code: "VE",
+                        timezone: "America/Caracas",
+                        currency: "USD",
+                        business_hours_start: "09:00",
+                        business_hours_end: "18:00",
+                        knowledge_base_url: event.target.value,
+                        created_at: new Date().toISOString(),
+                        updated_at: new Date().toISOString(),
+                      },
+                )
+              }
+              disabled={!canEdit}
+              placeholder="https://wiki.tudominio.com/espacio/cobranza"
+            />
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Se abre como enlace externo desde la consola del agente. Docmost encaja
+            bien aquí, pero cualquier wiki con URL sirve: el CRM no copia su
+            contenido ni lo indexa.
+          </p>
+        </div>
       </Panel>
 
       <Panel title="Políticas por tramo" subtitle="Reglas que validan gestiones y acuerdos">

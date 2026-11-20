@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import {
   AlertTriangle,
   ArrowLeft,
+  ClipboardList,
   Clock,
   Handshake,
   MessageCircle,
@@ -20,10 +21,19 @@ import { EmptyState } from "@/components/dashboard/empty-state";
 import { MetricCard } from "@/components/dashboard/metric-card";
 import { SkeletonCard } from "@/components/dashboard/skeleton";
 import { Panel } from "@/components/metrics/panel";
+import { ActionForm } from "@/components/collections/action-form";
 import { CreditCard } from "@/components/collections/credit-card";
 import { PaymentDialog } from "@/components/collections/payment-dialog";
 import { PriorityBadge } from "@/components/collections/priority-badge";
-import { Button } from "@/components/ui/button";
+import { useTelephony } from "@/components/telephony/telephony-provider";
+import { Button, buttonVariants } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Table,
   TableBody,
@@ -63,7 +73,9 @@ import { cn } from "@/lib/utils";
 
 export default function DebtorDetailPage() {
   const supabase = createClient();
-  const { accountId } = useAuth();
+  const { accountId, accountRole } = useAuth();
+  const isAdmin = accountRole === "admin" || accountRole === "owner";
+  const { startCall, callable } = useTelephony();
   const params = useParams();
   const debtorId = typeof params.id === "string" ? params.id : params.id?.[0];
 
@@ -79,6 +91,7 @@ export default function DebtorDetailPage() {
 
   const [paying, setPaying] = useState<CollectionInstallment | null>(null);
   const [busyPromise, setBusyPromise] = useState<string | null>(null);
+  const [managing, setManaging] = useState(false);
 
   const load = useCallback(async () => {
     if (!debtorId) return;
@@ -287,24 +300,40 @@ export default function DebtorDetailPage() {
               reason={debtor.priority_reason}
               showReason
             />
-            <div className="flex gap-2">
+            <div className="flex flex-wrap justify-end gap-2">
               {phone ? (
-                <a
-                  href={`tel:${phone}`}
-                  className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border bg-background px-2.5 text-sm font-medium hover:bg-muted"
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={!callable}
+                  title={callable ? "Marcar por el softphone" : "El softphone no está configurado"}
+                  onClick={() =>
+                    void startCall(phone, { collectionDebtorId: debtor.id })
+                  }
                 >
-                  <Phone className="h-4 w-4" />
+                  <Phone className="mr-1.5 h-4 w-4" />
                   Llamar
-                </a>
+                </Button>
               ) : null}
+              <Button type="button" size="sm" onClick={() => setManaging(true)}>
+                <ClipboardList className="mr-1.5 h-4 w-4" />
+                Gestionar
+              </Button>
+              <Link
+                href="/cobranza/consola"
+                className={buttonVariants({ variant: "outline", size: "sm" })}
+              >
+                Consola
+              </Link>
               {whatsapp ? (
                 <a
                   href={`https://wa.me/${whatsapp}`}
                   target="_blank"
                   rel="noreferrer"
-                  className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border bg-background px-2.5 text-sm font-medium hover:bg-muted"
+                  className={buttonVariants({ variant: "outline", size: "sm" })}
                 >
-                  <MessageCircle className="h-4 w-4" />
+                  <MessageCircle className="mr-1.5 h-4 w-4" />
                   WhatsApp
                 </a>
               ) : null}
@@ -502,6 +531,31 @@ export default function DebtorDetailPage() {
           </Panel>
         </div>
       </div>
+
+      <Dialog open={managing} onOpenChange={setManaging}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Registrar gestión</DialogTitle>
+            <DialogDescription>
+              {debtor.name}
+              {debtor.phone_primary ? ` · ${debtor.phone_primary}` : ""}
+            </DialogDescription>
+          </DialogHeader>
+          <ActionForm
+            debtorId={debtor.id}
+            debtorName={debtor.name}
+            daysOverdue={summary.days}
+            overdueBalance={summary.overdue}
+            balance={summary.balance}
+            isAdmin={isAdmin}
+            accountId={accountId}
+            onSaved={() => {
+              setManaging(false);
+              void load();
+            }}
+          />
+        </DialogContent>
+      </Dialog>
 
       <PaymentDialog
         installment={paying}

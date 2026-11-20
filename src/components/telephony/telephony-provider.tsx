@@ -47,6 +47,8 @@ interface StartCallOptions {
   conversationId?: string | null;
   /** Contacto de campaña (migración 117) al que se marca. */
   campaignContactId?: string | null;
+  /** Deudor de cobranza (migración 125) al que se marca. */
+  collectionDebtorId?: string | null;
 }
 
 interface TelephonyContextValue {
@@ -422,6 +424,7 @@ export function TelephonyProvider({ children }: { children: ReactNode }) {
             conversationId: options?.conversationId ?? undefined,
             tabId: TAB_ID,
             campaignContactId: options?.campaignContactId ?? undefined,
+            collectionDebtorId: options?.collectionDebtorId ?? undefined,
           }),
         });
         payload = (await res.json().catch(() => ({}))) as typeof payload;

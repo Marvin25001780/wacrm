@@ -205,6 +205,11 @@ export interface CollectionSettings {
   currency: "USD";
   business_hours_start: string;
   business_hours_end: string;
+  /**
+   * 125 — enlace a la wiki de guiones y procedimientos (Docmost u otro
+   * servicio). Se abre en otra pestaña; el CRM no la embebe.
+   */
+  knowledge_base_url?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -333,6 +338,8 @@ export interface CollectionAction {
   started_at?: string | null;
   ended_at?: string | null;
   promise_id?: string | null;
+  /** 125 — llamada del softphone que originó la gestión. */
+  call_session_id?: string | null;
   created_at: string;
 }
 
@@ -484,6 +491,38 @@ export interface CollectionDebtorSummary {
   overdue_balance: number;
   days_overdue_max: number;
   last_action_at?: string | null;
+}
+
+/**
+ * 125 — fila de la cola de trabajo del agente. La calcula
+ * `collection_agent_queue()` en el servidor; aquí solo se dibuja.
+ */
+export interface CollectionQueueRow {
+  debtor_id: string;
+  name: string;
+  document_number?: string | null;
+  phone_primary?: string | null;
+  email?: string | null;
+  segment: CollectionSegment;
+  status: CollectionDebtorStatus;
+  priority_score: number;
+  priority_reason?: string | null;
+  assigned_to?: string | null;
+  agent_name?: string | null;
+  is_mine: boolean;
+  balance: number;
+  overdue_balance: number;
+  days_overdue_max: number;
+  open_installments: number;
+  last_action_at?: string | null;
+  last_level1?: string | null;
+  last_level2?: string | null;
+  open_promises: number;
+  next_promise_due?: string | null;
+  broken_promises: number;
+  /** 0 promesa vencida/rota · 1 PTP próxima · 2 mora · 3 al día. */
+  queue_rank: number;
+  total_count: number;
 }
 
 export interface CollectionAgingRow {
