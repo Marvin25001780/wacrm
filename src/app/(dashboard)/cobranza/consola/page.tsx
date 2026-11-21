@@ -22,6 +22,7 @@ import {
   ChevronRight,
   Clock,
   ExternalLink,
+  Gauge,
   Handshake,
   Loader2,
   MessageCircle,
@@ -424,6 +425,15 @@ export default function ConsolaCobranzaPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {isAdmin ? (
+            <Link
+              href="/cobranza/supervision"
+              className={buttonVariants({ variant: "outline", size: "sm" })}
+            >
+              <Gauge className="mr-2 h-4 w-4" />
+              Supervisión
+            </Link>
+          ) : null}
           {knowledgeBase ? (
             <a
               href={knowledgeBase}

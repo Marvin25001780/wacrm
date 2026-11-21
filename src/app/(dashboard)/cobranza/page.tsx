@@ -8,6 +8,7 @@ import {
   ArrowRight,
   BarChart3,
   FileSpreadsheet,
+  Gauge,
   Handshake,
   PhoneCall,
   RefreshCw,
@@ -365,6 +366,14 @@ export default function CobranzaPage() {
           title="Cartera"
           description="Filtra, prioriza y abre la ficha 360."
         />
+        {canImport ? (
+          <QuickLink
+            href="/cobranza/supervision"
+            icon={Gauge}
+            title="Supervisión"
+            description="Carga por gestor, PTP y reparto de cartera."
+          />
+        ) : null}
         {canImport ? (
           <QuickLink
             href="/cobranza/pagos"

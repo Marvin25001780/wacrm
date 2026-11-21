@@ -557,6 +557,73 @@ export interface CollectionAgentPerformanceRow {
   promises_created: number;
 }
 
+/**
+ * 126 — fila del tablero de supervisión (una por gestor operativo).
+ * La calcula `collection_supervisor_board()` con el "hoy" del negocio.
+ */
+export interface CollectionSupervisorRow {
+  user_id: string;
+  profile_id: string;
+  name: string;
+  role: string;
+  assigned_count: number;
+  balance_assigned: number;
+  overdue_assigned: number;
+  actions_today: number;
+  contacts_today: number;
+  ptp_today: number;
+  promises_due_today: number;
+  promises_overdue: number;
+  broken_promises_30d: number;
+  last_action_at: string | null;
+}
+
+/** 126 — promesa abierta que vence (o venció) en la ventana del supervisor. */
+export interface CollectionSupervisorPromise {
+  promise_id: string;
+  debtor_id: string;
+  debtor_name: string;
+  document_number: string | null;
+  phone_primary: string | null;
+  agent_user_id: string | null;
+  agent_name: string | null;
+  amount: number;
+  due_date: string;
+  status: CollectionPromiseStatus;
+  /** Negativo = vencida hace N días; 0 = vence hoy. */
+  days_left: number;
+  credit_folio: string | null;
+}
+
+/** 126 — totales de cartera y reparto pendiente. */
+export interface CollectionSupervisorTotals {
+  portfolio_size: number;
+  portfolio_balance: number;
+  portfolio_overdue: number;
+  unassigned_count: number;
+  unassigned_balance: number;
+  assigned_count: number;
+  agents_total: number;
+  agents_with_portfolio: number;
+}
+
+/** 126 — resultado del reparto automático. */
+export interface CollectionDistributionResult {
+  assigned: number;
+  agents: number;
+  per_agent: number;
+  segment: string | null;
+  breakdown: { user_id: string; name: string; assigned: number }[];
+}
+
+/** 126 — presencia del equipo, para saber si el gestor está en línea. */
+export interface CollectionSupervisorPresence {
+  user_id: string;
+  status: "online" | "away";
+  agent_status: string;
+  last_seen_at: string;
+}
+
 export interface CollectionCommissionRow {
   account_id: string;
   user_id: string | null;

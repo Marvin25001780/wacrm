@@ -44,6 +44,7 @@ import {
 } from "@/components/ui/table";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
+import { loadMemberOptions, type MemberOption } from "@/lib/account/members";
 import {
   DEBTOR_STATUS_TONE,
   PROMISE_STATUS_TONE,
@@ -86,7 +87,11 @@ export default function DebtorDetailPage() {
   const [promises, setPromises] = useState<CollectionPromise[]>([]);
   const [actions, setActions] = useState<CollectionAction[]>([]);
   const [outcomes, setOutcomes] = useState<Record<string, string>>({});
-  const [profiles, setProfiles] = useState<Record<string, string>>({});
+  const [members, setMembers] = useState<Record<string, string>>({});
+  const [assignable, setAssignable] = useState<MemberOption[]>([]);
+  const [assignee, setAssignee] = useState<{ user_id: string; name: string } | null>(null);
+  const [assignTarget, setAssignTarget] = useState("");
+  const [assigning, setAssigning] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const [paying, setPaying] = useState<CollectionInstallment | null>(null);
@@ -97,38 +102,67 @@ export default function DebtorDetailPage() {
     if (!debtorId) return;
     setLoading(true);
 
-    const [debtorRes, creditsRes, installmentsRes, paymentsRes, promisesRes, actionsRes, outcomesRes, profilesRes] =
-      await Promise.all([
-        supabase.from("collection_debtors").select("*").eq("id", debtorId).maybeSingle(),
-        supabase
-          .from("collection_credits")
-          .select("*")
-          .eq("debtor_id", debtorId)
-          .order("created_at", { ascending: true }),
-        supabase
-          .from("collection_installments")
-          .select("*")
-          .eq("debtor_id", debtorId)
-          .order("due_date", { ascending: true }),
-        supabase
-          .from("collection_payments")
-          .select("*")
-          .eq("debtor_id", debtorId)
-          .order("paid_at", { ascending: false }),
-        supabase
-          .from("collection_promises")
-          .select("*")
-          .eq("debtor_id", debtorId)
-          .order("due_date", { ascending: true }),
-        supabase
-          .from("collection_actions")
-          .select("*")
-          .eq("debtor_id", debtorId)
-          .order("created_at", { ascending: false })
-          .limit(20),
-        supabase.from("collection_outcomes").select("code, label, account_id"),
-        supabase.from("profiles").select("id, full_name, email"),
-      ]);
+    const [
+      debtorRes,
+      creditsRes,
+      installmentsRes,
+      paymentsRes,
+      promisesRes,
+      actionsRes,
+      outcomesRes,
+      assigneeRes,
+    ] = await Promise.all([
+      supabase.from("collection_debtors").select("*").eq("id", debtorId).maybeSingle(),
+      supabase
+        .from("collection_credits")
+        .select("*")
+        .eq("debtor_id", debtorId)
+        .order("created_at", { ascending: true }),
+      supabase
+        .from("collection_installments")
+        .select("*")
+        .eq("debtor_id", debtorId)
+        .order("due_date", { ascending: true }),
+      supabase
+        .from("collection_payments")
+        .select("*")
+        .eq("debtor_id", debtorId)
+        .order("paid_at", { ascending: false }),
+      supabase
+        .from("collection_promises")
+        .select("*")
+        .eq("debtor_id", debtorId)
+        .order("due_date", { ascending: true }),
+      supabase
+        .from("collection_actions")
+        .select("*")
+        .eq("debtor_id", debtorId)
+        .order("created_at", { ascending: false })
+        .limit(20),
+      supabase.from("collection_outcomes").select("code, label, account_id"),
+      // 126: nombre del gestor asignado, aunque `profiles` solo deje
+      // ver el perfil propio. Si la migración falta, la ficha sigue.
+      supabase.rpc("collection_debtor_assignee", { p_debtor_id: debtorId }),
+    ]);
+
+    // El equipo se resuelve por RPC (109/110): `profiles` bajo RLS
+    // solo devuelve el perfil propio y el resto salía como "Usuario".
+    const options = await loadMemberOptions(supabase).catch(() => []);
+    const nameMap: Record<string, string> = {};
+    for (const option of options) nameMap[option.user_id] = option.name;
+    setMembers(nameMap);
+    setAssignable(options.filter((option) => option.role !== "viewer"));
+
+    const assigneeRow = Array.isArray(assigneeRes.data)
+      ? assigneeRes.data[0]
+      : assigneeRes.data;
+
+    setAssignee(
+      assigneeRow?.user_id
+        ? { user_id: assigneeRow.user_id, name: assigneeRow.name ?? "Gestor" }
+        : null
+    );
+    setAssignTarget(assigneeRow?.user_id ?? "");
 
     setLoading(false);
 
@@ -152,13 +186,6 @@ export default function DebtorDetailPage() {
       }
     }
     setOutcomes(outcomeMap);
-
-    const profileMap: Record<string, string> = {};
-    for (const profile of profilesRes.data ?? []) {
-      profileMap[profile.id as string] =
-        (profile.full_name as string | null) ?? (profile.email as string | null) ?? "Usuario";
-    }
-    setProfiles(profileMap);
   }, [debtorId, supabase]);
 
   useEffect(() => {
@@ -209,6 +236,41 @@ export default function DebtorDetailPage() {
       setBusyPromise(null);
     }
   }
+
+  async function handleAssign() {
+    if (!debtorId) return;
+    setAssigning(true);
+    try {
+      const response = await fetch(`/api/cobranza/debtors/${debtorId}/assign`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ userId: assignTarget || null }),
+      });
+      const json = (await response.json().catch(() => ({}))) as {
+        agentName?: string;
+        released?: boolean;
+        error?: string;
+      };
+      if (!response.ok) {
+        throw new Error(json.error ?? "No se pudo reasignar el deudor.");
+      }
+      toast.success(
+        json.agentName
+          ? `Asignado a ${json.agentName}`
+          : "Deudor devuelto a la cola sin asignar"
+      );
+      await load();
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "No se pudo reasignar el deudor."
+      );
+    } finally {
+      setAssigning(false);
+    }
+  }
+
+  const selectClass =
+    "h-8 max-w-[190px] rounded-lg border border-border bg-muted px-2 text-xs text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50";
 
   if (loading) {
     return (
@@ -338,9 +400,40 @@ export default function DebtorDetailPage() {
                 </a>
               ) : null}
             </div>
-            <p className="text-xs text-muted-foreground">
-              Gestor: {debtor.assigned_to ? (profiles[debtor.assigned_to] ?? "Asignado") : "Sin asignar"}
-            </p>
+            <div className="flex flex-col items-end gap-1">
+              <p className="text-xs text-muted-foreground">
+                Gestor: {assignee?.name ?? "Sin asignar"}
+              </p>
+              {isAdmin ? (
+                <div className="flex items-center gap-1.5">
+                  <select
+                    className={selectClass}
+                    value={assignTarget}
+                    onChange={(event) => setAssignTarget(event.target.value)}
+                    aria-label="Asignar deudor a un gestor"
+                  >
+                    <option value="">Sin asignar</option>
+                    {assignable.map((member) => (
+                      <option key={member.user_id} value={member.user_id}>
+                        {member.name}
+                      </option>
+                    ))}
+                  </select>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void handleAssign()}
+                    disabled={
+                      assigning ||
+                      assignTarget === (assignee?.user_id ?? "")
+                    }
+                  >
+                    {assigning ? "Guardando…" : "Asignar"}
+                  </Button>
+                </div>
+              ) : null}
+            </div>
           </div>
         </div>
       </div>
@@ -513,7 +606,7 @@ export default function DebtorDetailPage() {
                         {labelFor(COLLECTION_CHANNELS, action.channel)}
                       </span>
                       <span>{formatDate(action.created_at.slice(0, 10))}</span>
-                      {profiles[action.user_id] ? <span>{profiles[action.user_id]}</span> : null}
+                      {members[action.user_id] ? <span>{members[action.user_id]}</span> : null}
                     </div>
                     <p className="mt-1 text-sm text-foreground">
                       {outcomes[action.level1_code] ?? action.level1_code}

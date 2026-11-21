@@ -831,6 +831,7 @@ Reutilizar:
 | `/cobranza/cartera/[id]` | Ficha 360: datos, créditos, cuotas, pagos, gestiones, PTP, timeline. |
 | `/cobranza/pipeline` | Kanban por estado, con contadores y montos; columnas no arrastrables fuera de transición válida. |
 | `/cobranza/consola` | Cola a la izquierda, ficha + cuotas + guion al centro, tipificación + PTP a la derecha. Implementada en la migración 125; ver `docs/consola-cobranza.md`. |
+| `/cobranza/supervision` | Tablero del supervisor: carga y productividad por gestor, promesas por vencer, reparto de la cartera sin asignar. Implementada en la migración 126; ver `docs/supervision-cobranza.md`. |
 | `/cobranza/acuerdos` | Lista y calendario de PTP, filtros por estado y gestor, acciones de resolver. |
 | `/cobranza/importar` | Stepper: archivo → mapeo → validación → commit → resumen. |
 | `/cobranza/reportes` | Aging, recuperación, PTP, canales, ranking, comisiones; export CSV. |
@@ -845,6 +846,8 @@ Reutilizar:
 - El pipeline muestra montos y contadores reales; si no hay datos, empty state.
 - La consola no simula llamadas: el gestor registra el resultado. Si el negocio tiene el módulo Telefonía configurado (LiveKit), el botón “Llamar” abre el softphone; si no, usa `tel:` o copia el número. Ver `docs/telefonia-livekit.md`.
 - Responsive: la consola colapsa a una columna en móvil; el kanban usa scroll horizontal con snap.
+- La supervisión es solo admin/owner. Un agente que entre por URL ve un aviso y el enlace de vuelta a su consola; no se filtra ningún dato del equipo.
+- Los números del tablero se refrescan cada 30 s solo si la pestaña está visible; el botón “Actualizar” fuerza la lectura.
 
 ---
 

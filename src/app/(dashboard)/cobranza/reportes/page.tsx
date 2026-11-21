@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/table";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
+import { loadMemberNames } from "@/lib/account/members";
 import { agingRows } from "@/lib/collections/aging";
 import { exportToCsv } from "@/lib/export/csv";
 import {
@@ -36,7 +37,6 @@ import {
 } from "@/lib/collections/format";
 import {
   COLLECTION_PROMISE_STATUSES,
-  labelFor,
   type CollectionAgingRow,
   type CollectionAgentPerformanceRow,
   type CollectionCommissionRow,
@@ -60,7 +60,7 @@ export default function ReportesPage() {
   const [recovery, setRecovery] = useState<CollectionDailyRecoveryRow[]>([]);
   const [agents, setAgents] = useState<CollectionAgentPerformanceRow[]>([]);
   const [commissions, setCommissions] = useState<CollectionCommissionRow[]>([]);
-  const [profiles, setProfiles] = useState<Record<string, string>>({});
+  const [members, setMembers] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
@@ -68,7 +68,7 @@ export default function ReportesPage() {
     const since = sinceIso(30);
     const sinceMonth = `${todayIso().slice(0, 7)}-01`;
 
-    const [agingRes, promisesRes, recoveryRes, agentsRes, commissionsRes, profilesRes] =
+    const [agingRes, promisesRes, recoveryRes, agentsRes, commissionsRes] =
       await Promise.all([
         supabase.from("v_collection_aging").select("*").maybeSingle(),
         supabase.from("v_collection_promise_stats").select("*"),
@@ -83,7 +83,6 @@ export default function ReportesPage() {
           .select("*")
           .gte("month", sinceMonth)
           .limit(200),
-        supabase.from("profiles").select("id, full_name, email"),
       ]);
 
     setLoading(false);
@@ -105,12 +104,8 @@ export default function ReportesPage() {
     setAgents((agentsRes.data ?? []) as CollectionAgentPerformanceRow[]);
     setCommissions((commissionsRes.data ?? []) as CollectionCommissionRow[]);
 
-    const profileMap: Record<string, string> = {};
-    for (const profile of profilesRes.data ?? []) {
-      profileMap[profile.id as string] =
-        (profile.full_name as string | null) ?? (profile.email as string | null) ?? "Usuario";
-    }
-    setProfiles(profileMap);
+    const profileMap = await loadMemberNames(supabase);
+    setMembers(profileMap);
   }, [supabase]);
 
   useEffect(() => {
@@ -379,7 +374,7 @@ export default function ReportesPage() {
                     {agents.map((row) => (
                       <TableRow key={row.user_id}>
                         <TableCell className="font-medium">
-                          {profiles[row.user_id] ?? "Usuario"}
+                          {members[row.user_id] ?? "Usuario"}
                         </TableCell>
                         <TableCell className="text-right tabular-nums">{row.actions}</TableCell>
                         <TableCell className="text-right tabular-nums">
@@ -418,7 +413,7 @@ export default function ReportesPage() {
                     {commissions.map((row, index) => (
                       <TableRow key={`${row.user_id ?? "none"}-${row.month}-${index}`}>
                         <TableCell className="font-medium">
-                          {row.user_id ? (profiles[row.user_id] ?? "Usuario") : "Sin asignar"}
+                          {row.user_id ? (members[row.user_id] ?? "Usuario") : "Sin asignar"}
                         </TableCell>
                         <TableCell>{row.month}</TableCell>
                         <TableCell className="text-right tabular-nums">
