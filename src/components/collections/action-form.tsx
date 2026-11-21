@@ -56,6 +56,9 @@ interface ActionFormProps {
   /** Negocio activo: acota catálogo y política (el usuario puede tener varios). */
   accountId?: string | null;
   defaultChannel?: ActionChannelInput;
+  /** Canal controlado por el padre (la consola lo cambia al enviar WhatsApp). */
+  channel?: ActionChannelInput;
+  onChannelChange?: (channel: ActionChannelInput) => void;
   onSaved: () => void;
 }
 
@@ -75,6 +78,8 @@ export function ActionForm({
   isAdmin = false,
   accountId = null,
   defaultChannel = DEFAULT_ACTION_CHANNEL,
+  channel: channelProp,
+  onChannelChange,
   onSaved,
 }: ActionFormProps) {
   const supabase = createClient();
@@ -86,7 +91,13 @@ export function ActionForm({
 
   const [level1, setLevel1] = useState("");
   const [level2, setLevel2] = useState("");
-  const [channel, setChannel] = useState<ActionChannelInput>(defaultChannel);
+  const [internalChannel, setInternalChannel] =
+    useState<ActionChannelInput>(defaultChannel);
+  const channel = channelProp ?? internalChannel;
+  function setChannel(next: ActionChannelInput) {
+    if (onChannelChange) onChannelChange(next);
+    if (channelProp === undefined) setInternalChannel(next);
+  }
   const [notes, setNotes] = useState("");
   const [amount, setAmount] = useState("");
   const [dueDate, setDueDate] = useState("");

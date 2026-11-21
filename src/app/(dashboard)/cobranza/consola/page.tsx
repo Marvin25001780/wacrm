@@ -41,6 +41,7 @@ import { MetricCard } from "@/components/dashboard/metric-card";
 import { Panel } from "@/components/metrics/panel";
 import { ActionForm } from "@/components/collections/action-form";
 import { PaymentDialog } from "@/components/collections/payment-dialog";
+import { WhatsappPanel } from "@/components/collections/whatsapp-panel";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -62,6 +63,7 @@ import {
   normalizeQueueSearch,
   queueRankLabel,
   queueRankTone,
+  type ActionChannelInput,
   type QueueScope,
 } from "@/lib/collections/desk";
 import {
@@ -141,6 +143,8 @@ export default function ConsolaCobranzaPage() {
   const [claiming, setClaiming] = useState(false);
   const [linkedCall, setLinkedCall] = useState<LinkedCall | null>(null);
   const [payment, setPayment] = useState<CollectionInstallment | null>(null);
+  const [actionChannel, setActionChannel] =
+    useState<ActionChannelInput>("call");
 
   const selected = useMemo(
     () => rows.find((row) => row.debtor_id === selectedId) ?? null,
@@ -333,7 +337,15 @@ export default function ConsolaCobranzaPage() {
     if (id === selectedId) return;
     setSelectedId(id);
     setLinkedCall(null);
+    setActionChannel("call");
   }
+
+  useEffect(() => {
+    // Al cambiar de deudor la gestión vuelve a canal llamada hasta que
+    // el agente envíe un WhatsApp o lo cambie a mano.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setActionChannel("call");
+  }, [selectedId]);
 
   async function toggleClaim(action: "claim" | "release") {
     if (!selected) return;
@@ -789,6 +801,12 @@ export default function ConsolaCobranzaPage() {
                 />
               </div>
 
+              <WhatsappPanel
+                debtorId={selected.debtor_id}
+                debtorName={selected.name}
+                onSent={() => setActionChannel("whatsapp")}
+              />
+
               <Panel
                 title="Créditos y cuotas"
                 subtitle="Registra el pago en la cuota que corresponda"
@@ -1073,6 +1091,8 @@ export default function ConsolaCobranzaPage() {
                   isAdmin={isAdmin}
                   accountId={accountId}
                   callSession={linkedCall}
+                  channel={actionChannel}
+                  onChannelChange={setActionChannel}
                   onSaved={() => void handleSaved()}
                 />
               </Panel>
