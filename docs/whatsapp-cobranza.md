@@ -154,3 +154,17 @@ NOTIFY pgrst, 'reload schema';
 
 El código tolera la ausencia de los RPC: la API responde `409` con
 `migration: "127"` y el panel muestra el error en vez de romper la consola.
+
+## Cierre del ciclo (bloque 128)
+
+La 127 cubre el envío; la 128 cubre la respuesta. `collection_agent_queue()`
+compara el último mensaje `customer` con el último mensaje del negocio en el
+hilo de WhatsApp del contacto: si el entrante es más nuevo, el deudor aparece
+como `awaiting_reply`, sube al inicio de la cola y el supervisor lo ve en
+**Esperan respuesta**.
+
+Responder desde este panel no escribe ninguna tabla de estado: el siguiente
+mensaje del negocio en `messages` apaga la alerta por sí solo. Si se contesta
+desde el inbox, el efecto es el mismo. Los detalles están en
+`docs/consola-cobranza.md` §12.
+
