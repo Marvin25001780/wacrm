@@ -705,6 +705,15 @@ export default function ConsolaCobranzaPage() {
                         : ""}
                     </span>
                   ) : null}
+                  {selected.awaiting_reply ? (
+                    <span className="inline-flex items-center gap-1.5 rounded-lg border border-primary/40 bg-primary/10 px-2.5 py-1 font-medium text-primary">
+                      <MessageCircle className="h-3.5 w-3.5" />
+                      Respondió por WhatsApp
+                      {selected.last_inbound_at
+                        ? ` · ${formatDateTime(selected.last_inbound_at)}`
+                        : ""}
+                    </span>
+                  ) : null}
                   <span
                     className={cn(
                       "inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1",
@@ -1199,6 +1208,12 @@ function QueueItem({
       </div>
 
       <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]">
+        {row.awaiting_reply ? (
+          <span className="inline-flex items-center gap-1 rounded bg-primary/15 px-1.5 py-0.5 font-medium text-primary">
+            <MessageCircle className="h-3 w-3" />
+            Respondió
+          </span>
+        ) : null}
         {row.overdue_balance > 0 ? (
           <span className="text-red-300">
             Vencido {formatUsd(row.overdue_balance)}

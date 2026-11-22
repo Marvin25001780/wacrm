@@ -67,6 +67,8 @@ export async function GET(request: Request) {
       open_installments: Number(row.open_installments) || 0,
       open_promises: Number(row.open_promises) || 0,
       broken_promises: Number(row.broken_promises) || 0,
+      awaiting_reply: Boolean(row.awaiting_reply),
+      last_inbound_at: row.last_inbound_at ?? null,
       total_count: Number(row.total_count) || 0,
     }));
 

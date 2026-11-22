@@ -45,6 +45,11 @@ su propio scroll para que la cola no desaparezca al bajar por la ficha.
 | 2 | Mora (cuota vencida sin pagar) |
 | 3 | Al día |
 
+Antes de `queue_rank`, la cola pone a quien **espera respuesta por
+WhatsApp** (`awaiting_reply`, migración 128): el último mensaje del
+deudor es más nuevo que el último del negocio. Así una respuesta real
+no se queda enterrada detrás de la cartera del día.
+
 Dentro de cada grupo: prioridad de la 076 → saldo vencido → días de
 mora → nunca contactado primero → nombre.
 
@@ -202,3 +207,36 @@ antes de llamar a la API.
 7. `collection_record_action()`.
 
 Es idempotente y termina con `NOTIFY pgrst, 'reload schema'`.
+
+## 12. Bloque 128 — cuando el deudor responde
+
+La 127 dejó el envío de WhatsApp en la consola. El hueco inverso era la
+respuesta: el mensaje entra a `messages` y la cola no se enteraba.
+
+`collection_agent_queue()` ahora devuelve:
+
+- `awaiting_reply`: el último mensaje `customer` del hilo es más nuevo
+  que el último mensaje del negocio (`agent` o `bot`).
+- `last_inbound_at`: la fecha de ese entrante.
+
+La señal se calcula sobre el hilo real, no sobre
+`conversations.unread_count` (el inbox lo limpia al abrir y la consola
+no, así que mentiría en ambos sentidos). Responder desde la consola
+apaga la alerta sola, sin tablas de estado nuevas.
+
+En pantalla:
+
+- la cola muestra el chip **Respondió** y ordena primero esos casos;
+- la ficha muestra **Respondió por WhatsApp** con la fecha del mensaje;
+- el supervisor ve el KPI **Esperan respuesta**, la columna **Esperan**
+  por gestor y un aviso si hay casos esperando sin asignar.
+
+Reglas:
+
+- solo cuentan hilos de WhatsApp del contacto vinculado al deudor
+  (`collection_debtors.contact_id`);
+- un mensaje del bot también cierra la espera;
+- un deudor sin contacto o sin mensajes nunca aparece como “esperando”;
+- los deudores `pagado` quedan fuera de la cola y del conteo.
+
+Rollback al final de `supabase/migrations/128_collection_reactive_queue.sql`.

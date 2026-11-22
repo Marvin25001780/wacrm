@@ -4,6 +4,7 @@ import { requireRole, toErrorResponse } from '@/lib/auth/account';
 import { normalizeDays } from '@/lib/collections/supervision';
 import { loadMemberPresence } from '@/lib/telephony/roster';
 import type {
+  CollectionAwaitingReplyRow,
   CollectionSupervisorPresence,
   CollectionSupervisorPromise,
   CollectionSupervisorRow,
@@ -45,8 +46,47 @@ export async function GET(request: Request) {
     const failed = [boardRes.error, promisesRes.error, totalsRes.error].find(Boolean);
     if (failed) return rpcError(failed);
 
+    // 128 — respuestas de WhatsApp sin atender. Es informativo: si la
+    // migración aún no está aplicada, el tablero sigue funcionando.
+    let awaiting: CollectionAwaitingReplyRow[] = [];
+    try {
+      const awaitingRes = await ctx.supabase.rpc('collection_awaiting_replies', {
+        p_account_id: ctx.accountId,
+      });
+      if (!awaitingRes.error) {
+        awaiting = ((awaitingRes.data ?? []) as CollectionAwaitingReplyRow[]).map(
+          (row) => ({
+            agent_user_id: row.agent_user_id ?? null,
+            agent_name: row.agent_name,
+            awaiting_count: Number(row.awaiting_count) || 0,
+          })
+        );
+      } else if (
+        !['42883', '42P01', '42703', 'PGRST202', 'PGRST205'].includes(
+          awaitingRes.error.code ?? ''
+        )
+      ) {
+        console.warn(
+          '[cobranza/supervision] respuestas pendientes:',
+          awaitingRes.error.message
+        );
+      }
+    } catch (awaitingError) {
+      console.warn(
+        '[cobranza/supervision] respuestas pendientes no disponible:',
+        awaitingError
+      );
+    }
+
+    const awaitingByUser = new Map(
+      awaiting
+        .filter((row) => row.agent_user_id)
+        .map((row) => [row.agent_user_id as string, row.awaiting_count])
+    );
+
     const board = ((boardRes.data ?? []) as CollectionSupervisorRow[]).map((row) => ({
       ...row,
+      awaiting_replies: awaitingByUser.get(row.user_id) ?? 0,
       assigned_count: Number(row.assigned_count) || 0,
       balance_assigned: Number(row.balance_assigned) || 0,
       overdue_assigned: Number(row.overdue_assigned) || 0,
@@ -100,6 +140,7 @@ export async function GET(request: Request) {
       promises,
       totals,
       presence,
+      awaiting,
       days,
       updated_at: new Date().toISOString(),
     });

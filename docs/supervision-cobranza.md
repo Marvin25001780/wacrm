@@ -28,10 +28,12 @@ una consulta; no hay métricas simuladas.
 
 ### KPIs
 
-1. **Gestiones de hoy** — gestiones registradas y contactos efectivos.
-2. **PTP de hoy** — promesas creadas hoy y cuántas vencen hoy.
-3. **Promesas vencidas** — abiertas con fecha pasada y rotas en 30 días.
-4. **Sin asignar** — deudores y saldo pendientes de reparto.
+1. **Esperan respuesta** — casos con un mensaje de WhatsApp del deudor
+   sin contestar (migración 128) y cuántos de ellos no tienen gestor.
+2. **Gestiones de hoy** — gestiones registradas y contactos efectivos.
+3. **PTP de hoy** — promesas creadas hoy y cuántas vencen hoy.
+4. **Promesas vencidas** — abiertas con fecha pasada y rotas en 30 días.
+5. **Sin asignar** — deudores y saldo pendientes de reparto.
 
 “Hoy” lo decide el servidor con `collection_settings.timezone`
 (`America/Caracas` por defecto). No se usa el reloj del navegador: un
@@ -44,10 +46,16 @@ excluyen porque no pueden gestionar cartera.
 
 - Presencia del softphone: disponible, en llamada, after-call, pausa.
 - Cartera asignada: cantidad de deudores y saldo.
+- **Esperan**: respuestas de WhatsApp pendientes de ese gestor, en
+  ámbar/índigo cuando hay alguna (128).
 - Gestiones de hoy y tasa de contacto (`contacts / actions`).
 - PTP creadas hoy, promesas que vencen hoy, vencidas y rotas en 30 días.
 - Clic en una fila filtra el panel de promesas de ese gestor. Otro clic
   quita el filtro.
+
+Si hay respuestas pendientes en deudores sin asignar, aparece un aviso
+sobre el tablero con enlace a la consola: el reparto no debe esperar a
+que alguien abra la cartera por casualidad.
 
 ### Promesas por vencer
 
@@ -73,7 +81,7 @@ abre su ficha 360.
 
 | Método | Ruta | Rol | Uso |
 |---|---|---|---|
-| GET | `/api/cobranza/supervision?days=7` | admin | Tablero, promesas, totales y presencia. |
+| GET | `/api/cobranza/supervision?days=7` | admin | Tablero, promesas, totales, presencia y respuestas pendientes. |
 | POST | `/api/cobranza/distribute` | admin | Reparto `{ perAgent, segment }`. |
 | POST | `/api/cobranza/debtors/[id]/assign` | admin | `{ userId }` o `null` para devolver a la cola. |
 
@@ -90,6 +98,16 @@ un mensaje que dice qué aplicar.
 | `collection_assign_debtor(debtor_id, user_id)` | Reasigna un deudor y cierra la asignación activa anterior. |
 | `collection_distribute_unassigned(account_id, per_agent, segment)` | Reparte la cartera libre y devuelve `assigned`, `agents`, `breakdown`. |
 | `collection_debtor_assignee(debtor_id)` | Nombre del gestor de un deudor (cualquier agente). |
+
+Migración 128 añade, sin tocar las firmas anteriores:
+
+| Función | Devuelve |
+|---|---|
+| `collection_awaiting_replies(account_id)` | Casos con respuesta de WhatsApp sin contestar, contados por gestor, más una fila “Sin asignar”. Solo admin. |
+
+La API mezcla ese conteo en `board[].awaiting_replies` y lo devuelve
+también en `awaiting`; si la 128 no está aplicada, el tablero sigue
+funcionando con el valor en cero.
 
 Todas son `SECURITY DEFINER` porque necesitan nombres de `profiles` y
 `account_members` (la RLS solo deja ver el perfil propio). La pertenencia
@@ -146,6 +164,16 @@ corrige el historial de gestiones, que antes intentaba cruzar el
    gestor y verificar que nadie recibe más de 5 en esa corrida y que los
    ya asignados no se movieron.
 8. Repetir el reparto: debe devolver 0 si ya no queda cartera libre.
+9. Bloque 128: escribir desde un WhatsApp vinculado a un deudor y
+   comprobar que sube al inicio de la cola con **Respondió**, que el KPI
+   **Esperan respuesta** cuenta el caso y que la columna **Esperan** del
+   gestor lo refleja.
+10. Responder desde el panel de WhatsApp de la consola y actualizar: el
+    caso pierde el chip y el contador baja. Si se responde desde el
+    inbox, el resultado es el mismo (se mira `messages`, no
+    `unread_count`).
+11. Si el deudor que escribió no tiene gestor, aparece el aviso de
+    pendientes sin asignar sobre el tablero.
 
 ## Rollback
 

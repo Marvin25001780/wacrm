@@ -8,6 +8,7 @@ import {
   ArrowRight,
   CalendarClock,
   Handshake,
+  MessageCircle,
   PhoneCall,
   RefreshCw,
   ShieldAlert,
@@ -57,6 +58,7 @@ import {
   COLLECTION_PROMISE_STATUSES,
   COLLECTION_SEGMENTS,
   labelFor,
+  type CollectionAwaitingReplyRow,
   type CollectionPromiseStatus,
   type CollectionSupervisorPresence,
   type CollectionSupervisorPromise,
@@ -81,6 +83,8 @@ interface SupervisionPayload {
   promises: CollectionSupervisorPromise[];
   totals: CollectionSupervisorTotals;
   presence: CollectionSupervisorPresence[];
+  /** 128 — respuestas de WhatsApp pendientes por gestor (opcional). */
+  awaiting?: CollectionAwaitingReplyRow[];
   days: number;
   updated_at: string;
 }
@@ -105,6 +109,7 @@ export default function SupervisionCobranzaPage() {
   const [promises, setPromises] = useState<CollectionSupervisorPromise[]>([]);
   const [totals, setTotals] = useState<CollectionSupervisorTotals>(EMPTY_TOTALS);
   const [presence, setPresence] = useState<CollectionSupervisorPresence[]>([]);
+  const [awaiting, setAwaiting] = useState<CollectionAwaitingReplyRow[]>([]);
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -144,6 +149,7 @@ export default function SupervisionCobranzaPage() {
         setPromises(json.promises);
         setTotals(json.totals ?? EMPTY_TOTALS);
         setPresence(json.presence ?? []);
+        setAwaiting(json.awaiting ?? []);
         setUpdatedAt(json.updated_at);
       } catch {
         setError("Sin conexión con el servidor.");
@@ -168,6 +174,17 @@ export default function SupervisionCobranzaPage() {
   }, [canSupervise, load]);
 
   const summary = useMemo(() => summarizeBoard(board), [board]);
+  /** 128 — casos que esperan respuesta y cuántos de ellos no tienen gestor. */
+  const awaitingSummary = useMemo(() => {
+    let total = 0;
+    let unassigned = 0;
+    for (const row of awaiting) {
+      const count = Number(row.awaiting_count) || 0;
+      total += count;
+      if (!row.agent_user_id) unassigned += count;
+    }
+    return { total, unassigned };
+  }, [awaiting]);
   const presenceByUser = useMemo(
     () => new Map(presence.map((row) => [row.user_id, row])),
     [presence]
@@ -263,8 +280,8 @@ export default function SupervisionCobranzaPage() {
   if (loading) {
     return (
       <div className="space-y-6">
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          {Array.from({ length: 4 }).map((_, index) => (
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+          {Array.from({ length: 5 }).map((_, index) => (
             <SkeletonCard key={index} />
           ))}
         </div>
@@ -331,7 +348,17 @@ export default function SupervisionCobranzaPage() {
         </div>
       ) : null}
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+        <MetricCard
+          title="Esperan respuesta"
+          value={String(awaitingSummary.total)}
+          icon={MessageCircle}
+          subtitle={
+            awaitingSummary.total === 0
+              ? "Nadie espera por WhatsApp"
+              : `${awaitingSummary.unassigned} sin gestor`
+          }
+        />
         <MetricCard
           title="Gestiones de hoy"
           value={String(summary.actionsToday)}
@@ -357,6 +384,26 @@ export default function SupervisionCobranzaPage() {
           subtitle={formatUsd(totals.unassigned_balance)}
         />
       </div>
+
+      {awaitingSummary.unassigned > 0 ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-primary/30 bg-primary/10 px-4 py-3 text-sm text-primary">
+          <div className="flex items-start gap-2">
+            <MessageCircle className="mt-0.5 h-4 w-4 shrink-0" />
+            <p>
+              {awaitingSummary.unassigned} caso
+              {awaitingSummary.unassigned === 1 ? "" : "s"} con respuesta de
+              WhatsApp esperando y sin gestor asignado.
+            </p>
+          </div>
+          <Link
+            href="/cobranza/consola"
+            className={buttonVariants({ variant: "outline", size: "sm" })}
+          >
+            Ver en la consola
+            <ArrowRight className="ml-2 h-3.5 w-3.5" />
+          </Link>
+        </div>
+      ) : null}
 
       <div className="grid gap-4 xl:grid-cols-[2fr_1fr]">
         <Panel
@@ -390,6 +437,7 @@ export default function SupervisionCobranzaPage() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Gestor</TableHead>
+                    <TableHead className="text-right">Esperan</TableHead>
                     <TableHead className="text-right">Cartera</TableHead>
                     <TableHead className="text-right">Hoy</TableHead>
                     <TableHead className="hidden text-right md:table-cell">
@@ -436,6 +484,16 @@ export default function SupervisionCobranzaPage() {
                               </p>
                             </div>
                           </div>
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {(row.awaiting_replies ?? 0) > 0 ? (
+                            <span className="inline-flex items-center gap-1 rounded bg-primary/15 px-1.5 py-0.5 text-xs font-medium text-primary">
+                              <MessageCircle className="h-3 w-3" />
+                              {row.awaiting_replies}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
                         </TableCell>
                         <TableCell className="text-right tabular-nums">
                           <span className="font-medium text-foreground">

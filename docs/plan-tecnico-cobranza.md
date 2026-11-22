@@ -831,8 +831,8 @@ Reutilizar:
 | `/cobranza/cartera` | Tabla de deudores con filtros por tramo/gestor/estado, búsqueda local, selección múltiple, asignación. |
 | `/cobranza/cartera/[id]` | Ficha 360: datos, créditos, cuotas, pagos, gestiones, PTP, timeline. |
 | `/cobranza/pipeline` | Kanban por estado, con contadores y montos; columnas no arrastrables fuera de transición válida. |
-| `/cobranza/consola` | Cola a la izquierda, ficha + cuotas + guion al centro, tipificación + PTP a la derecha. WhatsApp embebido con hilo, texto y plantillas (migración 127). Ver `docs/consola-cobranza.md` y `docs/whatsapp-cobranza.md`. |
-| `/cobranza/supervision` | Tablero del supervisor: carga y productividad por gestor, promesas por vencer, reparto de la cartera sin asignar. Implementada en la migración 126; ver `docs/supervision-cobranza.md`. |
+| `/cobranza/consola` | Cola a la izquierda, ficha + cuotas + guion al centro, tipificación + PTP a la derecha. WhatsApp embebido con hilo, texto y plantillas (migración 127); la cola sube primero a quien respondió por WhatsApp (128). Ver `docs/consola-cobranza.md` y `docs/whatsapp-cobranza.md`. |
+| `/cobranza/supervision` | Tablero del supervisor: carga y productividad por gestor, promesas por vencer, reparto de la cartera sin asignar y respuestas de WhatsApp pendientes por gestor (128). Implementada en la migración 126; ver `docs/supervision-cobranza.md`. |
 | `/cobranza/acuerdos` | Lista y calendario de PTP, filtros por estado y gestor, acciones de resolver. |
 | `/cobranza/importar` | Stepper: archivo → mapeo → validación → commit → resumen. |
 | `/cobranza/reportes` | Aging, recuperación, PTP, canales, ranking, comisiones; export CSV. |
@@ -850,6 +850,7 @@ Reutilizar:
 - La supervisión es solo admin/owner. Un agente que entre por URL ve un aviso y el enlace de vuelta a su consola; no se filtra ningún dato del equipo.
 - Los números del tablero se refrescan cada 30 s solo si la pestaña está visible; el botón “Actualizar” fuerza la lectura.
 - WhatsApp respeta la ventana de 24 h: fuera de ella el compositor de texto libre se bloquea y ofrece plantillas aprobadas. El primer mensaje de un deudor siempre sale como plantilla. La gestión se guarda aparte, con el canal que el agente confirme (el envío deja el canal en `whatsapp`).
+- Una respuesta de WhatsApp sin contestar pesa más que la prioridad normal: la cola la sube al inicio y la marca **Respondió**; la alerta se apaga al responder desde la consola o el inbox (se compara el hilo real de `messages`, no `unread_count`).
 
 ---
 

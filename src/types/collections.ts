@@ -520,6 +520,10 @@ export interface CollectionQueueRow {
   open_promises: number;
   next_promise_due?: string | null;
   broken_promises: number;
+  /** 128 — el deudor escribió por WhatsApp y nadie le respondió aún. */
+  awaiting_reply: boolean;
+  /** 128 — fecha del último mensaje entrante, para contexto. */
+  last_inbound_at: string | null;
   /** 0 promesa vencida/rota · 1 PTP próxima · 2 mora · 3 al día. */
   queue_rank: number;
   total_count: number;
@@ -575,7 +579,16 @@ export interface CollectionSupervisorRow {
   promises_due_today: number;
   promises_overdue: number;
   broken_promises_30d: number;
+  /** 128 — casos con respuesta de WhatsApp sin atender (se mezcla en la API). */
+  awaiting_replies?: number;
   last_action_at: string | null;
+}
+
+/** 128 — respuestas pendientes por gestor (RPC collection_awaiting_replies). */
+export interface CollectionAwaitingReplyRow {
+  agent_user_id: string | null;
+  agent_name: string;
+  awaiting_count: number;
 }
 
 /** 126 — promesa abierta que vence (o venció) en la ventana del supervisor. */
