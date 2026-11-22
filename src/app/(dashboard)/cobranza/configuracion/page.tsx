@@ -22,6 +22,10 @@ import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { useCan } from "@/hooks/use-can";
 import {
+  DEFAULT_RESPONSE_SLA_MINUTES,
+  normalizeSlaMinutes,
+} from "@/lib/collections/response";
+import {
   COLLECTION_TRAMOS,
   type CollectionCommissionRule,
   type CollectionPolicy,
@@ -99,6 +103,9 @@ export default function ConfiguracionPage() {
             business_hours_start: settings.business_hours_start,
             business_hours_end: settings.business_hours_end,
             knowledge_base_url: settings.knowledge_base_url?.trim() || null,
+            response_sla_minutes: normalizeSlaMinutes(
+              settings.response_sla_minutes,
+            ),
           }
         : {
             account_id: accountId,
@@ -108,19 +115,20 @@ export default function ConfiguracionPage() {
             business_hours_start: "09:00",
             business_hours_end: "18:00",
             knowledge_base_url: null,
+            response_sla_minutes: DEFAULT_RESPONSE_SLA_MINUTES,
           };
 
-      // El enlace a la wiki llega con la 125. Si la base aún no la
-      // tiene, se guarda el resto de la operación y se avisa: no se
-      // pierde el trabajo del admin por una columna nueva.
+      // Las columnas de 125 (wiki) y 129 (SLA) pueden no existir aún en
+      // una base atrasada. Se reintenta sin ellas para no perder el
+      // trabajo del admin por una migración pendiente.
       const firstSettings = await supabase
         .from("collection_settings")
         .upsert(settingsPayload, { onConflict: "account_id" });
       let settingsError = firstSettings.error;
-      let wikiSkipped = false;
+      const skippedColumns: string[] = [];
 
       if (settingsError?.code === "42703") {
-        const fallback = {
+        const baseSettings = {
           account_id: settingsPayload.account_id,
           country_code: settingsPayload.country_code,
           timezone: settingsPayload.timezone,
@@ -128,11 +136,29 @@ export default function ConfiguracionPage() {
           business_hours_start: settingsPayload.business_hours_start,
           business_hours_end: settingsPayload.business_hours_end,
         };
-        const retry = await supabase
+
+        const withSla = await supabase
           .from("collection_settings")
-          .upsert(fallback, { onConflict: "account_id" });
-        settingsError = retry.error;
-        wikiSkipped = !retry.error;
+          .upsert(
+            {
+              ...baseSettings,
+              response_sla_minutes: settingsPayload.response_sla_minutes,
+            },
+            { onConflict: "account_id" },
+          );
+        settingsError = withSla.error;
+
+        if (!withSla.error) {
+          skippedColumns.push("el enlace de la wiki");
+        } else if (withSla.error.code === "42703") {
+          const retry = await supabase
+            .from("collection_settings")
+            .upsert(baseSettings, { onConflict: "account_id" });
+          settingsError = retry.error;
+          if (!retry.error) {
+            skippedColumns.push("el SLA de respuesta", "el enlace de la wiki");
+          }
+        }
       }
 
       if (settingsError) throw settingsError;
@@ -172,8 +198,8 @@ export default function ConfiguracionPage() {
       if (failed?.error) throw failed.error;
 
       toast.success(
-        wikiSkipped
-          ? "Políticas guardadas. El enlace de la wiki se guardará al aplicar la migración 125."
+        skippedColumns.length > 0
+          ? `Políticas guardadas. ${skippedColumns.join(" y ")} se guardarán al aplicar la migración pendiente.`
           : "Políticas guardadas"
       );
       await load();
@@ -294,11 +320,41 @@ export default function ConfiguracionPage() {
               disabled={!canEdit}
             />
           </div>
+
+          <div className="space-y-2">
+            <Label className="text-muted-foreground">
+              SLA de respuesta (min)
+            </Label>
+            <Input
+              type="number"
+              min={1}
+              max={1440}
+              value={settings?.response_sla_minutes ?? DEFAULT_RESPONSE_SLA_MINUTES}
+              onChange={(event) =>
+                setSettings((current) =>
+                  current
+                    ? {
+                        ...current,
+                        response_sla_minutes: normalizeSlaMinutes(
+                          event.target.value,
+                        ),
+                      }
+                    : current,
+                )
+              }
+              disabled={!canEdit}
+            />
+          </div>
         </div>
 
         <p className="mt-3 text-xs text-muted-foreground">
           Moneda fija del módulo: <span className="font-medium text-foreground">USD</span>. Los
           teléfonos se normalizan con el país seleccionado.
+        </p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          El SLA es el tiempo máximo para contestar el primer mensaje de
+          WhatsApp. La consola y la supervisión lo usan para colorear la espera;
+          no bloquea el envío de mensajes.
         </p>
       </Panel>
 

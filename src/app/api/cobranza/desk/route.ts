@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
 import { isQueueScope, normalizeQueueSearch } from '@/lib/collections/desk';
+import { normalizeSlaMinutes } from '@/lib/collections/response';
 import type { CollectionQueueRow } from '@/types/collections';
 
 /**
@@ -35,14 +36,28 @@ export async function GET(request: Request) {
     const offset =
       Number.isFinite(rawOffset) && rawOffset > 0 ? Math.floor(rawOffset) : 0;
 
-    const { data, error } = await ctx.supabase.rpc('collection_agent_queue', {
-      p_account_id: ctx.accountId,
-      p_scope: scope,
-      p_search: search || null,
-      p_segment: rawSegment || null,
-      p_limit: limit,
-      p_offset: offset,
-    });
+    const [queueRes, settingsRes] = await Promise.all([
+      ctx.supabase.rpc('collection_agent_queue', {
+        p_account_id: ctx.accountId,
+        p_scope: scope,
+        p_search: search || null,
+        p_segment: rawSegment || null,
+        p_limit: limit,
+        p_offset: offset,
+      }),
+      // 129 — SLA del negocio para colorear la espera. Si la columna
+      // aún no existe, se usa el valor por defecto.
+      ctx.supabase
+        .from('collection_settings')
+        .select('response_sla_minutes')
+        .eq('account_id', ctx.accountId)
+        .maybeSingle(),
+    ]);
+
+    const { data, error } = queueRes;
+    const responseSlaMinutes = normalizeSlaMinutes(
+      settingsRes.data?.response_sla_minutes
+    );
 
     if (error) {
       if (isMissingSchema(error)) {
@@ -69,6 +84,8 @@ export async function GET(request: Request) {
       broken_promises: Number(row.broken_promises) || 0,
       awaiting_reply: Boolean(row.awaiting_reply),
       last_inbound_at: row.last_inbound_at ?? null,
+      waiting_minutes:
+        row.waiting_minutes == null ? null : Number(row.waiting_minutes) || 0,
       total_count: Number(row.total_count) || 0,
     }));
 
@@ -80,6 +97,7 @@ export async function GET(request: Request) {
       limit,
       offset,
       hasMore: offset + rows.length < total,
+      response_sla_minutes: responseSlaMinutes,
     });
   } catch (err) {
     return toErrorResponse(err);

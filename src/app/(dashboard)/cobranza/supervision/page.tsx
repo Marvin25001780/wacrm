@@ -49,6 +49,12 @@ import {
   summarizeBoard,
 } from "@/lib/collections/supervision";
 import {
+  DEFAULT_RESPONSE_SLA_MINUTES,
+  minutesSince,
+  normalizeSlaMinutes,
+  waitingLabel,
+} from "@/lib/collections/response";
+import {
   PROMISE_STATUS_TONE,
   formatDate,
   formatPercent,
@@ -85,6 +91,8 @@ interface SupervisionPayload {
   presence: CollectionSupervisorPresence[];
   /** 128 — respuestas de WhatsApp pendientes por gestor (opcional). */
   awaiting?: CollectionAwaitingReplyRow[];
+  /** 129 — SLA de primera respuesta del negocio. */
+  response_sla_minutes?: number;
   days: number;
   updated_at: string;
 }
@@ -110,6 +118,7 @@ export default function SupervisionCobranzaPage() {
   const [totals, setTotals] = useState<CollectionSupervisorTotals>(EMPTY_TOTALS);
   const [presence, setPresence] = useState<CollectionSupervisorPresence[]>([]);
   const [awaiting, setAwaiting] = useState<CollectionAwaitingReplyRow[]>([]);
+  const [slaMinutes, setSlaMinutes] = useState(DEFAULT_RESPONSE_SLA_MINUTES);
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -150,6 +159,7 @@ export default function SupervisionCobranzaPage() {
         setTotals(json.totals ?? EMPTY_TOTALS);
         setPresence(json.presence ?? []);
         setAwaiting(json.awaiting ?? []);
+        setSlaMinutes(normalizeSlaMinutes(json.response_sla_minutes));
         setUpdatedAt(json.updated_at);
       } catch {
         setError("Sin conexión con el servidor.");
@@ -174,17 +184,34 @@ export default function SupervisionCobranzaPage() {
   }, [canSupervise, load]);
 
   const summary = useMemo(() => summarizeBoard(board), [board]);
-  /** 128 — casos que esperan respuesta y cuántos de ellos no tienen gestor. */
+  /** 128/129 — casos que esperan respuesta, fuera de SLA y el más antiguo. */
   const awaitingSummary = useMemo(() => {
     let total = 0;
     let unassigned = 0;
+    let overSla = 0;
+    let oldest: string | null = null;
+
     for (const row of awaiting) {
       const count = Number(row.awaiting_count) || 0;
       total += count;
+      overSla += Number(row.over_sla) || 0;
       if (!row.agent_user_id) unassigned += count;
+      if (
+        row.oldest_inbound_at &&
+        (!oldest ||
+          new Date(row.oldest_inbound_at).getTime() < new Date(oldest).getTime())
+      ) {
+        oldest = row.oldest_inbound_at;
+      }
     }
-    return { total, unassigned };
-  }, [awaiting]);
+
+    return {
+      total,
+      unassigned,
+      overSla,
+      oldestWait: minutesSince(oldest, updatedAt),
+    };
+  }, [awaiting, updatedAt]);
   const presenceByUser = useMemo(
     () => new Map(presence.map((row) => [row.user_id, row])),
     [presence]
@@ -356,7 +383,7 @@ export default function SupervisionCobranzaPage() {
           subtitle={
             awaitingSummary.total === 0
               ? "Nadie espera por WhatsApp"
-              : `${awaitingSummary.unassigned} sin gestor`
+              : `${awaitingSummary.unassigned} sin gestor · ${awaitingSummary.overSla} fuera de SLA`
           }
         />
         <MetricCard
@@ -384,6 +411,27 @@ export default function SupervisionCobranzaPage() {
           subtitle={formatUsd(totals.unassigned_balance)}
         />
       </div>
+
+      {awaitingSummary.overSla > 0 ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <p>
+              {awaitingSummary.overSla} respuesta
+              {awaitingSummary.overSla === 1 ? "" : "s"} de WhatsApp fuera del
+              SLA de {slaMinutes} min. La más antigua espera{" "}
+              {waitingLabel(awaitingSummary.oldestWait)}.
+            </p>
+          </div>
+          <Link
+            href="/cobranza/consola"
+            className={buttonVariants({ variant: "outline", size: "sm" })}
+          >
+            Ver en la consola
+            <ArrowRight className="ml-2 h-3.5 w-3.5" />
+          </Link>
+        </div>
+      ) : null}
 
       {awaitingSummary.unassigned > 0 ? (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-primary/30 bg-primary/10 px-4 py-3 text-sm text-primary">
@@ -487,10 +535,17 @@ export default function SupervisionCobranzaPage() {
                         </TableCell>
                         <TableCell className="text-right tabular-nums">
                           {(row.awaiting_replies ?? 0) > 0 ? (
-                            <span className="inline-flex items-center gap-1 rounded bg-primary/15 px-1.5 py-0.5 text-xs font-medium text-primary">
-                              <MessageCircle className="h-3 w-3" />
-                              {row.awaiting_replies}
-                            </span>
+                            <>
+                              <span className="inline-flex items-center gap-1 rounded bg-primary/15 px-1.5 py-0.5 text-xs font-medium text-primary">
+                                <MessageCircle className="h-3 w-3" />
+                                {row.awaiting_replies}
+                              </span>
+                              {(row.awaiting_over_sla ?? 0) > 0 ? (
+                                <span className="mt-0.5 block text-[11px] font-medium text-red-300">
+                                  {row.awaiting_over_sla} tarde
+                                </span>
+                              ) : null}
+                            </>
                           ) : (
                             <span className="text-muted-foreground">—</span>
                           )}

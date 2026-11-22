@@ -41,6 +41,7 @@ import { MetricCard } from "@/components/dashboard/metric-card";
 import { Panel } from "@/components/metrics/panel";
 import { ActionForm } from "@/components/collections/action-form";
 import { PaymentDialog } from "@/components/collections/payment-dialog";
+import { WaitBadge } from "@/components/collections/wait-badge";
 import { WhatsappPanel } from "@/components/collections/whatsapp-panel";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -55,6 +56,10 @@ import {
 import { useTelephony } from "@/components/telephony/telephony-provider";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
+import {
+  DEFAULT_RESPONSE_SLA_MINUTES,
+  normalizeSlaMinutes,
+} from "@/lib/collections/response";
 import {
   QUEUE_RANKS,
   QUEUE_SCOPES,
@@ -131,6 +136,7 @@ export default function ConsolaCobranzaPage() {
   const [total, setTotal] = useState(0);
   const [loadingQueue, setLoadingQueue] = useState(true);
   const [queueError, setQueueError] = useState<string | null>(null);
+  const [slaMinutes, setSlaMinutes] = useState(DEFAULT_RESPONSE_SLA_MINUTES);
 
   // ---- Ficha ----
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -166,6 +172,7 @@ export default function ConsolaCobranzaPage() {
       const json = (await response.json().catch(() => ({}))) as {
         rows?: CollectionQueueRow[];
         total?: number;
+        response_sla_minutes?: number;
         error?: string;
       };
 
@@ -181,6 +188,7 @@ export default function ConsolaCobranzaPage() {
       const list = json.rows ?? [];
       setRows(list);
       setTotal(Number(json.total) || 0);
+      setSlaMinutes(normalizeSlaMinutes(json.response_sla_minutes));
       setSelectedId((current) => {
         if (current && list.some((row) => row.debtor_id === current)) {
           return current;
@@ -576,6 +584,7 @@ export default function ConsolaCobranzaPage() {
                   <QueueItem
                     key={row.debtor_id}
                     row={row}
+                    slaMinutes={slaMinutes}
                     active={row.debtor_id === selectedId}
                     onClick={() => selectDebtor(row.debtor_id)}
                   />
@@ -706,13 +715,12 @@ export default function ConsolaCobranzaPage() {
                     </span>
                   ) : null}
                   {selected.awaiting_reply ? (
-                    <span className="inline-flex items-center gap-1.5 rounded-lg border border-primary/40 bg-primary/10 px-2.5 py-1 font-medium text-primary">
-                      <MessageCircle className="h-3.5 w-3.5" />
-                      Respondió por WhatsApp
-                      {selected.last_inbound_at
-                        ? ` · ${formatDateTime(selected.last_inbound_at)}`
-                        : ""}
-                    </span>
+                    <WaitBadge
+                      minutes={selected.waiting_minutes}
+                      slaMinutes={slaMinutes}
+                      label="Respondió por WhatsApp"
+                      className="rounded-lg px-2.5 py-1"
+                    />
                   ) : null}
                   <span
                     className={cn(
@@ -1165,10 +1173,12 @@ export default function ConsolaCobranzaPage() {
 
 function QueueItem({
   row,
+  slaMinutes,
   active,
   onClick,
 }: {
   row: CollectionQueueRow;
+  slaMinutes: number;
   active: boolean;
   onClick: () => void;
 }) {
@@ -1209,10 +1219,11 @@ function QueueItem({
 
       <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]">
         {row.awaiting_reply ? (
-          <span className="inline-flex items-center gap-1 rounded bg-primary/15 px-1.5 py-0.5 font-medium text-primary">
-            <MessageCircle className="h-3 w-3" />
-            Respondió
-          </span>
+          <WaitBadge
+            minutes={row.waiting_minutes}
+            slaMinutes={slaMinutes}
+            className="text-[11px]"
+          />
         ) : null}
         {row.overdue_balance > 0 ? (
           <span className="text-red-300">

@@ -168,3 +168,8 @@ mensaje del negocio en `messages` apaga la alerta por sí solo. Si se contesta
 desde el inbox, el efecto es el mismo. Los detalles están en
 `docs/consola-cobranza.md` §12.
 
+La 129 añade el tiempo: el servidor devuelve `waiting_minutes` y el negocio
+define su compromiso en `collection_settings.response_sla_minutes` (30 min por
+defecto). El chip se colorea según ese SLA y el supervisor ve cuántos casos lo
+rompieron.
+

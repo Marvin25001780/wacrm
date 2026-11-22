@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
 import { normalizeDays } from '@/lib/collections/supervision';
+import { normalizeSlaMinutes } from '@/lib/collections/response';
 import { loadMemberPresence } from '@/lib/telephony/roster';
 import type {
   CollectionAwaitingReplyRow,
@@ -29,7 +30,7 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const days = normalizeDays(url.searchParams.get('days'));
 
-    const [boardRes, promisesRes, totalsRes] = await Promise.all([
+    const [boardRes, promisesRes, totalsRes, settingsRes] = await Promise.all([
       ctx.supabase.rpc('collection_supervisor_board', {
         p_account_id: ctx.accountId,
       }),
@@ -41,6 +42,11 @@ export async function GET(request: Request) {
       ctx.supabase.rpc('collection_supervisor_totals', {
         p_account_id: ctx.accountId,
       }),
+      ctx.supabase
+        .from('collection_settings')
+        .select('response_sla_minutes')
+        .eq('account_id', ctx.accountId)
+        .maybeSingle(),
     ]);
 
     const failed = [boardRes.error, promisesRes.error, totalsRes.error].find(Boolean);
@@ -59,6 +65,8 @@ export async function GET(request: Request) {
             agent_user_id: row.agent_user_id ?? null,
             agent_name: row.agent_name,
             awaiting_count: Number(row.awaiting_count) || 0,
+            over_sla: Number(row.over_sla) || 0,
+            oldest_inbound_at: row.oldest_inbound_at ?? null,
           })
         );
       } else if (
@@ -81,12 +89,16 @@ export async function GET(request: Request) {
     const awaitingByUser = new Map(
       awaiting
         .filter((row) => row.agent_user_id)
-        .map((row) => [row.agent_user_id as string, row.awaiting_count])
+        .map((row) => [
+          row.agent_user_id as string,
+          { count: row.awaiting_count, overSla: row.over_sla },
+        ])
     );
 
     const board = ((boardRes.data ?? []) as CollectionSupervisorRow[]).map((row) => ({
       ...row,
-      awaiting_replies: awaitingByUser.get(row.user_id) ?? 0,
+      awaiting_replies: awaitingByUser.get(row.user_id)?.count ?? 0,
+      awaiting_over_sla: awaitingByUser.get(row.user_id)?.overSla ?? 0,
       assigned_count: Number(row.assigned_count) || 0,
       balance_assigned: Number(row.balance_assigned) || 0,
       overdue_assigned: Number(row.overdue_assigned) || 0,
@@ -141,6 +153,9 @@ export async function GET(request: Request) {
       totals,
       presence,
       awaiting,
+      response_sla_minutes: normalizeSlaMinutes(
+        settingsRes.data?.response_sla_minutes
+      ),
       days,
       updated_at: new Date().toISOString(),
     });

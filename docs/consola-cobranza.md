@@ -226,8 +226,9 @@ apaga la alerta sola, sin tablas de estado nuevas.
 
 En pantalla:
 
-- la cola muestra el chip **Respondió** y ordena primero esos casos;
-- la ficha muestra **Respondió por WhatsApp** con la fecha del mensaje;
+- la cola muestra el chip **Respondió** con la antigüedad y el color del
+  SLA (verde dentro, ámbar en la segunda mitad, rojo al superarlo);
+- la ficha muestra **Respondió por WhatsApp** con el mismo criterio;
 - el supervisor ve el KPI **Esperan respuesta**, la columna **Esperan**
   por gestor y un aviso si hay casos esperando sin asignar.
 
@@ -240,3 +241,34 @@ Reglas:
 - los deudores `pagado` quedan fuera de la cola y del conteo.
 
 Rollback al final de `supabase/migrations/128_collection_reactive_queue.sql`.
+
+## 13. Bloque 129 — SLA de primera respuesta
+
+La 128 dice **quién** espera; la 129 dice **cuánto**. El tiempo se
+calcula en el servidor y no se guarda en ninguna tabla:
+
+- `collection_settings.response_sla_minutes` (1–1440, 30 por defecto),
+  editable en **Configuración → Operación**;
+- `collection_agent_queue().waiting_minutes`: minutos desde el último
+  entrante, `NULL` si no hay espera;
+- el orden de la cola desempata por `waiting_minutes DESC` dentro de los
+  casos que esperan, así el más viejo va primero;
+- `collection_awaiting_replies()` añade `over_sla` y
+  `oldest_inbound_at` por gestor.
+
+El color del chip es una consecuencia del SLA configurado:
+
+| Nivel | Regla |
+|---|---|
+| verde | menos de la mitad del SLA |
+| ámbar | entre la mitad y el SLA |
+| rojo | igual o mayor que el SLA |
+
+`src/lib/collections/response.ts` concentra el formateo
+(“menos de 1 min”, “2 h 5 min”, “3 d 4 h”) y la clasificación, con
+pruebas en `response.test.ts`. La consola recibe el SLA desde
+`/api/cobranza/desk`; la supervisión desde `/api/cobranza/supervision`.
+Si la 129 aún no está aplicada, el chip cae a **Respondió** sin tiempo
+en vez de romperse.
+
+Rollback al final de `supabase/migrations/129_collection_response_sla.sql`.

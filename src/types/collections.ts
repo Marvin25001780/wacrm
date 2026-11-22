@@ -210,6 +210,11 @@ export interface CollectionSettings {
    * servicio). Se abre en otra pestaña; el CRM no la embebe.
    */
   knowledge_base_url?: string | null;
+  /**
+   * 129 — minutos máximos para contestar el primer mensaje de un
+   * deudor. 30 por defecto; se edita en Configuración de cobranza.
+   */
+  response_sla_minutes?: number;
   created_at: string;
   updated_at: string;
 }
@@ -524,6 +529,8 @@ export interface CollectionQueueRow {
   awaiting_reply: boolean;
   /** 128 — fecha del último mensaje entrante, para contexto. */
   last_inbound_at: string | null;
+  /** 129 — minutos esperando respuesta (servidor); null si no espera. */
+  waiting_minutes: number | null;
   /** 0 promesa vencida/rota · 1 PTP próxima · 2 mora · 3 al día. */
   queue_rank: number;
   total_count: number;
@@ -581,6 +588,8 @@ export interface CollectionSupervisorRow {
   broken_promises_30d: number;
   /** 128 — casos con respuesta de WhatsApp sin atender (se mezcla en la API). */
   awaiting_replies?: number;
+  /** 129 — de esos casos, cuántos rompieron el SLA de primera respuesta. */
+  awaiting_over_sla?: number;
   last_action_at: string | null;
 }
 
@@ -589,6 +598,10 @@ export interface CollectionAwaitingReplyRow {
   agent_user_id: string | null;
   agent_name: string;
   awaiting_count: number;
+  /** 129 — cuántos de esos casos ya rompieron el SLA. */
+  over_sla: number;
+  /** 129 — fecha del entrante más antiguo del gestor. */
+  oldest_inbound_at: string | null;
 }
 
 /** 126 — promesa abierta que vence (o venció) en la ventana del supervisor. */

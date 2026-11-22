@@ -29,7 +29,8 @@ una consulta; no hay métricas simuladas.
 ### KPIs
 
 1. **Esperan respuesta** — casos con un mensaje de WhatsApp del deudor
-   sin contestar (migración 128) y cuántos de ellos no tienen gestor.
+   sin contestar (migración 128), cuántos no tienen gestor y cuántos ya
+   rompieron el SLA (migración 129).
 2. **Gestiones de hoy** — gestiones registradas y contactos efectivos.
 3. **PTP de hoy** — promesas creadas hoy y cuántas vencen hoy.
 4. **Promesas vencidas** — abiertas con fecha pasada y rotas en 30 días.
@@ -47,7 +48,8 @@ excluyen porque no pueden gestionar cartera.
 - Presencia del softphone: disponible, en llamada, after-call, pausa.
 - Cartera asignada: cantidad de deudores y saldo.
 - **Esperan**: respuestas de WhatsApp pendientes de ese gestor, en
-  ámbar/índigo cuando hay alguna (128).
+  ámbar/índigo cuando hay alguna (128); debajo, cuántas ya superaron el
+  SLA de primera respuesta (129).
 - Gestiones de hoy y tasa de contacto (`contacts / actions`).
 - PTP creadas hoy, promesas que vencen hoy, vencidas y rotas en 30 días.
 - Clic en una fila filtra el panel de promesas de ese gestor. Otro clic
@@ -56,6 +58,10 @@ excluyen porque no pueden gestionar cartera.
 Si hay respuestas pendientes en deudores sin asignar, aparece un aviso
 sobre el tablero con enlace a la consola: el reparto no debe esperar a
 que alguien abra la cartera por casualidad.
+
+Si además hay casos fuera del SLA (`collection_settings.response_sla_minutes`,
+30 por defecto), el aviso es rojo e indica cuántos son y cuánto lleva
+esperando el más antiguo. El SLA se edita en Configuración de cobranza.
 
 ### Promesas por vencer
 
@@ -104,6 +110,11 @@ Migración 128 añade, sin tocar las firmas anteriores:
 | Función | Devuelve |
 |---|---|
 | `collection_awaiting_replies(account_id)` | Casos con respuesta de WhatsApp sin contestar, contados por gestor, más una fila “Sin asignar”. Solo admin. |
+
+Desde la 129, esa función devuelve además `over_sla` (casos que ya
+superaron el SLA) y `oldest_inbound_at` (el entrante más antiguo). La
+cola expone `waiting_minutes` y el SLA vive en
+`collection_settings.response_sla_minutes`.
 
 La API mezcla ese conteo en `board[].awaiting_replies` y lo devuelve
 también en `awaiting`; si la 128 no está aplicada, el tablero sigue
@@ -174,6 +185,11 @@ corrige el historial de gestiones, que antes intentaba cruzar el
     `unread_count`).
 11. Si el deudor que escribió no tiene gestor, aparece el aviso de
     pendientes sin asignar sobre el tablero.
+12. Bloque 129: bajar el SLA en Configuración a 1 minuto, escribir como
+    deudor y esperar; al actualizar, el chip debe pasar a rojo, el KPI
+    debe contar el caso como fuera de SLA y el aviso rojo debe indicar
+    cuánto lleva esperando el más antiguo. Responder y comprobar que todo
+    vuelve a cero.
 
 ## Rollback
 
