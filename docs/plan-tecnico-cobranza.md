@@ -915,6 +915,22 @@ Otras vistas:
 | PTP pendientes | `collection_promises.status = 'pending'` |
 | PTP cumplidas | `kept / (kept + broken + partial)` |
 
+### 8.2.1 Contactabilidad por hora (130)
+
+La RPC `collection_contactability(account_id, days)` agrupa las gestiones
+de canal `call` por día ISO y hora local
+(`collection_settings.timezone`, `America/Caracas` por defecto) y
+devuelve intentos, contactos (`contacted` + `third_party`), deudores y
+gestores distintos. La ventana se limita a 7–90 días (30 por defecto).
+
+La tasa de contacto se calcula en el cliente (`contacts / attempts`); la
+base no guarda porcentajes. En `/cobranza/reportes` se pinta como mapa de
+calor 7 × horas y como lista de mejores franjas, exigiendo un mínimo de
+5 intentos para recomendar una hora. Sin llamadas en la ventana, el panel
+muestra un empty state en vez de una tasa inventada.
+
+Detalle operativo en `docs/contactabilidad-cobranza.md`.
+
 ### 8.3 Comisiones
 
 - Regla por tramo (`collection_commission_rules`).

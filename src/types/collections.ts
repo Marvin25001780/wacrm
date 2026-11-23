@@ -568,6 +568,18 @@ export interface CollectionAgentPerformanceRow {
   promises_created: number;
 }
 
+/** 130 — contactabilidad por día y hora local (RPC collection_contactability). */
+export interface CollectionContactabilityRow {
+  /** ISO: 1 = lunes … 7 = domingo. */
+  weekday: number;
+  /** Hora local del negocio, 0–23. */
+  hour_of_day: number;
+  attempts: number;
+  contacts: number;
+  debtors: number;
+  agents: number;
+}
+
 /**
  * 126 — fila del tablero de supervisión (una por gestor operativo).
  * La calcula `collection_supervisor_board()` con el "hoy" del negocio.

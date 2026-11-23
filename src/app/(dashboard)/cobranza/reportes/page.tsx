@@ -14,6 +14,7 @@ import {
 import { EmptyState } from "@/components/dashboard/empty-state";
 import { MetricCard } from "@/components/dashboard/metric-card";
 import { SkeletonCard } from "@/components/dashboard/skeleton";
+import { ContactabilityPanel } from "@/components/collections/contactability-panel";
 import { Panel } from "@/components/metrics/panel";
 import { Button } from "@/components/ui/button";
 import {
@@ -28,6 +29,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { loadMemberNames } from "@/lib/account/members";
 import { agingRows } from "@/lib/collections/aging";
+import { CONTACT_DAYS } from "@/lib/collections/contactability";
 import { exportToCsv } from "@/lib/export/csv";
 import {
   formatDate,
@@ -40,6 +42,7 @@ import {
   type CollectionAgingRow,
   type CollectionAgentPerformanceRow,
   type CollectionCommissionRow,
+  type CollectionContactabilityRow,
   type CollectionDailyRecoveryRow,
   type CollectionPromiseStatsRow,
 } from "@/types/collections";
@@ -60,6 +63,9 @@ export default function ReportesPage() {
   const [recovery, setRecovery] = useState<CollectionDailyRecoveryRow[]>([]);
   const [agents, setAgents] = useState<CollectionAgentPerformanceRow[]>([]);
   const [commissions, setCommissions] = useState<CollectionCommissionRow[]>([]);
+  const [contactability, setContactability] = useState<
+    CollectionContactabilityRow[]
+  >([]);
   const [members, setMembers] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
 
@@ -68,22 +74,41 @@ export default function ReportesPage() {
     const since = sinceIso(30);
     const sinceMonth = `${todayIso().slice(0, 7)}-01`;
 
-    const [agingRes, promisesRes, recoveryRes, agentsRes, commissionsRes] =
-      await Promise.all([
-        supabase.from("v_collection_aging").select("*").maybeSingle(),
-        supabase.from("v_collection_promise_stats").select("*"),
-        supabase
-          .from("v_collection_daily_recovery")
-          .select("*")
-          .gte("paid_at", since)
-          .order("paid_at", { ascending: false }),
-        supabase.from("v_collection_agent_performance").select("*"),
-        supabase
-          .from("v_collection_commissions")
-          .select("*")
-          .gte("month", sinceMonth)
-          .limit(200),
-      ]);
+    // La 130 es informativa: si la función no está aplicada, el resto
+    // de los reportes sigue cargando.
+    const contactabilityPromise = accountId
+      ? supabase.rpc("collection_contactability", {
+          p_account_id: accountId,
+          p_days: CONTACT_DAYS,
+        })
+      : Promise.resolve({
+          data: [] as CollectionContactabilityRow[],
+          error: null,
+        });
+
+    const [
+      agingRes,
+      promisesRes,
+      recoveryRes,
+      agentsRes,
+      commissionsRes,
+      contactabilityRes,
+    ] = await Promise.all([
+      supabase.from("v_collection_aging").select("*").maybeSingle(),
+      supabase.from("v_collection_promise_stats").select("*"),
+      supabase
+        .from("v_collection_daily_recovery")
+        .select("*")
+        .gte("paid_at", since)
+        .order("paid_at", { ascending: false }),
+      supabase.from("v_collection_agent_performance").select("*"),
+      supabase
+        .from("v_collection_commissions")
+        .select("*")
+        .gte("month", sinceMonth)
+        .limit(200),
+      contactabilityPromise,
+    ]);
 
     setLoading(false);
 
@@ -104,9 +129,24 @@ export default function ReportesPage() {
     setAgents((agentsRes.data ?? []) as CollectionAgentPerformanceRow[]);
     setCommissions((commissionsRes.data ?? []) as CollectionCommissionRow[]);
 
+    if (
+      contactabilityRes.error &&
+      !["42883", "42P01", "42703", "PGRST202", "PGRST205"].includes(
+        contactabilityRes.error.code ?? "",
+      )
+    ) {
+      console.warn(
+        "[cobranza/reportes] contactabilidad:",
+        contactabilityRes.error.message,
+      );
+    }
+    setContactability(
+      (contactabilityRes.data ?? []) as CollectionContactabilityRow[],
+    );
+
     const profileMap = await loadMemberNames(supabase);
     setMembers(profileMap);
-  }, [supabase]);
+  }, [supabase, accountId]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -354,6 +394,13 @@ export default function ReportesPage() {
                 </TableBody>
               </Table>
             )}
+          </Panel>
+
+          <Panel
+            title="Contactabilidad por hora"
+            subtitle="Llamadas de los últimos 30 días, hora de Venezuela"
+          >
+            <ContactabilityPanel rows={contactability} />
           </Panel>
 
           <div className="grid gap-4 lg:grid-cols-2">
