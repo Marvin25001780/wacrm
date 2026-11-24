@@ -272,3 +272,22 @@ Si la 129 aún no está aplicada, el chip cae a **Respondió** sin tiempo
 en vez de romperse.
 
 Rollback al final de `supabase/migrations/129_collection_response_sla.sql`.
+
+## 14. Bloque 131 — cerrar la PTP
+
+Las promesas se crean, pero hasta la 131 nadie las cerraba: una PTP
+vencida quedaba "pendiente" para siempre. Ahora el panel **Promesas de
+pago** de la ficha muestra acciones por cada PTP abierta:
+
+- **Cumplida** (`kept`): el deudor pagó lo acordado;
+- **Rota** (`broken`): no pagó;
+- **Cancelar** (`cancelled`): el acuerdo se anuló y no cuenta como rota;
+- **Reabrir** (solo admin/owner): devuelve una cerrada a `pending`.
+
+Cada acción llama a `POST /api/cobranza/promises/[id]/resolve` y luego
+recarga ficha y cola, porque una PTP rota cambia el orden del deudor
+(`queue_rank` 0). El servidor valida que seas el gestor del deudor, el
+creador de la PTP o un admin; los demás reciben `403`.
+
+El cierre masivo de vencidas vive en Supervisión. Detalle en
+`docs/promesas-cobranza.md`.

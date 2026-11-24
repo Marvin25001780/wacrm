@@ -191,6 +191,20 @@ corrige el historial de gestiones, que antes intentaba cruzar el
     cuánto lleva esperando el más antiguo. Responder y comprobar que todo
     vuelve a cero.
 
+## 131 — cierre de las PTP
+
+La columna **Acciones** del panel *Promesas por vencer* permite cerrar
+cualquier PTP abierta del equipo como cumplida, rota o cancelada. (Las
+cerradas no aparecen en esa lista: reabrir se hace desde la ficha del
+deudor en la consola.) Además, cuando hay promesas abiertas con fecha
+pasada, aparece **Cerrar vencidas (N)**: abre una confirmación y llama a
+`POST /api/cobranza/promises/expire`, que marca rotas solo las que tienen
+pago incompleto usando la fecha local del negocio (no UTC). El toast
+informa cuántas se cerraron; si no había ninguna, lo dice.
+
+Con esto el KPI **rotas 30d** y las promesas vencidas dejan de quedarse
+congelados. Detalle y pruebas en `docs/promesas-cobranza.md`.
+
 ## Rollback
 
 El bloque de rollback está al final de

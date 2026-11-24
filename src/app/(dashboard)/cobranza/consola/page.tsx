@@ -41,6 +41,7 @@ import { MetricCard } from "@/components/dashboard/metric-card";
 import { Panel } from "@/components/metrics/panel";
 import { ActionForm } from "@/components/collections/action-form";
 import { PaymentDialog } from "@/components/collections/payment-dialog";
+import { PromiseActions } from "@/components/collections/promise-actions";
 import { WaitBadge } from "@/components/collections/wait-badge";
 import { WhatsappPanel } from "@/components/collections/whatsapp-panel";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -71,6 +72,10 @@ import {
   type ActionChannelInput,
   type QueueScope,
 } from "@/lib/collections/desk";
+import {
+  resolutionMessage,
+  type PromiseResolution,
+} from "@/lib/collections/promise-actions";
 import {
   DEBTOR_STATUS_TONE,
   INSTALLMENT_STATUS_TONE,
@@ -149,6 +154,9 @@ export default function ConsolaCobranzaPage() {
   const [claiming, setClaiming] = useState(false);
   const [linkedCall, setLinkedCall] = useState<LinkedCall | null>(null);
   const [payment, setPayment] = useState<CollectionInstallment | null>(null);
+  const [resolvingPromiseId, setResolvingPromiseId] = useState<string | null>(
+    null,
+  );
   const [actionChannel, setActionChannel] =
     useState<ActionChannelInput>("call");
 
@@ -412,6 +420,42 @@ export default function ConsolaCobranzaPage() {
     if (!selected) return;
     setLinkedCall(null);
     await Promise.all([loadQueue(), loadDetail(selected.debtor_id)]);
+  }
+
+  async function handleResolvePromise(
+    promise: CollectionPromise,
+    status: PromiseResolution,
+  ) {
+    setResolvingPromiseId(promise.id);
+    try {
+      const response = await fetch(
+        `/api/cobranza/promises/${promise.id}/resolve`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ status }),
+        },
+      );
+      const json = (await response.json().catch(() => ({}))) as {
+        error?: string;
+      };
+
+      if (!response.ok) {
+        throw new Error(json.error ?? "No se pudo actualizar la PTP.");
+      }
+
+      toast.success(resolutionMessage(status, selected?.name));
+      // La cola depende de las PTP rotas; la ficha, de su estado.
+      await Promise.all([loadQueue(), loadDetail(promise.debtor_id)]);
+    } catch (resolveError) {
+      toast.error(
+        resolveError instanceof Error
+          ? resolveError.message
+          : "No se pudo actualizar la PTP.",
+      );
+    } finally {
+      setResolvingPromiseId(null);
+    }
   }
 
   async function refreshAll() {
@@ -972,10 +1016,24 @@ export default function ConsolaCobranzaPage() {
                               {dueLabel(promise.due_date, todayIso())}
                             </p>
                           </div>
-                          <StatusChip
-                            label={labelFor(COLLECTION_PROMISE_STATUSES, promise.status)}
-                            tone={PROMISE_STATUS_TONE[promise.status]}
-                          />
+                          <div className="flex flex-col items-end gap-1">
+                            <StatusChip
+                              label={labelFor(
+                                COLLECTION_PROMISE_STATUSES,
+                                promise.status,
+                              )}
+                              tone={PROMISE_STATUS_TONE[promise.status]}
+                            />
+                            <PromiseActions
+                              status={promise.status}
+                              canReopen={isAdmin}
+                              pending={resolvingPromiseId === promise.id}
+                              onResolve={(status) =>
+                                void handleResolvePromise(promise, status)
+                              }
+                              className="justify-end"
+                            />
+                          </div>
                         </li>
                       ))}
                     </ul>

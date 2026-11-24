@@ -20,6 +20,7 @@ import { EmptyState } from "@/components/dashboard/empty-state";
 import { MetricCard } from "@/components/dashboard/metric-card";
 import { SkeletonCard } from "@/components/dashboard/skeleton";
 import { Panel } from "@/components/metrics/panel";
+import { PromiseActions } from "@/components/collections/promise-actions";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
   Dialog,
@@ -54,6 +55,11 @@ import {
   normalizeSlaMinutes,
   waitingLabel,
 } from "@/lib/collections/response";
+import {
+  overduePromiseCount,
+  resolutionMessage,
+  type PromiseResolution,
+} from "@/lib/collections/promise-actions";
 import {
   PROMISE_STATUS_TONE,
   formatDate,
@@ -128,6 +134,9 @@ export default function SupervisionCobranzaPage() {
   const [segment, setSegment] = useState("");
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [distributing, setDistributing] = useState(false);
+  const [expireOpen, setExpireOpen] = useState(false);
+  const [expiring, setExpiring] = useState(false);
+  const [resolvingId, setResolvingId] = useState<string | null>(null);
 
   const load = useCallback(
     async (silent = false) => {
@@ -224,6 +233,8 @@ export default function SupervisionCobranzaPage() {
     if (!selectedAgent) return null;
     return board.find((row) => row.user_id === selectedAgent)?.name ?? "Gestor";
   }, [board, selectedAgent]);
+  /** 131 — PTP abiertas ya vencidas (según la fecha del servidor). */
+  const overdueCount = useMemo(() => overduePromiseCount(promises), [promises]);
 
   const updatedLabel = useMemo(() => {
     if (!updatedAt) return null;
@@ -281,6 +292,78 @@ export default function SupervisionCobranzaPage() {
       );
     } finally {
       setDistributing(false);
+    }
+  }
+
+  async function handleResolvePromise(
+    promise: CollectionSupervisorPromise,
+    status: PromiseResolution,
+  ) {
+    setResolvingId(promise.promise_id);
+    try {
+      const response = await fetch(
+        `/api/cobranza/promises/${promise.promise_id}/resolve`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ status }),
+        },
+      );
+      const json = (await response.json().catch(() => ({}))) as {
+        error?: string;
+      };
+
+      if (!response.ok) {
+        throw new Error(json.error ?? "No se pudo actualizar la PTP.");
+      }
+
+      toast.success(resolutionMessage(status, promise.debtor_name));
+      await load(true);
+    } catch (resolveError) {
+      toast.error(
+        resolveError instanceof Error
+          ? resolveError.message
+          : "No se pudo actualizar la PTP.",
+      );
+    } finally {
+      setResolvingId(null);
+    }
+  }
+
+  async function handleExpirePromises() {
+    setExpiring(true);
+    try {
+      const response = await fetch("/api/cobranza/promises/expire", {
+        method: "POST",
+      });
+      const json = (await response.json().catch(() => ({}))) as {
+        closed?: number;
+        error?: string;
+      };
+
+      if (!response.ok) {
+        throw new Error(json.error ?? "No se pudieron cerrar las PTP vencidas.");
+      }
+
+      const closed = Number(json.closed) || 0;
+      if (closed === 0) {
+        toast.info("No había PTP vencidas con pago incompleto.");
+      } else {
+        toast.success(
+          `Se marcaron ${closed} PTP como rota${closed === 1 ? "" : "s"}.`,
+        );
+      }
+
+      setExpireOpen(false);
+      await load(true);
+    } catch (expireError) {
+      toast.error(
+        expireError instanceof Error
+          ? expireError.message
+          : "No se pudieron cerrar las PTP vencidas.",
+      );
+    } finally {
+      setExpiring(false);
     }
   }
 
@@ -708,6 +791,16 @@ export default function SupervisionCobranzaPage() {
                 Quitar filtro
               </Button>
             ) : null}
+            {overdueCount > 0 ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setExpireOpen(true)}
+              >
+                Cerrar vencidas ({overdueCount})
+              </Button>
+            ) : null}
             <select
               className={selectClass}
               value={dayWindow}
@@ -743,6 +836,7 @@ export default function SupervisionCobranzaPage() {
                   <TableHead>Vence</TableHead>
                   <TableHead>Estado</TableHead>
                   <TableHead>Crédito</TableHead>
+                  <TableHead className="text-right">Acciones</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -798,6 +892,16 @@ export default function SupervisionCobranzaPage() {
                     <TableCell className="text-muted-foreground">
                       {promise.credit_folio ?? "—"}
                     </TableCell>
+                    <TableCell className="text-right">
+                      <PromiseActions
+                        status={promise.status}
+                        pending={resolvingId === promise.promise_id}
+                        onResolve={(status) =>
+                          void handleResolvePromise(promise, status)
+                        }
+                        className="justify-end"
+                      />
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -848,6 +952,48 @@ export default function SupervisionCobranzaPage() {
               disabled={distributing}
             >
               {distributing ? "Repartiendo…" : "Repartir"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={expireOpen} onOpenChange={setExpireOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Cerrar PTP vencidas</DialogTitle>
+            <DialogDescription>
+              Se marcarán como <strong>rotas</strong> las promesas abiertas con
+              fecha anterior a hoy y pago incompleto, usando la fecha local del
+              negocio. Las que ya tienen pago completo no se tocan y el
+              historial se conserva: cada PTP queda con su estado y su fecha de
+              cierre.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-sm">
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">
+                PTP abiertas vencidas
+              </span>
+              <span className="font-medium tabular-nums">
+                {overdueCount} caso{overdueCount === 1 ? "" : "s"}
+              </span>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setExpireOpen(false)}
+              disabled={expiring}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              onClick={() => void handleExpirePromises()}
+              disabled={expiring}
+            >
+              {expiring ? "Cerrando…" : "Marcar como rotas"}
             </Button>
           </DialogFooter>
         </DialogContent>

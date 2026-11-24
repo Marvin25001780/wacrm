@@ -625,9 +625,20 @@ La validación se hace en el formulario **y** en un RPC/trigger para que no se p
 ### 4.5 PTP
 
 - Se crea desde una gestión con `level2_code = 'ptp'`.
-- Un cron diario marca `broken` las PTP vencidas sin pago suficiente.
+- `collection_expire_promises(account_id)` marca `broken` las PTP vencidas
+  con pago incompleto, comparando contra la fecha local del negocio
+  (`collection_settings.timezone`), no contra UTC. Se puede lanzar desde
+  Supervisión (**Cerrar vencidas**) o desde un cron con `service_role`.
+  `collection_mark_broken_promises` sigue existiendo como alias de la 076.
+- Cierre manual (`collection_resolve_promise`): `kept`, `broken` o
+  `cancelled` desde una PTP abierta; solo el admin/owner del negocio, el
+  gestor asignado al deudor o quien creó la PTP. Un admin puede reabrir
+  (`pending`) si se tipificó mal. Una PTP cerrada no se puede volver a
+  cerrar con otro estado.
 - Al registrar un pago, se buscan PTP `pending` del mismo crédito con `due_date >= paid_at` y se actualiza `paid_amount`; si cubre el monto → `kept`, si cubre parcial → `partial`.
 - Una PTP `kept` dispara (opcional) mensaje de confirmación por WhatsApp usando las plantillas existentes.
+
+Detalle operativo en `docs/promesas-cobranza.md`.
 
 ### 4.6 Políticas
 
