@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { requireRole, toErrorResponse } from "@/lib/auth/account";
 import { autoMapColumns } from "@/lib/collections/import/columns";
 import { importErrorMessage } from "@/lib/collections/import/errors";
-import { fileTypeFromName, parseCollectionFile } from "@/lib/collections/import/parse";
+import { fileTypeFromName, parseCollectionFile, portfolioSourceFor } from "@/lib/collections/import/parse";
 import type { ParsedSheet } from "@/types/collections";
 
 export const runtime = "nodejs";
@@ -81,7 +81,7 @@ export async function POST(request: Request) {
         .insert({
           account_id: ctx.accountId,
           name,
-          source: fileType,
+          source: portfolioSourceFor(fileType),
           created_by: ctx.userId,
         })
         .select("id")

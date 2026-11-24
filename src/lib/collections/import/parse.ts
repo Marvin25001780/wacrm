@@ -232,6 +232,15 @@ export function fileTypeFromName(fileName: string): "xlsx" | "csv" {
   throw new Error("Formato no soportado. Usa .xlsx o .csv.");
 }
 
+/**
+ * Valor válido para `collection_portfolios.source` (migración 073).
+ * El tipo de archivo es `xlsx`, pero el catálogo de la base usa
+ * `excel`; mandar `xlsx` rompía la creación de la cartera.
+ */
+export function portfolioSourceFor(fileType: "xlsx" | "csv"): "excel" | "csv" {
+  return fileType === "xlsx" ? "excel" : "csv";
+}
+
 export async function parseCollectionFile(
   fileName: string,
   buffer: ArrayBuffer,

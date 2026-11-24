@@ -8,7 +8,7 @@ import {
 } from "./columns";
 import { normalizeImportRow } from "./normalize";
 import { buildImportPreview } from "./validate";
-import { parseCollectionFile } from "./parse";
+import { parseCollectionFile, portfolioSourceFor } from "./parse";
 import {
   autoMapPaymentColumns,
   buildPaymentPreview,
@@ -83,6 +83,20 @@ describe("lectura de archivos", () => {
     expect(sheet.rows[0]["Total de la cuota"]).toBe("550,50");
   });
 
+  it("lee el mismo contenido guardado como .xlsx desde Excel", async () => {
+    const ExcelJS = (await import("exceljs")).default;
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet("Cartera");
+    sheet.addRow(TEMPLATE_FIELDS.map((field) => field.label));
+    sheet.addRow(TEMPLATE_EXAMPLE);
+    const buffer = await workbook.xlsx.writeBuffer();
+
+    const parsed = await parseCollectionFile("cartera.xlsx", buffer as ArrayBuffer);
+
+    expect(parsed.headers[0]).toBe("Documento");
+    expect(parsed.rows).toHaveLength(1);
+  });
+
   it("rechaza .xls con un mensaje accionable", async () => {
     await expect(parseCollectionFile("cartera.xls", new ArrayBuffer(0))).rejects.toThrow(
       /Excel 97-2003/,
@@ -98,6 +112,13 @@ describe("lectura de archivos", () => {
 
     expect(sheet.headers).toEqual(["Documento", "Nombre del deudor"]);
     expect(sheet.rows[0].Documento).toBe("V-1");
+  });
+
+  it("traduce el tipo de archivo al origen que acepta la cartera", () => {
+    // collection_portfolios.source admite manual|excel|csv|api (073).
+    // Mandar 'xlsx' rompía la creación de la cartera y frenaba la carga.
+    expect(portfolioSourceFor("xlsx")).toBe("excel");
+    expect(portfolioSourceFor("csv")).toBe("csv");
   });
 });
 
