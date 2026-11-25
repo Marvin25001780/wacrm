@@ -45,8 +45,8 @@ export function parseDateValue(value: unknown): string | null {
 
   match = raw.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})$/);
   if (match) {
-    let first = Number(match[1]);
-    let second = Number(match[2]);
+    const first = Number(match[1]);
+    const second = Number(match[2]);
     let year = Number(match[3]);
     if (year < 100) year += 2000;
 
@@ -137,6 +137,15 @@ export interface NormalizeResult {
   warnings: string[];
 }
 
+export interface NormalizeOverrides {
+  /**
+   * Número de cuota deducido del archivo (por ejemplo, cuando la
+   * columna viene vacía y se numera por orden de vencimiento). Quien
+   * lo calcula debe avisarlo como advertencia en la vista previa.
+   */
+  installment_number?: number;
+}
+
 /**
  * Convierte una fila cruda a la forma canónica. Devuelve errores
  * bloqueantes y advertencias que no impiden importar.
@@ -145,6 +154,7 @@ export function normalizeImportRow(
   raw: Record<string, unknown>,
   mapping: ImportColumnMapping,
   country: CountryCode = "VE",
+  overrides: NormalizeOverrides = {},
 ): NormalizeResult {
   const errors: string[] = [];
   const warnings: string[] = [];
@@ -168,9 +178,10 @@ export function normalizeImportRow(
 
   const installmentRaw = get("installment_number");
   const installmentNumber =
-    typeof installmentRaw === "number"
+    overrides.installment_number ??
+    (typeof installmentRaw === "number"
       ? installmentRaw
-      : Number(String(installmentRaw ?? "").replace(/[^\d-]/g, ""));
+      : Number(String(installmentRaw ?? "").replace(/[^\d-]/g, "")));
 
   const dueDate = parseDateValue(get("due_date"));
 
@@ -202,7 +213,9 @@ export function normalizeImportRow(
   if (!name) errors.push("Falta el nombre del deudor.");
   if (!folio) errors.push("Falta el folio del crédito.");
   if (!Number.isInteger(installmentNumber) || installmentNumber <= 0) {
-    errors.push("El número de cuota debe ser un entero mayor que cero.");
+    errors.push(
+      "Falta el número de cuota: escribe 1, 2, 3… para cada cuota del mismo folio.",
+    );
   }
   if (!dueDate) errors.push("La fecha de vencimiento no es válida.");
   if (principal == null) errors.push("Falta el capital (o el total) de la cuota.");

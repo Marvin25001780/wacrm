@@ -59,13 +59,76 @@ describe("plantilla de cartera", () => {
     const mapping = autoMapColumns(TEMPLATE_FIELDS.map((field) => field.label));
     const sheet = {
       headers: TEMPLATE_FIELDS.map((field) => field.label),
-      rows: [templateRow(), templateRow()],
+      rows: [
+        templateRow({ Documento: "V-99999999", "Folio del crédito": "CR-9" }),
+        templateRow({ Documento: "V-99999999", "Folio del crédito": "CR-9" }),
+      ],
     };
     const preview = buildImportPreview(sheet, mapping);
 
     expect(preview.summary.total).toBe(2);
     expect(preview.summary.valid).toBe(1);
     expect(preview.summary.error).toBe(1);
+  });
+
+  it("avisa cuando el archivo conserva la fila de ejemplo de la plantilla", () => {
+    const mapping = autoMapColumns(TEMPLATE_FIELDS.map((field) => field.label));
+    const preview = buildImportPreview(
+      { headers: TEMPLATE_FIELDS.map((field) => field.label), rows: [templateRow()] },
+      mapping,
+    );
+
+    expect(preview.rows[0].status).toBe("warning");
+    expect(preview.rows[0].warnings.join(" ")).toMatch(/ejemplo de la plantilla/);
+  });
+
+  it("numera las cuotas vacías por orden de vencimiento del folio", () => {
+    const mapping = autoMapColumns(TEMPLATE_FIELDS.map((field) => field.label));
+    const sheet = {
+      headers: TEMPLATE_FIELDS.map((field) => field.label),
+      rows: [
+        templateRow({ "Número de cuota": "", "Fecha de vencimiento": "2026-03-15" }),
+        templateRow({ "Número de cuota": "", "Fecha de vencimiento": "2026-01-15" }),
+        templateRow({ "Número de cuota": "", "Fecha de vencimiento": "2026-02-15" }),
+      ],
+    };
+
+    const preview = buildImportPreview(sheet, mapping);
+
+    expect(preview.summary.error).toBe(0);
+    expect(preview.rows.map((row) => row.normalized?.installment_number)).toEqual([3, 1, 2]);
+    expect(preview.rows[1].warnings.join(" ")).toMatch(/Cuota 1 asignada automáticamente/);
+  });
+
+  it("no adivina la cuota si el folio mezcla filas numeradas y vacías", () => {
+    const mapping = autoMapColumns(TEMPLATE_FIELDS.map((field) => field.label));
+    const sheet = {
+      headers: TEMPLATE_FIELDS.map((field) => field.label),
+      rows: [
+        templateRow({ "Número de cuota": "1" }),
+        templateRow({ "Número de cuota": "", "Fecha de vencimiento": "2026-02-15" }),
+      ],
+    };
+
+    const preview = buildImportPreview(sheet, mapping);
+
+    expect(preview.summary.error).toBe(1);
+    expect(preview.rows[1].errors.join(" ")).toMatch(/Falta el número de cuota/);
+  });
+
+  it("no numera si dos cuotas del mismo folio comparten fecha", () => {
+    const mapping = autoMapColumns(TEMPLATE_FIELDS.map((field) => field.label));
+    const sheet = {
+      headers: TEMPLATE_FIELDS.map((field) => field.label),
+      rows: [
+        templateRow({ "Número de cuota": "", "Fecha de vencimiento": "2026-02-15" }),
+        templateRow({ "Número de cuota": "", "Fecha de vencimiento": "2026-02-15" }),
+      ],
+    };
+
+    const preview = buildImportPreview(sheet, mapping);
+
+    expect(preview.summary.error).toBe(2);
   });
 });
 

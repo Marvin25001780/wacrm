@@ -261,6 +261,11 @@ export function ImportWizard() {
                 crédito completo. Un crédito con 12 cuotas ocupa 12 filas con el mismo folio y
                 número de cuota del 1 al 12. Si solo cargas las vencidas, sube solo esas.
               </p>
+              <p className="mt-2 text-xs text-muted-foreground">
+                Si dejas vacío <span className="font-medium text-foreground">Número de cuota</span>,
+                se numera 1, 2, 3… por folio según la fecha de vencimiento (te lo avisamos en la
+                vista previa). Borra la fila de ejemplo (Juan Pérez / CR-001) antes de subir.
+              </p>
             </div>
           </div>
 

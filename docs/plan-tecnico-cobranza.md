@@ -683,6 +683,13 @@ El drag & drop solo cambia entre estados permitidos; si no, se rechaza. El pipel
 7. Resumen: creados / actualizados / omitidos / errores
 ```
 
+> **Número de cuota vacío.** Si la columna viene vacía y cada folio tiene
+> fechas de vencimiento distintas, el importador numera `1, 2, 3…` por
+> orden de vencimiento y lo deja como advertencia en la vista previa. Si
+> el folio mezcla cuotas numeradas con vacías, o repite fechas, no se
+> adivina: la fila queda en error. La fila de ejemplo de la plantilla
+> (`Juan Pérez / CR-001`) se marca para que no se cree un deudor ficticio.
+
 ### 5.3 Columnas canónicas y alias
 
 | Campo canónico | Obligatorio | Alias aceptados |
