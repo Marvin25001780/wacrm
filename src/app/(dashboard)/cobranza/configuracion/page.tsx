@@ -45,6 +45,7 @@ export default function ConfiguracionPage() {
   const [commissions, setCommissions] = useState<CollectionCommissionRule[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [seeding, setSeeding] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -87,6 +88,29 @@ export default function ConfiguracionPage() {
     setCommissions((current) =>
       current.map((rule) => (rule.id === id ? { ...rule, ...patch } : rule)),
     );
+  }
+
+  // Repara una base donde la 078 no sembró las políticas/comisiones.
+  // La función es idempotente: no pisa valores ya configurados.
+  async function seedDefaults() {
+    if (!accountId) return;
+    setSeeding(true);
+    try {
+      const { error } = await supabase.rpc("collection_seed_account_defaults", {
+        p_account_id: accountId,
+      });
+      if (error) {
+        console.error("[cobranza/configuracion] seed error", error);
+        toast.error(
+          "No se pudieron sembrar los valores. Aplica PROD_UPDATE_133.sql en Supabase.",
+        );
+        return;
+      }
+      await load();
+      toast.success("Valores por defecto sembrados.");
+    } finally {
+      setSeeding(false);
+    }
   }
 
   async function handleSave() {
@@ -399,10 +423,27 @@ export default function ConfiguracionPage() {
 
       <Panel title="Políticas por tramo" subtitle="Reglas que validan gestiones y acuerdos">
         {policies.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            No hay políticas configuradas. Vuelve a ejecutar la migración 078 para sembrar los
-            valores por defecto.
-          </p>
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              No hay políticas configuradas: la migración 078 no sembró los
+              valores por defecto en esta base.
+            </p>
+            {canEdit && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => void seedDefaults()}
+                disabled={seeding}
+              >
+                {seeding && <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />}
+                Sembrar valores por defecto
+              </Button>
+            )}
+            <p className="text-xs text-muted-foreground">
+              Si el botón falla, aplica <code>PROD_UPDATE_133.sql</code> en
+              Supabase y recarga.
+            </p>
+          </div>
         ) : (
           <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
             {policies.map((policy) => {
@@ -566,7 +607,8 @@ export default function ConfiguracionPage() {
       <Panel title="Comisiones" subtitle="Porcentaje sobre el monto recuperado">
         {commissions.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            No hay reglas de comisión. Vuelve a ejecutar la migración 078.
+            No hay reglas de comisión. Se siembran junto con las políticas:
+            usa “Sembrar valores por defecto” en Políticas por tramo (arriba).
           </p>
         ) : (
           <Table>
