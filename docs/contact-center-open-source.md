@@ -43,12 +43,15 @@
 | [livekit/egress](https://github.com/livekit/egress) | Apache-2.0 | Grabación de salas | **Integrado** (grabación de audio). |
 | [livekit/agents](https://github.com/livekit/agents) | Apache-2.0 (modelos de turno con licencia aparte) | Agentes de voz IA | **Siguiente fase**: contestador/IVR con IA. Requiere servidor LiveKit. |
 | [pipecat-ai/pipecat](https://github.com/pipecat-ai/pipecat) | BSD-2-Clause | Pipeline STT→LLM→TTS | **Alternativa** si se necesita un pipeline Python propio; no se integra ahora para no duplicar la capa de agentes. |
-| [chatwoot/chatwoot](https://github.com/chatwoot/chatwoot) | MIT | Bandeja omnicanal | **No se vendoriza**: el CRM ya tiene bandeja. Se estudió su modelo de canales. |
+| [chatwoot/chatwoot](https://github.com/chatwoot/chatwoot) | MIT | Bandeja omnicanal | **Enlace externo**: el CRM ya tiene bandeja propia y no duplica conversaciones. Se conserva la URL del helpdesk en Ajustes → Integraciones. |
 | [Metabase](https://github.com/metabase/metabase) | AGPL-3.0 | BI/dashboards | **No se integra embebido** (AGPL + peso). Reportes nativos en `/telefonia/reportes`. |
 | [Apache Superset](https://github.com/apache/superset) | Apache-2.0 | BI | **Opcional a futuro** para analítica avanzada externa, no para el producto. |
 | [Asterisk](https://github.com/asterisk/asterisk) | GPL-2.0 | PBX/SIP | **No se copia**. Si un operador lo exige, se usa como troncal externa. |
 | [FreeSWITCH](https://github.com/signalwire/freeswitch) | MPL-2.0 | PBX/SIP | **No se copia**; misma razón que Asterisk. |
 | [OMniLeads](https://github.com/omnicode/omnileads) | GPL-3.0 | Contact center completo | **No se vendoriza** (GPL + stack Python/Django separado). Se toman ideas de ACD y campañas. |
+| [openreplay/openreplay](https://github.com/openreplay/openreplay) | AGPL-3.0 (tracker MIT) | Grabación de sesiones del CRM | **Integrado por SDK**: el tracker oficial se carga solo si el negocio lo activa. |
+| [knadh/listmonk](https://github.com/knadh/listmonk) | AGPL-3.0 | Listas y boletines de correo | **Integrado por API** (Basic Auth): suscribe contactos con email. |
+| [DrDroidLab/voicesummary](https://github.com/DrDroidLab/voicesummary) | MIT | Analítica de transcripciones | **Integrado por API**: push automático al transcribir y botón manual. |
 
 ## 3. Qué está integrado hoy
 
@@ -91,6 +94,11 @@
     periodo en archivos para Excel (separador `;`, BOM UTF-8, hora de
     Venezuela). Sin migración: el servidor arma el archivo con un tope
     de 20 000 filas y avisa si se cortó.
+19. **Integraciones externas por negocio** (migración 132): OpenReplay
+    para grabar sesiones del CRM, Listmonk para suscribir contactos con
+    email y VoiceSummary para analizar transcripciones. Tokens cifrados,
+    todo opcional y con prueba de conexión. Ver
+    `docs/integraciones-externas.md`.
 
 Nada de eso copia código de terceros: se usan SDKs Apache-2.0 y APIs.
 

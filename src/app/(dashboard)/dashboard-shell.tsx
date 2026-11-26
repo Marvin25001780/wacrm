@@ -7,6 +7,7 @@ import { Sidebar } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
 import { OnboardingWizard, isOnboardingPending } from "@/components/onboarding/onboarding-wizard";
 import { PresenceHeartbeat } from "@/components/presence/presence-heartbeat";
+import { OpenReplayTracker } from "@/components/integrations/openreplay-tracker";
 import { TelephonyProvider } from "@/components/telephony/telephony-provider";
 import { Softphone } from "@/components/telephony/softphone";
 import { minRoleForPath } from "@/lib/nav";
@@ -129,6 +130,12 @@ function DashboardShellInner({ children }: { children: React.ReactNode }) {
         {/* Reports this tab's online/away presence once we know a user is
             signed in. Headless — renders nothing. */}
         <PresenceHeartbeat />
+        {/* Grabación de sesiones (opcional por negocio). Headless. */}
+        <OpenReplayTracker
+          userID={user.id}
+          accountName={account?.name}
+          role={accountRole}
+        />
         <Sidebar open={sidebarOpen} onClose={closeSidebar} />
         <div className="flex flex-1 flex-col overflow-hidden">
           <Header onOpenSidebar={() => setSidebarOpen(true)} />

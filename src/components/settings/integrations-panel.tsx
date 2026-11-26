@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Loader2, MessageCircle, Mail, Check } from 'lucide-react';
 import { WebhookEndpointsManager } from '@/components/settings/webhook-endpoints';
 import { OmnichannelPanel } from '@/components/settings/omnichannel-panel';
+import { ExternalIntegrations } from '@/components/settings/external-integrations';
 
 export function IntegrationsPanel() {
   const { accountId } = useAuth();
@@ -188,6 +189,11 @@ export function IntegrationsPanel() {
       {/* Canales omnicanal (Evolution API / Chatwoot) */}
       <div className="rounded-xl border border-border bg-card p-5">
         <OmnichannelPanel />
+      </div>
+
+      {/* Servicios autoalojados (OpenReplay / Listmonk / VoiceSummary) */}
+      <div className="rounded-xl border border-border bg-card p-5">
+        <ExternalIntegrations />
       </div>
     </div>
   );

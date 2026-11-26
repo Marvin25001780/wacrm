@@ -10,11 +10,14 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
+import { supabaseAdmin } from '@/lib/ai/admin-client';
 import {
   loadTranscriptionConfig,
   transcribeAudio,
   transcriptionProvider,
 } from '@/lib/ai/transcribe';
+import { loadExternalIntegrations } from '@/lib/integrations/external';
+import { pushCallToVoiceSummary } from '@/lib/integrations/voicesummary';
 import type { CallSession } from '@/types';
 
 const MAX_RECORDING_BYTES = 24 * 1024 * 1024;
@@ -164,7 +167,73 @@ export async function transcribeCallRecording(
     },
   });
 
+  // Best-effort: si la cuenta tiene VoiceSummary activo, la llamada
+  // recién transcrita se empuja sin bloquear un error de la integración.
+  await pushToVoiceSummary(updated as CallSession);
+
   return { call: updated as CallSession };
+}
+
+/**
+ * Empuja la transcripción a VoiceSummary cuando la cuenta lo tiene
+ * activo. Un fallo aquí no rompe la transcripción: se registra en el
+ * servidor y el agente puede reintentar desde el diálogo de la llamada.
+ */
+async function pushToVoiceSummary(call: CallSession): Promise<void> {
+  if (!call.transcript?.trim() || !call.recording_url) return;
+
+  try {
+    const admin = supabaseAdmin();
+    const config = await loadExternalIntegrations(admin, call.account_id);
+    if (!config?.voicesummary.enabled || !config.voicesummary.url) return;
+
+    let contactName: string | null = null;
+    if (call.contact_id) {
+      const { data } = await admin
+        .from('contacts')
+        .select('name')
+        .eq('id', call.contact_id)
+        .maybeSingle<{ name: string | null }>();
+      contactName = data?.name ?? null;
+    }
+
+    let agentName: string | null = null;
+    if (call.agent_profile_id) {
+      const { data } = await admin
+        .from('profiles')
+        .select('full_name')
+        .eq('id', call.agent_profile_id)
+        .maybeSingle<{ full_name: string | null }>();
+      agentName = data?.full_name ?? null;
+    }
+
+    const result = await pushCallToVoiceSummary(
+      { url: config.voicesummary.url, token: config.voicesummary.token },
+      {
+        id: call.id,
+        transcript: call.transcript,
+        recordingUrl: call.recording_url,
+        startedAt: call.started_at,
+        contactName,
+        direction: call.direction,
+        agentName,
+      },
+    );
+
+    if (!result.ok) {
+      console.warn('[transcribe-call] VoiceSummary no aceptó la llamada:', result.error);
+      return;
+    }
+
+    await admin.from('call_events').insert({
+      account_id: call.account_id,
+      call_id: call.id,
+      type: 'voicesummary_pushed',
+      payload: { duplicate: result.duplicate ?? false },
+    });
+  } catch (error) {
+    console.error('[transcribe-call] push a VoiceSummary falló:', error);
+  }
 }
 
 async function markFailed(

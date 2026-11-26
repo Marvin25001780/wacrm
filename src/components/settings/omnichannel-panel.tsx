@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Loader2, Check, Radio, MessagesSquare, Copy } from 'lucide-react';
 
@@ -55,7 +55,7 @@ const CHANNELS: Array<{
     channel: 'chatwoot',
     title: 'Chatwoot',
     description:
-      'Sincroniza tu cuenta de Chatwoot (helpdesk) para atención multicanal.',
+      'Guarda el enlace a tu helpdesk de Chatwoot. El CRM no copia sus conversaciones: la bandeja propia atiende WhatsApp y Chatwoot se abre en su pestaña.',
     icon: MessagesSquare,
     fields: [
       { name: 'base_url', label: 'URL base', placeholder: 'https://chatwoot.midominio.com' },
@@ -210,6 +210,15 @@ function ChannelCard({
       ? `${typeof window !== 'undefined' ? window.location.origin : ''}/api/webhooks/evolution/${row.id}`
       : null;
 
+  // Chatwoot se conserva como enlace externo: la bandeja del CRM ya
+  // tiene sus propias conversaciones y no se duplican.
+  const chatwootBase =
+    def.channel === 'chatwoot' &&
+    typeof row?.config?.base_url === 'string' &&
+    /^https?:\/\//.test(row.config.base_url)
+      ? row.config.base_url.replace(/\/+$/, '')
+      : null;
+
   return (
     <div className="rounded-xl border border-border bg-card p-5">
       <div className="flex items-center gap-3">
@@ -265,6 +274,23 @@ function ChannelCard({
               <Copy className="h-3.5 w-3.5" />
             </Button>
           </div>
+        </div>
+      )}
+
+      {chatwootBase && (
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-muted/50 p-3">
+          <p className="text-xs text-muted-foreground">
+            Chatwoot se abre en su propia pestaña; las conversaciones no se
+            sincronizan con esta bandeja.
+          </p>
+          <a
+            href={chatwootBase}
+            target="_blank"
+            rel="noreferrer"
+            className={buttonVariants({ variant: 'outline', size: 'sm' })}
+          >
+            Abrir Chatwoot
+          </a>
         </div>
       )}
 

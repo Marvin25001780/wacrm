@@ -16,6 +16,7 @@ import { es } from 'date-fns/locale';
 import { toast } from 'sonner';
 import {
   AlertTriangle,
+  AudioLines,
   BarChart3,
   CheckCircle2,
   ClipboardCheck,
@@ -209,6 +210,9 @@ export default function TelefoniaPage() {
   const [eventsLoading, setEventsLoading] = useState(false);
   const [transcribingId, setTranscribingId] = useState<string | null>(null);
   const [summarizingId, setSummarizingId] = useState<string | null>(null);
+  const [pushingVoiceSummary, setPushingVoiceSummary] = useState<string | null>(
+    null
+  );
   const [evaluation, setEvaluation] = useState<CallEvaluation | null>(null);
   const [evaluationLoading, setEvaluationLoading] = useState(false);
   const [qaMigrationMissing, setQaMigrationMissing] = useState(false);
@@ -569,8 +573,43 @@ export default function TelefoniaPage() {
     }
   };
 
-  const saveAiEvaluation = async () => {
-    if (!transcriptCall) return;
+  // Envía la transcripción a VoiceSummary (reintento manual). El push
+  // automático ya ocurre al transcribir; esto sirve para llamadas
+  // anteriores a la integración o si el servicio estaba caído.
+  const pushVoiceSummary = async (call: CallSession) => {
+    setPushingVoiceSummary(call.id);
+    try {
+      const res = await fetch(
+        '/api/integrations/external/voicesummary/push',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ callId: call.id }),
+        }
+      );
+      const body = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        duplicate?: boolean;
+        error?: string;
+      };
+      if (!res.ok) {
+        toast.error(body.error ?? 'No se pudo enviar a VoiceSummary.');
+        return;
+      }
+      toast.success(
+        body.duplicate
+          ? 'Esta llamada ya estaba en VoiceSummary.'
+          : 'Llamada enviada a VoiceSummary.'
+      );
+      void loadEvents(call.id);
+    } catch {
+      toast.error('Error de red al enviar a VoiceSummary.');
+    } finally {
+      setPushingVoiceSummary(null);
+    }
+  };
+
+  const saveAiEvaluation = async () => {    if (!transcriptCall) return;
     setAiEvaluating(true);
     try {
       const res = await fetch(
@@ -1599,9 +1638,25 @@ export default function TelefoniaPage() {
                 )}
 
                 <div className="space-y-1">
-                  <p className="text-foreground text-xs font-medium">
-                    Transcripción
-                  </p>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-foreground text-xs font-medium">
+                      Transcripción
+                    </p>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={pushingVoiceSummary === transcriptCall.id}
+                      onClick={() => void pushVoiceSummary(transcriptCall)}
+                      title="Enviar esta transcripción y su audio a VoiceSummary"
+                    >
+                      {pushingVoiceSummary === transcriptCall.id ? (
+                        <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <AudioLines className="mr-1 h-3.5 w-3.5" />
+                      )}
+                      Enviar a VoiceSummary
+                    </Button>
+                  </div>
                   <div className="border-border bg-muted/30 text-foreground max-h-56 overflow-y-auto rounded-lg border p-3 text-sm whitespace-pre-wrap">
                     {transcriptCall.transcript}
                   </div>
