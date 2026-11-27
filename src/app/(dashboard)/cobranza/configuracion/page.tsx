@@ -6,6 +6,7 @@ import { BookOpen, Loader2, Save, ShieldCheck } from "lucide-react";
 
 import { SkeletonCard } from "@/components/dashboard/skeleton";
 import { Panel } from "@/components/metrics/panel";
+import { ReminderSettingsPanel } from "@/components/collections/reminder-settings";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -664,6 +665,8 @@ export default function ConfiguracionPage() {
           momento del reporte.
         </p>
       </Panel>
+
+      <ReminderSettingsPanel />
     </div>
   );
 }
