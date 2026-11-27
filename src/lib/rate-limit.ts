@@ -174,6 +174,14 @@ export const RATE_LIMITS = {
   callAiEvaluation: { limit: 5, windowMs: 60_000 },
   /** QA automática de llamadas, per account. */
   callAiEvaluationAccount: { limit: 15, windowMs: 60_000 },
+
+  /** Enlace público de pago, per IP. Cada apertura es una lectura; 60/min
+   *  cubre a un deudor que recarga y comparte el enlace sin abrir la
+   *  puerta a enumerar tokens (el token es aleatorio de 122 bits). */
+  publicPaymentLink: { limit: 60, windowMs: 60_000 },
+  /** Comprobante público, per IP. Un deudor real envía uno o dos; 8/min
+   *  frena el spam sin bloquear un reintento por error de dedo. */
+  publicPaymentReceipt: { limit: 8, windowMs: 60_000 },
 } as const;
 
 /** Test-only helper. Clears the in-memory state so unit tests don't

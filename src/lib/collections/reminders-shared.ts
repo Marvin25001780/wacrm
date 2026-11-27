@@ -103,14 +103,16 @@ export const EMAIL_PLACEHOLDERS = [
   { token: "{{monto}}", label: "Saldo de la cuota" },
   { token: "{{vencimiento}}", label: "Fecha de vencimiento" },
   { token: "{{estado}}", label: "Faltan / vence hoy / mora" },
+  { token: "{{enlace}}", label: "Enlace de pago del deudor" },
 ] as const;
 
 /**
  * Orden oficial de las variables de la plantilla de WhatsApp:
  *   {{1}} deudor · {{2}} negocio · {{3}} monto · {{4}} vencimiento
+ *   {{5}} enlace de pago
  */
 export const WHATSAPP_VARIABLE_HELP =
-  "{{1}} deudor · {{2}} negocio · {{3}} monto · {{4}} vencimiento";
+  "{{1}} deudor · {{2}} negocio · {{3}} monto · {{4}} vencimiento · {{5}} enlace de pago";
 
 export function defaultReminderSettings(accountId: string): ReminderSettings {
   return {
@@ -220,11 +222,12 @@ export function reminderStateText(candidate: { days_delta: number }): string {
 
 export function reminderValues(
   candidate: ReminderCandidate,
+  paymentLink?: string | null,
 ): Record<string, string> {
   const amount = formatUsd(Number(candidate.balance) || 0);
   const due = formatDate(candidate.due_date);
   const days = Math.abs(Number(candidate.days_delta) || 0);
-  return {
+  const values: Record<string, string> = {
     deudor: candidate.debtor_name,
     nombre: candidate.debtor_name,
     negocio: candidate.business_name,
@@ -236,6 +239,12 @@ export function reminderValues(
     dias: String(days),
     estado: reminderStateText(candidate),
   };
+  if (paymentLink) {
+    values.enlace = paymentLink;
+    values.link = paymentLink;
+    values.url = paymentLink;
+  }
+  return values;
 }
 
 const PLACEHOLDER_RE = /\{\{\s*([a-zA-Z_]+)\s*\}\}/g;
@@ -244,8 +253,9 @@ const PLACEHOLDER_RE = /\{\{\s*([a-zA-Z_]+)\s*\}\}/g;
 export function renderReminderText(
   template: string,
   candidate: ReminderCandidate,
+  paymentLink?: string | null,
 ): string {
-  const values = reminderValues(candidate);
+  const values = reminderValues(candidate, paymentLink);
   return template.replace(PLACEHOLDER_RE, (marker, raw: string) => {
     const key = raw.toLowerCase();
     return values[key] ?? marker;
@@ -253,13 +263,27 @@ export function renderReminderText(
 }
 
 /** Variables posicionales para la plantilla de WhatsApp. */
-export function whatsappValues(candidate: ReminderCandidate): string[] {
+export function whatsappValues(
+  candidate: ReminderCandidate,
+  paymentLink?: string | null,
+): string[] {
   return [
     candidate.debtor_name,
     candidate.business_name,
     formatUsd(Number(candidate.balance) || 0),
     formatDate(candidate.due_date),
+    paymentLink ?? "",
   ];
+}
+
+/** ¿La plantilla numérica pide el enlace de pago ({{5}})? */
+export function templateNeedsPaymentLink(template: string): boolean {
+  return /\{\{\s*5\s*\}\}/.test(template);
+}
+
+/** ¿El texto (correo) usa el enlace de pago? */
+export function textNeedsPaymentLink(text: string): boolean {
+  return /\{\{\s*(enlace|link|url)\s*\}\}/i.test(text);
 }
 
 export type WhatsappParamsResult =
@@ -274,6 +298,7 @@ export type WhatsappParamsResult =
 export function whatsappParamsFor(
   templateBody: string,
   candidate: ReminderCandidate,
+  paymentLink?: string | null,
 ): WhatsappParamsResult {
   const indices = new Set<number>();
   for (const match of templateBody.matchAll(/\{\{\s*(\d+)\s*\}\}/g)) {
@@ -291,11 +316,18 @@ export function whatsappParamsFor(
     }
   }
 
-  const values = whatsappValues(candidate);
+  const values = whatsappValues(candidate, paymentLink);
   if (needed > values.length) {
     return {
       ok: false,
       error: `La plantilla pide ${needed} variables y el recordatorio solo llena ${values.length} (${WHATSAPP_VARIABLE_HELP}).`,
+    };
+  }
+  if (needed >= 5 && !paymentLink) {
+    return {
+      ok: false,
+      error:
+        "La plantilla pide {{5}} (enlace de pago) y todavía no hay enlace para este deudor. Se creará al enviar; configura NEXT_PUBLIC_SITE_URL si el envío automático lo necesita.",
     };
   }
   return { ok: true, params: values.slice(0, needed) };

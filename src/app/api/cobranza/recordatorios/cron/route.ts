@@ -7,6 +7,7 @@ import {
   runCollectionReminders,
   type ReminderSettings,
 } from "@/lib/collections/reminders";
+import { getSiteBaseUrl } from "@/lib/collections/payment-links";
 
 /**
  * GET /api/cobranza/recordatorios/cron
@@ -37,6 +38,10 @@ export async function GET(request: Request) {
   }
 
   const db = supabaseAdmin();
+  // Sin request no hay host: el cron depende de NEXT_PUBLIC_SITE_URL.
+  // Si falta y algún mensaje pide el enlace, esa fila se omite con
+  // motivo en vez de enviar una plantilla incompleta.
+  const siteBaseUrl = getSiteBaseUrl();
 
   const { data: rows, error } = await db
     .from("collection_reminder_settings")
@@ -100,6 +105,7 @@ export async function GET(request: Request) {
         accountId: row.account_id,
         settings: row,
         date: today,
+        siteBaseUrl,
       });
 
       await db

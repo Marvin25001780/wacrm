@@ -7,11 +7,18 @@ import {
   reminderKindLabel,
   renderReminderText,
   renderWhatsappPreview,
+  templateNeedsPaymentLink,
+  textNeedsPaymentLink,
   whatsappParamsFor,
   type ReminderCandidate,
   type ReminderKind,
   type ReminderSettings,
 } from "@/lib/collections/reminders";
+import {
+  ensurePaymentLink,
+  getSiteBaseUrl,
+} from "@/lib/collections/payment-links";
+import { paymentLinkUrl } from "@/lib/collections/payment-links-shared";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -112,11 +119,13 @@ export async function GET(request: Request) {
       if (candidate.email_sent) counts.email_sent += 1;
     }
 
-    const samples = buildSamples(
+    const samples = await buildSamples(
       candidates,
       config.settings,
       templateBody,
       templateError,
+      ctx.supabase,
+      getSiteBaseUrl(request),
     );
 
     return NextResponse.json({
@@ -145,11 +154,13 @@ function emptyCounts() {
   };
 }
 
-function buildSamples(
+async function buildSamples(
   candidates: ReminderCandidate[],
   settings: ReminderSettings,
   templateBody: string | null,
   templateError: string | null,
+  supabase: Parameters<typeof ensurePaymentLink>[0],
+  baseUrl: string | null,
 ) {
   const kinds: ReminderKind[] = ["before_due", "on_due", "after_due"];
   const samples: Array<{
@@ -160,16 +171,40 @@ function buildSamples(
     whatsapp_error: string | null;
     email_subject: string;
     email_body: string;
+    payment_link: string | null;
+    payment_link_error: string | null;
   }> = [];
 
   for (const kind of kinds) {
     const candidate = candidates.find((row) => row.kind === kind);
     if (!candidate) continue;
 
+    const needsWhatsappLink = Boolean(
+      templateBody && templateNeedsPaymentLink(templateBody),
+    );
+    const needsEmailLink =
+      textNeedsPaymentLink(settings.email_subject) ||
+      textNeedsPaymentLink(settings.email_body);
+
+    let paymentLink: string | null = null;
+    let paymentLinkError: string | null = null;
+    if ((needsWhatsappLink || needsEmailLink) && baseUrl) {
+      try {
+        const link = await ensurePaymentLink(supabase, candidate.debtor_id);
+        paymentLink = paymentLinkUrl(baseUrl, link.token);
+      } catch (err) {
+        paymentLinkError =
+          err instanceof Error ? err.message : "No se pudo crear el enlace.";
+      }
+    } else if (needsWhatsappLink || needsEmailLink) {
+      paymentLinkError =
+        "Falta NEXT_PUBLIC_SITE_URL para armar el enlace de pago.";
+    }
+
     let whatsapp: string | null = null;
-    let whatsappError: string | null = templateError;
+    let whatsappError: string | null = templateError ?? paymentLinkError;
     if (templateBody) {
-      const parsed = whatsappParamsFor(templateBody, candidate);
+      const parsed = whatsappParamsFor(templateBody, candidate, paymentLink);
       if (parsed.ok) {
         whatsapp = renderWhatsappPreview(templateBody, parsed.params);
         whatsappError = null;
@@ -184,8 +219,18 @@ function buildSamples(
       debtor_name: candidate.debtor_name,
       whatsapp,
       whatsapp_error: whatsappError,
-      email_subject: renderReminderText(settings.email_subject, candidate),
-      email_body: renderReminderText(settings.email_body, candidate),
+      email_subject: renderReminderText(
+        settings.email_subject,
+        candidate,
+        paymentLink,
+      ),
+      email_body: renderReminderText(
+        settings.email_body,
+        candidate,
+        paymentLink,
+      ),
+      payment_link: paymentLink,
+      payment_link_error: paymentLinkError,
     });
   }
 

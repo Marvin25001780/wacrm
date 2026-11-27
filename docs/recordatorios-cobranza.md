@@ -35,8 +35,9 @@ tope por corrida. “Hoy” es la fecha de la zona horaria del negocio
    primer mensaje (o estar fuera de la ventana de 24 h), y Meta rechaza texto
    libre en ese caso. La plantilla se busca por nombre y estado `APPROVED`.
 2. **Orden de variables de la plantilla:**
-   `{{1}}` deudor · `{{2}}` negocio · `{{3}}` monto · `{{4}}` vencimiento.
-   Se envían solo las que la plantilla pide. Si pide más de cuatro, o usa
+   `{{1}}` deudor · `{{2}}` negocio · `{{3}}` monto · `{{4}}` vencimiento ·
+   `{{5}}` enlace de pago (opcional; ver el bloque 135).
+   Se envían solo las que la plantilla pide. Si pide más de cinco, o usa
    saltos (`{{1}}` y `{{3}}`), no se envía y queda el motivo en la bitácora.
 3. **Correo** usa el asunto y cuerpo del negocio con marcadores
    `{{deudor}}`, `{{negocio}}`, `{{cuota}}`, `{{monto}}`, `{{vencimiento}}`,
@@ -91,7 +92,8 @@ secreto distinto responde `401`.
 
 ## Límites conocidos
 
-- No hay enlace de pago ni captura de comprobantes todavía (siguiente bloque).
+- El enlace de pago y los comprobantes viven en el bloque 135
+  (`docs/enlaces-pago-y-comprobantes.md`); este documento cubre solo el aviso.
 - El correo depende de Mailflare; sin configuración el canal queda omitido.
 - La plantilla de WhatsApp debe existir y estar aprobada en Meta.
 - No reemplaza la gestión humana: los casos complejos siguen en la consola.

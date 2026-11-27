@@ -22,6 +22,8 @@ import {
   renderReminderText,
   renderWhatsappPreview,
   safeTimezone,
+  templateNeedsPaymentLink,
+  textNeedsPaymentLink,
   whatsappParamsFor,
   type ReminderCandidate,
   type ReminderChannel,
@@ -29,6 +31,8 @@ import {
   type ReminderRunSummary,
   type ReminderSettings,
 } from "./reminders-shared";
+import { findActivePaymentLink, ensurePaymentLink } from "./payment-links";
+import { paymentLinkUrl } from "./payment-links-shared";
 import { resolveConversationByPhone } from "@/lib/whatsapp/resolve-conversation";
 import { sendMessageToConversation } from "@/lib/whatsapp/send-message";
 import { loadMailflareConfig, sendEmail } from "@/lib/email/mailflare";
@@ -97,6 +101,12 @@ export interface RunRemindersOptions {
   date: string;
   dryRun?: boolean;
   limit?: number;
+  /**
+   * Base pública para armar el enlace de pago ({{5}} / {{enlace}}).
+   * Si falta y el mensaje pide el enlace, la fila se omite con motivo
+   * en vez de enviar una plantilla incompleta.
+   */
+  siteBaseUrl?: string | null;
 }
 
 interface TemplateRow {
@@ -104,6 +114,11 @@ interface TemplateRow {
   language: string | null;
   body_text: string;
   status: string;
+}
+
+interface ReminderTask {
+  candidate: ReminderCandidate;
+  channel: ReminderChannel;
 }
 
 function clampLimit(value: unknown, fallback: number): number {
@@ -116,6 +131,7 @@ export async function runCollectionReminders(
   options: RunRemindersOptions,
 ): Promise<ReminderRunSummary> {
   const { supabase, accountId, settings, date, dryRun = false } = options;
+  const siteBaseUrl = options.siteBaseUrl?.replace(/\/+$/, "") ?? null;
   const limit = clampLimit(options.limit ?? settings.max_per_run, 200);
   const now = new Date();
   const items: ReminderRunItem[] = [];
@@ -168,12 +184,7 @@ export async function runCollectionReminders(
     ? await loadMailflareConfig(supabase, accountId).catch(() => null)
     : null;
 
-  interface Task {
-    candidate: ReminderCandidate;
-    channel: ReminderChannel;
-  }
-
-  const tasks: Task[] = [];
+  const tasks: ReminderTask[] = [];
   for (const candidate of candidates) {
     const wantsWhatsapp =
       settings.whatsapp_enabled && !candidate.whatsapp_sent;
@@ -246,8 +257,32 @@ export async function runCollectionReminders(
   }
 
   if (dryRun) {
+    // Sin efectos secundarios: si ya existe un enlace activo se muestra
+    // real; si no, el texto deja el marcador y el envío lo creará.
+    const linkCache = new Map<string, string | null>();
     for (const task of tasks) {
-      items.push(previewItem(task.candidate, task.channel, settings, template));
+      if (!taskNeedsPaymentLink(task, settings, template)) continue;
+      if (!siteBaseUrl || linkCache.has(task.candidate.debtor_id)) continue;
+      const existing = await findActivePaymentLink(
+        supabase,
+        task.candidate.debtor_id,
+      ).catch(() => null);
+      linkCache.set(
+        task.candidate.debtor_id,
+        existing ? paymentLinkUrl(siteBaseUrl, existing.token) : null,
+      );
+    }
+
+    for (const task of tasks) {
+      items.push(
+        previewItem(
+          task.candidate,
+          task.channel,
+          settings,
+          template,
+          linkCache.get(task.candidate.debtor_id) ?? null,
+        ),
+      );
     }
     return buildSummary(date, true, candidates.length, items, reasons, now);
   }
@@ -271,8 +306,36 @@ export async function runCollectionReminders(
     }
 
     try {
+      let paymentUrl: string | null = null;
+      if (taskNeedsPaymentLink(task, settings, template)) {
+        if (!siteBaseUrl) {
+          await finish(supabase, accountId, candidate, channel, {
+            status: "skipped",
+            error:
+              "Falta NEXT_PUBLIC_SITE_URL para armar el enlace de pago de este mensaje.",
+          }).catch(() => undefined);
+          items.push({
+            installment_id: candidate.installment_id,
+            debtor_name: candidate.debtor_name,
+            kind: candidate.kind,
+            channel,
+            status: "skipped",
+            reason:
+              "Falta NEXT_PUBLIC_SITE_URL para armar el enlace de pago de este mensaje.",
+          });
+          note("enlace: sin URL pública");
+          return;
+        }
+        const link = await ensurePaymentLink(supabase, candidate.debtor_id);
+        paymentUrl = paymentLinkUrl(siteBaseUrl, link.token);
+      }
+
       if (channel === "whatsapp") {
-        const parsed = whatsappParamsFor(template!.body_text, candidate);
+        const parsed = whatsappParamsFor(
+          template!.body_text,
+          candidate,
+          paymentUrl,
+        );
         if (!parsed.ok) throw new Error(parsed.error);
 
         const resolved = await resolveConversationByPhone(
@@ -303,8 +366,16 @@ export async function runCollectionReminders(
           external_id: sent.whatsappMessageId,
         });
       } else {
-        const subject = renderReminderText(settings.email_subject, candidate);
-        const body = renderReminderText(settings.email_body, candidate);
+        const subject = renderReminderText(
+          settings.email_subject,
+          candidate,
+          paymentUrl,
+        );
+        const body = renderReminderText(
+          settings.email_body,
+          candidate,
+          paymentUrl,
+        );
         const sent = await sendEmail(mailflare!, {
           to: [candidate.email!],
           subject,
@@ -349,20 +420,39 @@ export async function runCollectionReminders(
   return buildSummary(date, false, candidates.length, items, reasons, now);
 }
 
+function taskNeedsPaymentLink(
+  task: ReminderTask,
+  settings: ReminderSettings,
+  template: TemplateRow | null,
+): boolean {
+  if (task.channel === "whatsapp") {
+    return template ? templateNeedsPaymentLink(template.body_text) : false;
+  }
+  return (
+    textNeedsPaymentLink(settings.email_subject) ||
+    textNeedsPaymentLink(settings.email_body)
+  );
+}
+
 function previewItem(
   candidate: ReminderCandidate,
   channel: ReminderChannel,
   settings: ReminderSettings,
   template: TemplateRow | null,
+  paymentUrl: string | null,
 ): ReminderRunItem {
   let preview: string | null = null;
   if (channel === "whatsapp" && template) {
-    const parsed = whatsappParamsFor(template.body_text, candidate);
+    const parsed = whatsappParamsFor(
+      template.body_text,
+      candidate,
+      paymentUrl,
+    );
     preview = parsed.ok
       ? renderWhatsappPreview(template.body_text, parsed.params)
       : parsed.error;
   } else if (channel === "email") {
-    preview = renderReminderText(settings.email_body, candidate);
+    preview = renderReminderText(settings.email_body, candidate, paymentUrl);
   }
   return {
     installment_id: candidate.installment_id,

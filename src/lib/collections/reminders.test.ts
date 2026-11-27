@@ -11,6 +11,8 @@ import {
   reminderStateText,
   renderReminderText,
   renderWhatsappPreview,
+  templateNeedsPaymentLink,
+  textNeedsPaymentLink,
   whatsappParamsFor,
   whatsappValues,
   type ReminderCandidate,
@@ -108,6 +110,16 @@ describe("renderReminderText", () => {
       "María Pérez / {{otro}}",
     );
   });
+
+  it("rellena el enlace de pago cuando está disponible", () => {
+    const url = "https://crm.example.com/pagar/abc";
+    expect(
+      renderReminderText("Paga aquí: {{enlace}}", candidate, url),
+    ).toBe(`Paga aquí: ${url}`);
+    expect(renderReminderText("Paga aquí: {{enlace}}", candidate)).toBe(
+      "Paga aquí: {{enlace}}",
+    );
+  });
 });
 
 describe("whatsappParamsFor", () => {
@@ -145,15 +157,48 @@ describe("whatsappParamsFor", () => {
     }
   });
 
-  it("rechaza plantillas con más de cuatro variables", () => {
+  it("rechaza plantillas con más de cinco variables", () => {
+    const result = whatsappParamsFor(
+      "{{1}} {{2}} {{3}} {{4}} {{5}} {{6}}",
+      candidate,
+      "https://crm.example.com/pagar/abc",
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toContain("6 variables");
+    }
+  });
+
+  it("incluye el enlace de pago como quinta variable cuando la plantilla lo pide", () => {
+    const result = whatsappParamsFor(
+      "{{1}} {{2}} {{3}} {{4}} {{5}}",
+      candidate,
+      "https://crm.example.com/pagar/abc",
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.params).toHaveLength(5);
+      expect(result.params[4]).toBe("https://crm.example.com/pagar/abc");
+    }
+  });
+
+  it("no envía la quinta variable si todavía no hay enlace", () => {
     const result = whatsappParamsFor(
       "{{1}} {{2}} {{3}} {{4}} {{5}}",
       candidate,
     );
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toContain("5 variables");
+      expect(result.error).toContain("enlace de pago");
     }
+  });
+
+  it("reconoce cuándo el texto pide el enlace", () => {
+    expect(templateNeedsPaymentLink("Paga en {{5}}")).toBe(true);
+    expect(templateNeedsPaymentLink("Hola {{1}}")).toBe(false);
+    expect(textNeedsPaymentLink("Abre {{enlace}}")).toBe(true);
+    expect(textNeedsPaymentLink("Abre {{link}}")).toBe(true);
+    expect(textNeedsPaymentLink("Hola {{deudor}}")).toBe(false);
   });
 
   it("acepta una plantilla sin variables", () => {

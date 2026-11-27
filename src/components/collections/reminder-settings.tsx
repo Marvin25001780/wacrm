@@ -77,6 +77,8 @@ interface PreviewSample {
   whatsapp_error: string | null;
   email_subject: string;
   email_body: string;
+  payment_link: string | null;
+  payment_link_error: string | null;
 }
 
 interface PreviewPayload {
@@ -648,6 +650,16 @@ export function ReminderSettingsPanel() {
                       <pre className="mt-1 max-h-28 overflow-y-auto whitespace-pre-wrap break-words text-[11px] text-muted-foreground">
                         {sample.email_body}
                       </pre>
+                      {sample.payment_link ? (
+                        <p className="mt-2 break-all text-[11px] text-primary">
+                          {sample.payment_link}
+                        </p>
+                      ) : null}
+                      {sample.payment_link_error ? (
+                        <p className="mt-2 text-[11px] text-amber-300">
+                          {sample.payment_link_error}
+                        </p>
+                      ) : null}
                     </div>
                   ))}
                 </div>

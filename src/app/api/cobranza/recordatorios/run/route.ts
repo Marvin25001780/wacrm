@@ -11,6 +11,7 @@ import {
   localDateInZone,
   runCollectionReminders,
 } from "@/lib/collections/reminders";
+import { getSiteBaseUrl } from "@/lib/collections/payment-links";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -80,6 +81,7 @@ export async function POST(request: Request) {
       date: runDate,
       dryRun,
       limit: Number.isFinite(requestedLimit) ? requestedLimit : undefined,
+      siteBaseUrl: getSiteBaseUrl(request),
     });
 
     if (!dryRun) {
