@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { requireRole, toErrorResponse } from "@/lib/auth/account";
 import type { CollectionReceipt } from "@/lib/collections/payment-links-shared";
+import { signChatMediaUrl } from "@/lib/storage/chat-media";
 
 const STATUSES = ["pending", "approved", "rejected"] as const;
 type ReceiptStatus = (typeof STATUSES)[number];
@@ -76,10 +77,15 @@ export async function GET(request: Request) {
     }
 
     return NextResponse.json({
-      receipts: rows.map((row) => ({
-        ...row,
-        debtor_name: names.get(row.debtor_id) ?? "Deudor",
-      })),
+      receipts: await Promise.all(
+        rows.map(async (row) => ({
+          ...row,
+          debtor_name: names.get(row.debtor_id) ?? "Deudor",
+          file_signed_url: row.file_url
+            ? await signChatMediaUrl(ctx.supabase, row.file_url, 60 * 60)
+            : null,
+        })),
+      ),
       counts: {
         pending: pendingRes.count ?? 0,
         approved: approvedRes.count ?? 0,

@@ -24,6 +24,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { decrypt } from '@/lib/whatsapp/encryption'
 import { downloadMedia, getMediaUrl } from '@/lib/whatsapp/meta-api'
+import { extensionForMime } from '@/lib/media/filename'
 import {
   evolutionGetBase64Media,
   evoInstanceName,
@@ -423,22 +424,38 @@ interface ConversationMediaRow {
   external_contact_id?: string | null
 }
 
+export type { ConversationMediaRow }
+
+export type MediaBytesKind = 'audio' | 'image' | 'document'
+
+function mediaFilename(mimeType: string, kind: MediaBytesKind): string {
+  if (kind === 'audio') return audioFilename(mimeType)
+  return `comprobante.${extensionForMime(mimeType)}`
+}
+
 /**
  * Descarga los bytes del audio desde donde los haya dejado la ingesta:
  * el bucket privado `chat-media` (Meta, ya espejado), una URL http
  * directa, el proxy de Meta, o —como último recurso— la API de
  * Evolution, que puede resolver los audios cifrados de WhatsApp a
  * partir del id del mensaje.
+ *
+ * `kind` generaliza la descarga para imágenes de comprobantes (136):
+ * el origen es el mismo (Meta, Evolution, bucket) y solo cambia el
+ * nombre del archivo.
  */
-export async function loadAudioBytes(
+export async function loadMediaBytes(
   db: SupabaseClient,
   mediaUrl: string | null,
   mediaType: string | null,
   conversation: ConversationMediaRow,
   messageId: string | null = null,
+  kind: MediaBytesKind = 'audio',
 ): Promise<AudioBytes | null> {
-  const mimeType = (mediaType ?? 'audio/ogg').split(';')[0].trim()
-  const filename = audioFilename(mimeType)
+  const fallbackMime =
+    kind === 'audio' ? 'audio/ogg' : kind === 'image' ? 'image/jpeg' : 'application/octet-stream'
+  const mimeType = (mediaType ?? fallbackMime).split(';')[0].trim()
+  const filename = mediaFilename(mimeType, kind)
 
   if (mediaUrl) {
     // 1) Copia durable en `chat-media` (Meta, migración 065).
@@ -469,10 +486,11 @@ export async function loadAudioBytes(
               downloadUrl: info.url,
               accessToken: token,
             })
+            const resolved = (downloaded.contentType || mimeType).split(';')[0].trim()
             return {
               buffer: downloaded.buffer,
-              mimeType: (downloaded.contentType || mimeType).split(';')[0].trim(),
-              filename: audioFilename(downloaded.contentType || mimeType),
+              mimeType: resolved,
+              filename: mediaFilename(resolved, kind),
             }
           } catch (err) {
             console.warn(
@@ -494,7 +512,18 @@ export async function loadAudioBytes(
     messageId,
     conversation.external_contact_id ?? null,
     mimeType,
+    kind,
   )
+}
+
+export async function loadAudioBytes(
+  db: SupabaseClient,
+  mediaUrl: string | null,
+  mediaType: string | null,
+  conversation: ConversationMediaRow,
+  messageId: string | null = null,
+): Promise<AudioBytes | null> {
+  return loadMediaBytes(db, mediaUrl, mediaType, conversation, messageId, 'audio')
 }
 
 async function loadEvolutionAudio(
@@ -503,6 +532,7 @@ async function loadEvolutionAudio(
   messageId: string | null,
   remotePhone: string | null,
   mimeType: string,
+  kind: MediaBytesKind = 'audio',
 ): Promise<AudioBytes | null> {
   if (!messageId) return null
 
@@ -552,7 +582,7 @@ async function loadEvolutionAudio(
   return {
     buffer,
     mimeType: resolved,
-    filename: audioFilename(resolved),
+    filename: mediaFilename(resolved, kind),
   }
 }
 

@@ -103,6 +103,7 @@ export async function runAgentTurn(
   if (agent.action_assign) allowedActions.push('assign_conversation')
   if (agent.action_close) allowedActions.push('close_conversation')
   if (agent.action_notes) allowedActions.push('add_note')
+  if (agent.action_receipts) allowedActions.push('register_receipt')
 
   // ---- Prompt --------------------------------------------------
   const personality = buildAgentSystemPrompt(agent, {
@@ -130,7 +131,7 @@ export async function runAgentTurn(
       buildActionProtocol({
         allowed: allowedActions,
         rules:
-          'add_tag: value es el NOMBRE de la etiqueta (se crea si no existe). update_contact: value es un objeto {"name"?, "email"?, "company"?}. assign_conversation: value es el ID del usuario (te lo dará el sistema; si no lo tienes, no uses esta acción). close_conversation: no lleva value. add_note: value es el texto de la NOTA INTERNA (visible solo para el equipo; no para el cliente).',
+          'add_tag: value es el NOMBRE de la etiqueta (se crea si no existe). update_contact: value es un objeto {"name"?, "email"?, "company"?}. assign_conversation: value es el ID del usuario (te lo dará el sistema; si no lo tienes, no uses esta acción). close_conversation: no lleva value. add_note: value es el texto de la NOTA INTERNA (visible solo para el equipo; no para el cliente). register_receipt: value es un objeto {"amount": número, "reference": "texto", "bank"?: "texto", "paid_at"?: "YYYY-MM-DD", "currency"?: "USD"}. Úsala SOLO cuando el cliente confirme que hizo una transferencia o pago móvil e indique el monto y la referencia. Nunca inventes el monto ni la referencia: si no los tienes, pídelos en el reply y no uses la acción.',
       })
     )
   }

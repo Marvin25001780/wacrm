@@ -73,6 +73,7 @@ export async function PATCH(request: Request, { params }: RouteParams) {
       "action_assign",
       "action_close",
       "action_notes",
+      "action_receipts",
       // A4 — avanzada
       "exit_message",
       "response_quality",
@@ -153,7 +154,7 @@ export async function PATCH(request: Request, { params }: RouteParams) {
     }
 
     // ---- Validación de los campos A3/A4 ------------------------
-    for (const key of ["action_tags", "action_fields", "action_assign", "action_close", "action_notes"]) {
+    for (const key of ["action_tags", "action_fields", "action_assign", "action_close", "action_notes", "action_receipts"]) {
       if (body[key] !== undefined && typeof body[key] !== "boolean") {
         return NextResponse.json({ error: `${key} debe ser booleano` }, { status: 400 });
       }

@@ -21,12 +21,15 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 
+import { captureReceiptFromAgent } from '@/lib/collections/receipt-capture'
+
 export type AgentActionType =
   | 'add_tag'
   | 'update_contact'
   | 'assign_conversation'
   | 'close_conversation'
   | 'add_note'
+  | 'register_receipt'
 
 export interface AgentAction {
   type: AgentActionType
@@ -253,6 +256,23 @@ async function executeAction(
         })
         if (error) return { type: action.type, ok: false, detail: error.message }
         return { type: action.type, ok: true }
+      }
+
+      case 'register_receipt': {
+        // Cobranza (136): el modelo extrajo monto/referencia del texto.
+        // El comprobante entra `pending`; aprobarlo sigue siendo tarea
+        // de un admin en /cobranza/comprobantes.
+        const result = await captureReceiptFromAgent(
+          db,
+          {
+            accountId: ctx.accountId,
+            conversationId: ctx.conversationId,
+            contactId: ctx.contactId,
+            userId: ctx.userId,
+          },
+          action.value
+        )
+        return { type: action.type, ok: result.ok, detail: result.detail }
       }
 
       default:

@@ -40,6 +40,10 @@ export async function POST(
       decision?: unknown;
       installment_id?: unknown;
       notes?: unknown;
+      amount?: unknown;
+      reference?: unknown;
+      bank?: unknown;
+      paid_at?: unknown;
     };
 
     const decision =
@@ -61,6 +65,80 @@ export async function POST(
       typeof body.notes === "string" && body.notes.trim()
         ? body.notes.trim().slice(0, 2000)
         : null;
+
+    // Correcciones de la bandeja (136): el OCR puede leer mal el monto
+    // o la referencia. Se aplican antes de aprobar, en la misma acción.
+    const corrections =
+      decision === "approve"
+        ? {
+            amount:
+              body.amount === undefined || body.amount === null
+                ? null
+                : Number(body.amount),
+            reference:
+              typeof body.reference === "string" && body.reference.trim()
+                ? body.reference.trim()
+                : null,
+            bank:
+              typeof body.bank === "string" && body.bank.trim()
+                ? body.bank.trim()
+                : null,
+            paid_at:
+              typeof body.paid_at === "string" && body.paid_at.trim()
+                ? body.paid_at.trim()
+                : null,
+          }
+        : null;
+
+    if (
+      corrections &&
+      (corrections.amount !== null ||
+        corrections.reference !== null ||
+        corrections.bank !== null ||
+        corrections.paid_at !== null)
+    ) {
+      if (corrections.amount !== null && !Number.isFinite(corrections.amount)) {
+        return NextResponse.json(
+          { error: "El monto corregido no es un número válido." },
+          { status: 400 },
+        );
+      }
+
+      const { error: updateError } = await ctx.supabase.rpc(
+        "collection_receipt_update",
+        {
+          p_receipt_id: id,
+          p_amount: corrections.amount,
+          p_paid_at: corrections.paid_at,
+          p_reference: corrections.reference,
+          p_bank: corrections.bank,
+          p_notes: null,
+        },
+      );
+
+      if (updateError) {
+        console.error("[comprobantes/review] update:", updateError.code, updateError.message);
+        if (updateError.code === "22023" || updateError.code === "23505") {
+          return NextResponse.json({ error: updateError.message }, { status: 400 });
+        }
+        if (updateError.code === "42501") {
+          return NextResponse.json({ error: updateError.message }, { status: 403 });
+        }
+        if (updateError.code === "P0002") {
+          return NextResponse.json({ error: updateError.message }, { status: 404 });
+        }
+        if (updateError.code === "42P01" || updateError.code === "PGRST205") {
+          return NextResponse.json(
+            {
+              error:
+                "Falta aplicar la migración 136. Ejecuta PROD_UPDATE_136.sql en Supabase.",
+            },
+            { status: 409 },
+          );
+        }
+        throw new Error(updateError.message);
+      }
+    }
 
     const { data, error } = await ctx.supabase.rpc("collection_receipt_review", {
       p_receipt_id: id,

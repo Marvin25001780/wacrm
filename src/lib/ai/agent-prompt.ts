@@ -37,6 +37,7 @@ export interface AiAgentRow {
   action_assign?: boolean
   action_close?: boolean
   action_notes?: boolean
+  action_receipts?: boolean
   // ---- A4: ajustes finos de respuesta ---------------------------
   exit_message?: string | null
   response_quality?: 'concise' | 'balanced' | 'detailed' | null

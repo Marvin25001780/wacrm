@@ -7,7 +7,7 @@
 // admin sepa lo que entrega al modelo antes de activarlo.
 // ============================================================
 
-import { Tags, ClipboardList, UserRound, CircleSlash, StickyNote } from "lucide-react";
+import { Tags, ClipboardList, UserRound, CircleSlash, StickyNote, Receipt } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 
@@ -17,6 +17,7 @@ export interface AgentActionFlags {
   action_assign: boolean;
   action_close: boolean;
   action_notes: boolean;
+  action_receipts: boolean;
 }
 
 const ITEMS: {
@@ -30,6 +31,7 @@ const ITEMS: {
   { key: "action_assign", label: "Asignar un humano", desc: "Pasa la conversación a la bandeja de un agente humano.", icon: UserRound },
   { key: "action_close", label: "Cerrar conversación", desc: "Cierra el chat cuando el objetivo ya se cumplió.", icon: CircleSlash },
   { key: "action_notes", label: "Añadir nota interna", desc: "Escribe una nota privada visible solo para tu equipo.", icon: StickyNote },
+  { key: "action_receipts", label: "Registrar comprobantes de pago", desc: "Cuando el deudor confirma monto y referencia, crea un comprobante pendiente en Cobranza.", icon: Receipt },
 ];
 
 export function ActionsPanel({

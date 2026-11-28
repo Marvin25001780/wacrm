@@ -23,11 +23,14 @@ import {
   Landmark,
   Link2,
   Loader2,
+  Paperclip,
   Receipt,
   RefreshCw,
   Save,
+  ScanLine,
   Search,
   ShieldCheck,
+  Sparkles,
   X,
 } from "lucide-react";
 
@@ -43,17 +46,27 @@ import { useCan } from "@/hooks/use-can";
 import { formatDate, formatUsd } from "@/lib/collections/format";
 import {
   DEFAULT_PAYMENT_SETTINGS,
+  ocrConfidenceLabel,
+  receiptCaptureSourceLabel,
   receiptStatusLabel,
   type CollectionReceipt,
   type PaymentSettings,
   type ReceiptStatus,
 } from "@/lib/collections/payment-links-shared";
 
+interface CaptureStatus {
+  configured: boolean;
+  provider: string | null;
+  provider_label: string | null;
+  vision_supported: boolean;
+}
+
 interface SettingsPayload {
   settings: PaymentSettings;
   persisted: boolean;
   migration_pending: boolean;
   site_url_configured: boolean;
+  capture?: CaptureStatus;
 }
 
 interface ReceiptsPayload {
@@ -128,6 +141,7 @@ export default function ComprobantesPage() {
     migration_pending: boolean;
     site_url_configured: boolean;
   }>({ migration_pending: false, site_url_configured: false });
+  const [capture, setCapture] = useState<CaptureStatus | null>(null);
   const [settingsLoading, setSettingsLoading] = useState(true);
   const [savingSettings, setSavingSettings] = useState(false);
 
@@ -147,6 +161,10 @@ export default function ComprobantesPage() {
   const [reviewing, setReviewing] = useState<CollectionReceipt | null>(null);
   const [reviewNotes, setReviewNotes] = useState("");
   const [reviewInstallment, setReviewInstallment] = useState("");
+  const [reviewAmount, setReviewAmount] = useState("");
+  const [reviewReference, setReviewReference] = useState("");
+  const [reviewBank, setReviewBank] = useState("");
+  const [reviewPaidAt, setReviewPaidAt] = useState("");
   const [reviewInstallments, setReviewInstallments] = useState<
     OpenInstallment[]
   >([]);
@@ -174,6 +192,7 @@ export default function ComprobantesPage() {
         migration_pending: json.migration_pending,
         site_url_configured: json.site_url_configured,
       });
+      setCapture(json.capture ?? null);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "No se pudo cargar.");
     } finally {
@@ -340,6 +359,10 @@ export default function ComprobantesPage() {
     setReviewing(receipt);
     setReviewNotes("");
     setReviewInstallment("");
+    setReviewAmount(String(Number(receipt.amount) || ""));
+    setReviewReference(receipt.reference ?? "");
+    setReviewBank(receipt.bank ?? "");
+    setReviewPaidAt(receipt.paid_at ? receipt.paid_at.slice(0, 10) : "");
     setReviewInstallments([]);
     setReviewLoading(true);
     try {
@@ -372,13 +395,19 @@ export default function ComprobantesPage() {
 
   async function review(decision: "approve" | "reject") {
     if (!reviewing) return;
+    const correctedAmount = Number(reviewAmount);
+    const amountToApply =
+      Number.isFinite(correctedAmount) && correctedAmount > 0
+        ? correctedAmount
+        : Number(reviewing.amount);
+
     if (decision === "approve") {
       const where = reviewInstallment
         ? "la cuota seleccionada"
         : "las cuotas abiertas, de la más antigua a la más nueva";
       if (
         !window.confirm(
-          `Se aplicará ${formatUsd(Number(reviewing.amount))} a ${where} de ${reviewing.debtor_name ?? "el deudor"}. Esta acción no se puede deshacer. ¿Continuar?`,
+          `Se aplicará ${formatUsd(amountToApply)} a ${where} de ${reviewing.debtor_name ?? "el deudor"}. Esta acción no se puede deshacer. ¿Continuar?`,
         )
       ) {
         return;
@@ -396,6 +425,14 @@ export default function ComprobantesPage() {
             decision,
             installment_id: reviewInstallment || undefined,
             notes: reviewNotes.trim() || undefined,
+            ...(decision === "approve"
+              ? {
+                  amount: amountToApply,
+                  reference: reviewReference.trim() || undefined,
+                  bank: reviewBank.trim() || undefined,
+                  paid_at: reviewPaidAt || undefined,
+                }
+              : {}),
           }),
         },
       );
@@ -506,7 +543,7 @@ export default function ComprobantesPage() {
           </p>
         ) : (
           <div className="overflow-x-auto rounded-lg border border-border">
-            <table className="w-full min-w-[680px] text-sm">
+            <table className="w-full min-w-[820px] text-sm">
               <thead className="bg-muted/60 text-xs text-muted-foreground">
                 <tr>
                   <th className="px-3 py-2 text-left font-medium">Reportado</th>
@@ -515,6 +552,7 @@ export default function ComprobantesPage() {
                   <th className="px-3 py-2 text-left font-medium">Referencia</th>
                   <th className="px-3 py-2 text-left font-medium">Banco</th>
                   <th className="px-3 py-2 text-left font-medium">Pago</th>
+                  <th className="px-3 py-2 text-left font-medium">Origen</th>
                   <th className="px-3 py-2 text-left font-medium">Estado</th>
                   <th className="px-3 py-2 text-right font-medium">Acción</th>
                 </tr>
@@ -539,6 +577,30 @@ export default function ComprobantesPage() {
                     </td>
                     <td className="px-3 py-2 text-muted-foreground">
                       {formatDate(receipt.paid_at)}
+                    </td>
+                    <td className="px-3 py-2">
+                      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <span>
+                          {receiptCaptureSourceLabel(receipt.capture_source)}
+                        </span>
+                        {receipt.capture_source === "ocr" &&
+                        ocrConfidenceLabel(receipt.ocr_confidence) ? (
+                          <span className="text-[10px] text-muted-foreground/80">
+                            {ocrConfidenceLabel(receipt.ocr_confidence)}
+                          </span>
+                        ) : null}
+                        {receipt.file_signed_url ? (
+                          <a
+                            href={receipt.file_signed_url}
+                            target="_blank"
+                            rel="noreferrer noopener"
+                            className="text-primary hover:text-primary/80"
+                            title="Ver comprobante"
+                          >
+                            <Paperclip className="h-3.5 w-3.5" />
+                          </a>
+                        ) : null}
+                      </div>
                     </td>
                     <td className="px-3 py-2">
                       <span
@@ -581,11 +643,28 @@ export default function ComprobantesPage() {
                   Revisar comprobante de {reviewing.debtor_name ?? "deudor"}
                 </p>
                 <p className="mt-1 text-xs text-muted-foreground">
+                  {receiptCaptureSourceLabel(reviewing.capture_source)}
+                  {reviewing.capture_source === "ocr" &&
+                  ocrConfidenceLabel(reviewing.ocr_confidence)
+                    ? ` · confianza ${ocrConfidenceLabel(reviewing.ocr_confidence)}`
+                    : ""}
+                  {" · "}
                   {formatUsd(Number(reviewing.amount))} · Ref.{" "}
                   <span className="font-mono">{reviewing.reference ?? "—"}</span>{" "}
                   · {formatDate(reviewing.paid_at)}
                   {reviewing.notes ? ` · “${reviewing.notes}”` : ""}
                 </p>
+                {reviewing.file_signed_url ? (
+                  <a
+                    href={reviewing.file_signed_url}
+                    target="_blank"
+                    rel="noreferrer noopener"
+                    className="mt-2 inline-flex items-center gap-1.5 text-xs text-primary hover:text-primary/80"
+                  >
+                    <Paperclip className="h-3.5 w-3.5" />
+                    Ver imagen del comprobante
+                  </a>
+                ) : null}
               </div>
               <button
                 type="button"
@@ -596,6 +675,53 @@ export default function ComprobantesPage() {
                 <X className="h-4 w-4" />
               </button>
             </div>
+
+            <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="space-y-2">
+                <Label className="text-muted-foreground">Monto (USD)</Label>
+                <Input
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  value={reviewAmount}
+                  onChange={(event) => setReviewAmount(event.target.value)}
+                  disabled={reviewingBusy}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-muted-foreground">Referencia</Label>
+                <Input
+                  value={reviewReference}
+                  onChange={(event) => setReviewReference(event.target.value)}
+                  placeholder="Número de operación"
+                  maxLength={80}
+                  disabled={reviewingBusy}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-muted-foreground">Banco</Label>
+                <Input
+                  value={reviewBank}
+                  onChange={(event) => setReviewBank(event.target.value)}
+                  placeholder="Banco emisor"
+                  maxLength={120}
+                  disabled={reviewingBusy}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-muted-foreground">Fecha del pago</Label>
+                <Input
+                  type="date"
+                  value={reviewPaidAt}
+                  onChange={(event) => setReviewPaidAt(event.target.value)}
+                  disabled={reviewingBusy}
+                />
+              </div>
+            </div>
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              Corrige lo que el OCR haya leído mal antes de aprobar. El monto
+              siempre se aplica en USD.
+            </p>
 
             <div className="mt-4 grid gap-4 lg:grid-cols-2">
               <div className="space-y-2">
@@ -1011,6 +1137,166 @@ export default function ComprobantesPage() {
               el enlace está activo, el deudor verá exactamente estos datos.
             </p>
           </>
+        )}
+      </Panel>
+
+      {/* 4. Captura automática ------------------------------------------- */}
+      <Panel
+        title={
+          <span className="inline-flex items-center gap-2">
+            <ScanLine className="h-4 w-4 text-primary" />
+            Captura automática por WhatsApp
+          </span>
+        }
+        subtitle="La foto del pago se lee con IA y entra como comprobante pendiente"
+        actions={
+          canEdit && settings ? (
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => void saveSettings()}
+              disabled={savingSettings || settingsLoading}
+            >
+              {savingSettings ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Save className="mr-2 h-4 w-4" />
+              )}
+              Guardar
+            </Button>
+          ) : (
+            <span className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-muted px-3 py-1.5 text-xs text-muted-foreground">
+              <ShieldCheck className="h-3.5 w-3.5" />
+              Solo administradores
+            </span>
+          )
+        }
+      >
+        {settingsMeta.migration_pending ? (
+          <div className="mb-4 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+            Falta aplicar la migración 136. Ejecuta{" "}
+            <span className="font-mono">PROD_UPDATE_136.sql</span> en Supabase y
+            recarga.
+          </div>
+        ) : null}
+
+        <div
+          className={`mb-4 flex items-start gap-3 rounded-lg border px-4 py-3 text-sm ${
+            capture?.vision_supported
+              ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200"
+              : "border-amber-500/40 bg-amber-500/10 text-amber-200"
+          }`}
+        >
+          {capture?.vision_supported ? (
+            <Sparkles className="mt-0.5 h-4 w-4 shrink-0" />
+          ) : (
+            <ScanLine className="mt-0.5 h-4 w-4 shrink-0" />
+          )}
+          <div>
+            {capture?.vision_supported ? (
+              <p>
+                OCR listo con {capture.provider_label}. Las imágenes que envíen
+                los deudores se leen automáticamente.
+              </p>
+            ) : capture?.configured ? (
+              <p>
+                El proveedor {capture.provider_label ?? capture.provider} no lee
+                imágenes. Configura OpenAI, Gemini, Anthropic o Groq en Ajustes
+                → Asistente de IA.
+              </p>
+            ) : (
+              <p>
+                No hay proveedor de IA configurado. Sin uno con visión no se
+                pueden leer las fotos de comprobantes; el deudor puede seguir
+                reportando el pago desde su enlace público.
+              </p>
+            )}
+            <p className="mt-1 text-[11px] opacity-80">
+              Todo entra como pendiente: la IA nunca aprueba ni aplica pagos.
+            </p>
+          </div>
+        </div>
+
+        {settingsLoading || !settings ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Cargando preferencias…
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="flex items-center justify-between gap-4 rounded-xl border border-border bg-card px-4 py-3">
+                <div>
+                  <p className="text-sm font-medium text-foreground">
+                    Leer comprobantes con OCR
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Si el teléfono pertenece a un deudor, la imagen se captura
+                    sola. No aplica pagos.
+                  </p>
+                </div>
+                <Switch
+                  checked={settings.receipt_capture_enabled}
+                  onCheckedChange={(checked) =>
+                    updateSettings({
+                      receipt_capture_enabled: Boolean(checked),
+                    })
+                  }
+                  disabled={!canEdit || settingsLoading}
+                  aria-label="Leer comprobantes con OCR"
+                />
+              </div>
+              <div className="flex items-center justify-between gap-4 rounded-xl border border-border bg-card px-4 py-3">
+                <div>
+                  <p className="text-sm font-medium text-foreground">
+                    Acusar recibo al deudor
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Responde una vez que el comprobante quedó capturado. No se
+                    envía si el hilo ya tiene un humano asignado.
+                  </p>
+                </div>
+                <Switch
+                  checked={settings.receipt_ack_enabled}
+                  onCheckedChange={(checked) =>
+                    updateSettings({ receipt_ack_enabled: Boolean(checked) })
+                  }
+                  disabled={
+                    !canEdit || settingsLoading || !settings.receipt_capture_enabled
+                  }
+                  aria-label="Acusar recibo al deudor"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-muted-foreground">
+                Texto del acuse
+              </Label>
+              <Textarea
+                rows={3}
+                value={settings.receipt_ack_text ?? ""}
+                onChange={(event) =>
+                  updateSettings({ receipt_ack_text: event.target.value })
+                }
+                placeholder="¡Gracias! Recibimos tu comprobante y quedó en revisión."
+                maxLength={1000}
+                disabled={!canEdit || !settings.receipt_ack_enabled}
+              />
+              <p className="text-[11px] text-muted-foreground">
+                Variables disponibles:{" "}
+                <span className="font-mono">{"{{deudor}}"}</span>,{" "}
+                <span className="font-mono">{"{{monto}}"}</span> y{" "}
+                <span className="font-mono">{"{{referencia}}"}</span>.
+              </p>
+            </div>
+
+            <p className="text-xs text-muted-foreground">
+              Solo se capturan montos en USD (o sin moneda legible). Un
+              comprobante en bolívares se deja en el chat para que un humano
+              aplique la tasa y lo registre.
+            </p>
+          </div>
         )}
       </Panel>
 

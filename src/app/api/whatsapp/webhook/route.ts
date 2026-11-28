@@ -22,6 +22,7 @@ import { readCappedBody } from '@/lib/whatsapp/webhook-body'
 import { runAutomationsForTrigger } from '@/lib/automations/engine'
 import { dispatchInboundToFlows } from '@/lib/flows/engine'
 import { dispatchInboundToAiReply } from '@/lib/ai/auto-reply'
+import { captureInboundReceipt } from '@/lib/collections/receipt-capture'
 import { dispatchWebhookEvent } from '@/lib/webhooks/deliver'
 import { ensureLeadForContactRow } from '@/lib/leads/ensure-lead'
 import { syncContactAvatar } from '@/lib/avatar/sync'
@@ -947,6 +948,21 @@ async function processMessage(
     content_type: contentType,
     text: contentText,
     channel: 'whatsapp',
+  })
+
+  // Captura automática de comprobantes (136). Solo hace trabajo real
+  // para imágenes/documentos de un deudor; el resto sale en la primera
+  // comprobación. Es best-effort y nunca lanza.
+  await captureInboundReceipt({
+    db: supabaseAdmin(),
+    accountId,
+    conversationId: conversation.id,
+    contactId: contactRecord.id,
+    messageId: message.id,
+    contentType,
+    contentText,
+    mediaUrl,
+    mediaType,
   })
 }
 

@@ -9,6 +9,7 @@ import { ensureLeadForContactRow } from '@/lib/leads/ensure-lead'
 import { syncContactAvatar } from '@/lib/avatar/sync'
 import { runAutomationsForTrigger } from '@/lib/automations/engine'
 import { dispatchInboundToAiReply } from '@/lib/ai/auto-reply'
+import { captureInboundReceipt } from '@/lib/collections/receipt-capture'
 import type { AutomationTriggerType } from '@/types'
 
 // ============================================================
@@ -353,6 +354,20 @@ export async function POST(
         },
       }).catch((err) => console.error('[automations] dispatch failed:', err))
     }
+
+    // Captura automática de comprobantes (136) antes del corte de las
+    // imágenes sin texto: el OCR necesita justamente ese caso.
+    await captureInboundReceipt({
+      db: admin,
+      accountId,
+      conversationId: conversation.id,
+      contactId,
+      messageId: waMessageId,
+      contentType,
+      contentText: raw.text,
+      mediaUrl: raw.mediaUrl,
+      mediaType: null,
+    })
 
     // Texto y notas de voz. El dispatcher transcribe el audio antes de
     // construir el contexto; una imagen sin pie sigue sin dar nada al

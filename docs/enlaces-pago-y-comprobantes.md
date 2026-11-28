@@ -108,11 +108,12 @@ Reglas:
 
 ## Límites conocidos
 
-- No hay subida de imagen del comprobante todavía: se registran monto,
-  referencia, banco y fecha. La columna `file_url` queda lista para cuando se
-  configure el bucket y el OCR.
-- El agente de IA de WhatsApp aún no captura comprobantes solo; este bloque
-  cubre el enlace y la bandeja.
+- El comprobante del enlace público registra monto, referencia, banco y fecha;
+  la foto enviada por WhatsApp se captura y lee con OCR en el bloque 136
+  (`docs/captura-automatica-comprobantes.md`).
+- El agente de IA de WhatsApp captura comprobantes solo si se activa la acción
+  **Registrar comprobantes de pago** y hay proveedor con visión; ver
+  `docs/captura-automatica-comprobantes.md`.
 - El pago aprobado usa la fecha reportada por el deudor; si el banco confirma
   otra fecha, se corrige desde la carga de pagos.
 - No se aplica IGTF en ventas a crédito desde el POS (pendiente aparte).

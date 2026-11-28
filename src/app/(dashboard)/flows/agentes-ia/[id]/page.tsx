@@ -89,6 +89,7 @@ interface AiAgent {
   action_assign?: boolean;
   action_close?: boolean;
   action_notes?: boolean;
+  action_receipts?: boolean;
   // A4
   exit_message?: string | null;
   response_quality?: "concise" | "balanced" | "detailed" | null;
@@ -149,6 +150,7 @@ export default function AiAgentEditPage() {
     action_assign: false,
     action_close: false,
     action_notes: false,
+    action_receipts: false,
   });
 
   // A4 — avanzada
@@ -197,6 +199,7 @@ export default function AiAgentEditPage() {
         action_assign: a.action_assign ?? false,
         action_close: a.action_close ?? false,
         action_notes: a.action_notes ?? false,
+        action_receipts: a.action_receipts ?? false,
       });
       // A4 — avanzada guardada
       setAdvanced({

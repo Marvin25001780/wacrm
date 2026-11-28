@@ -18,6 +18,12 @@ export interface PaymentSettings {
   support_phone: string | null;
   instructions: string | null;
   link_expiry_days: number;
+  /** Captura imágenes de comprobantes que llegan por WhatsApp (136). */
+  receipt_capture_enabled: boolean;
+  /** Responde al deudor cuando su comprobante quedó capturado. */
+  receipt_ack_enabled: boolean;
+  /** Texto del acuse; admite {{deudor}}, {{monto}} y {{referencia}}. */
+  receipt_ack_text: string | null;
 }
 
 export interface PublicInstallment {
@@ -60,6 +66,9 @@ export type PublicPaymentLink =
 
 export type ReceiptStatus = "pending" | "approved" | "rejected";
 
+/** Cómo nació el comprobante (migración 136). */
+export type ReceiptCaptureSource = "link" | "agent" | "ocr" | "manual";
+
 export interface CollectionReceipt {
   id: string;
   account_id: string;
@@ -80,7 +89,19 @@ export interface CollectionReceipt {
   reviewed_at: string | null;
   created_at: string;
   debtor_name?: string | null;
+  /** Metadatos 136 (opcionales para tolerar una base sin migrar). */
+  conversation_id?: string | null;
+  source_message_id?: string | null;
+  capture_source?: ReceiptCaptureSource;
+  ocr_confidence?: number | string | null;
+  captured_at?: string | null;
+  /** URL firmada del adjunto, resuelta por la API de la bandeja. */
+  file_signed_url?: string | null;
 }
+
+/** Acuse por defecto cuando el deudor manda la foto del pago. */
+export const DEFAULT_RECEIPT_ACK_TEXT =
+  "¡Gracias! Recibimos tu comprobante y quedó en revisión. Te confirmamos por aquí cuando el pago esté aplicado.";
 
 export const DEFAULT_PAYMENT_SETTINGS: Omit<PaymentSettings, "account_id"> = {
   enabled: false,
@@ -94,6 +115,9 @@ export const DEFAULT_PAYMENT_SETTINGS: Omit<PaymentSettings, "account_id"> = {
   support_phone: null,
   instructions: null,
   link_expiry_days: 7,
+  receipt_capture_enabled: true,
+  receipt_ack_enabled: true,
+  receipt_ack_text: DEFAULT_RECEIPT_ACK_TEXT,
 };
 
 export function defaultPaymentSettings(accountId: string): PaymentSettings {
@@ -134,6 +158,17 @@ export function normalizePaymentSettings(
     link_expiry_days: Number.isFinite(days)
       ? Math.min(Math.max(Math.round(days), 1), 90)
       : base.link_expiry_days,
+    receipt_capture_enabled: Boolean(
+      input.receipt_capture_enabled ?? base.receipt_capture_enabled,
+    ),
+    receipt_ack_enabled: Boolean(
+      input.receipt_ack_enabled ?? base.receipt_ack_enabled,
+    ),
+    receipt_ack_text: text(
+      input.receipt_ack_text,
+      base.receipt_ack_text,
+      1000,
+    ),
   };
 }
 
@@ -158,6 +193,50 @@ export function receiptStatusLabel(status: ReceiptStatus): string {
     case "rejected":
       return "Rechazado";
   }
+}
+
+const CAPTURE_SOURCE_LABELS: Record<ReceiptCaptureSource, string> = {
+  link: "Enlace de pago",
+  agent: "Agente de IA",
+  ocr: "OCR de WhatsApp",
+  manual: "Manual",
+};
+
+export function receiptCaptureSourceLabel(
+  source: ReceiptCaptureSource | null | undefined,
+): string {
+  return CAPTURE_SOURCE_LABELS[source ?? "manual"] ?? "Manual";
+}
+
+/** Confianza del OCR como porcentaje legible ("92 %"). */
+export function ocrConfidenceLabel(
+  confidence: number | string | null | undefined,
+): string | null {
+  const value = Number(confidence);
+  if (!Number.isFinite(value)) return null;
+  const percent = Math.round(Math.min(Math.max(value, 0), 1) * 100);
+  return `${percent} %`;
+}
+
+/**
+ * Rellena el acuse del comprobante. No interpreta plantillas de Meta:
+ * solo reemplaza las tres variables documentadas en el panel.
+ */
+export function fillReceiptAckText(
+  template: string | null | undefined,
+  values: {
+    debtorName?: string | null;
+    amountLabel?: string | null;
+    reference?: string | null;
+  },
+): string {
+  const base = (template ?? DEFAULT_RECEIPT_ACK_TEXT).trim();
+  return base
+    .replace(/\{\{\s*deudor\s*\}\}/gi, values.debtorName?.trim() || "deudor")
+    .replace(/\{\{\s*monto\s*\}\}/gi, values.amountLabel?.trim() || "")
+    .replace(/\{\{\s*referencia\s*\}\}/gi, values.reference?.trim() || "")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
 }
 
 /** URL absoluta del enlace público. */
